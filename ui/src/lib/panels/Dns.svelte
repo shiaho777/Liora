@@ -1,0 +1,369 @@
+<script lang="ts">
+  import Icon from '../Icon.svelte';
+  import Segmented from '../Segmented.svelte';
+  import Rules from './Rules.svelte';
+  import { call } from '../bridge';
+  import { app, toast } from '../state.svelte';
+  import { value, set } from '../settings-store.svelte';
+  import { localized, t } from '../i18n.svelte';
+
+  interface Category {
+    id: string;
+    name: Record<string, string> | string;
+  }
+
+  interface Variant {
+    id: string;
+    label: Record<string, string> | string;
+    desc: Record<string, string> | string;
+    categories: string[];
+    protocols: string[];
+    doh?: string;
+    dot?: string;
+    doq?: string;
+    provider?: string;
+  }
+
+  interface Provider {
+    id: string;
+    name: string;
+    variants: Variant[];
+  }
+
+  interface CustomDns {
+    id: string;
+    name: string;
+    address: string;
+    protocol: string;
+  }
+
+  interface ActivePlan {
+    mode: string;
+    dohTemplates: string;
+    needsNet: boolean;
+    summary: string;
+    endpoint: { name: string; protocol: string; address: string } | null;
+  }
+
+  let categories = $state<Category[]>([]);
+  let providers = $state<Provider[]>([]);
+  let custom = $state<CustomDns[]>([]);
+  let active = $state<ActivePlan | null>(null);
+  let category = $state('all');
+  let loading = $state(true);
+
+  let address = $state('');
+  let name = $state('');
+  let addError = $state('');
+
+  const mode = $derived(String(value('dns.mode') ?? 'auto'));
+  const protocol = $derived(String(value('dns.protocol') ?? 'doh'));
+  const providerId = $derived(String(value('dns.provider') ?? 'cloudflare'));
+  const customId = $derived(String(value('dns.customId') ?? ''));
+
+  const modes = $derived([
+    { value: 'auto', label: t('dns.mode.auto') },
+    { value: 'provider', label: t('dns.mode.provider') },
+    { value: 'custom', label: t('dns.mode.custom') },
+    { value: 'off', label: t('dns.mode.off') },
+  ]);
+
+  const protocols = [
+    { value: 'doh', label: 'DoH' },
+    { value: 'dot', label: 'DoT' },
+    { value: 'doq', label: 'DoQ' },
+  ];
+
+  async function load(): Promise<void> {
+    loading = true;
+    try {
+      const catalog = await call<{
+        categories: Category[];
+        providers: Provider[];
+        custom: CustomDns[];
+        active: ActivePlan;
+      }>('dns.catalog');
+      categories = catalog.categories;
+      providers = catalog.providers;
+      custom = catalog.custom ?? [];
+      active = catalog.active;
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function refreshPlan(): Promise<void> {
+    try {
+      active = await call<ActivePlan>('dns.plan');
+    } catch {
+      /* the plan is informational; failure must not block the panel */
+    }
+  }
+
+  $effect(() => {
+    void load();
+  });
+
+  const allVariants = $derived(
+    providers.flatMap((provider) =>
+      provider.variants.map((variant) => ({ ...variant, provider: provider.name })),
+    ),
+  );
+
+  const visible = $derived(
+    category === 'all'
+      ? allVariants
+      : allVariants.filter((variant) => variant.categories.includes(category)),
+  );
+
+  const selectedVariant = $derived(allVariants.find((variant) => variant.id === providerId));
+
+  const status = $derived.by(() => {
+    if (mode === 'off') return { kind: 'muted', text: t('dns.status.system') };
+    if (active?.needsNet && protocol !== 'doh') return { kind: 'warning', text: t('dns.status.needsNet') };
+    if (mode === 'auto') return { kind: 'muted', text: t('dns.status.auto') };
+    return { kind: 'success', text: t('dns.status.secure') };
+  });
+
+  async function chooseMode(next: string): Promise<void> {
+    await set('dns.mode', next);
+    await refreshPlan();
+  }
+
+  async function chooseProtocol(next: string): Promise<void> {
+    await set('dns.protocol', next);
+    await refreshPlan();
+  }
+
+  async function chooseVariant(variant: Variant): Promise<void> {
+    if (!variant.protocols.includes(protocol)) {
+      await set('dns.protocol', variant.protocols[0] ?? 'doh');
+    }
+    await set('dns.provider', variant.id);
+    await set('dns.mode', 'provider');
+    await refreshPlan();
+  }
+
+  async function chooseCustom(entry: CustomDns): Promise<void> {
+    await set('dns.customId', entry.id);
+    await set('dns.mode', 'custom');
+    await refreshPlan();
+  }
+
+  async function addCustom(): Promise<void> {
+    addError = '';
+    if (!address.trim()) return;
+    try {
+      const result = await call<{ valid: boolean; error?: string }>('dns.validate', { address });
+      if (!result.valid) {
+        addError = result.error || t('dns.custom.invalid');
+        return;
+      }
+      const entry = await call<CustomDns>('dns.custom.add', { address, name });
+      custom = [...custom, entry];
+      address = '';
+      name = '';
+      toast(t('settings.changed'));
+      await refreshPlan();
+    } catch (error: any) {
+      addError = String(error?.message ?? error);
+    }
+  }
+
+  async function removeCustom(entry: CustomDns): Promise<void> {
+    await call('dns.custom.remove', { id: entry.id });
+    custom = custom.filter((item) => item.id !== entry.id);
+    if (customId === entry.id) await set('dns.mode', 'auto');
+    await refreshPlan();
+  }
+
+  function categoryLabel(item: Category): string {
+    return typeof item.name === 'string' ? item.name : localized(item.name);
+  }
+</script>
+
+<div class="section">
+  <header class="settings__header">
+    <h1 class="settings__title">{t('dns.title')}</h1>
+    <p class="settings__lede">{t('dns.lede')}</p>
+  </header>
+
+  <div class="card">
+    <div class="card__header">
+      <div class="card__main">
+        <div class="card__title">{t('dns.current')}</div>
+      </div>
+    </div>
+    <div class="card__body">
+      <div class="status">
+        <span
+          class="badge"
+          class:badge--success={status.kind === 'success'}
+          class:badge--warning={status.kind === 'warning'}
+        >
+          <span class="dot"></span>
+          {status.text}
+        </span>
+        {#if active?.endpoint}
+          <span class="mono muted">{active.endpoint.protocol.toUpperCase()} · {active.endpoint.name}</span>
+        {/if}
+      </div>
+
+      {#if mode !== 'off'}
+        <div class="row" style:margin-top="6px">
+          <div class="row__main">
+            <div class="row__title">{t('dns.mode')}</div>
+            <div class="row__desc">
+              {mode === 'auto' ? t('dns.mode.auto.desc') : mode === 'off' ? t('dns.mode.off.desc') : active?.summary}
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <div class="row">
+        <div class="row__control" style:flex-wrap="wrap">
+          <Segmented value={mode} options={modes} ariaLabel={t('dns.mode')} onchange={chooseMode} />
+        </div>
+      </div>
+
+      {#if mode === 'off'}
+        <div class="callout" style:margin-top="10px">
+          <span class="callout__icon"><Icon name="info" size={14} /></span>
+          <span>{t('dns.mode.off.desc')}</span>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  {#if mode === 'provider'}
+    <div class="card">
+      <div class="card__header">
+        <div>
+          <div class="card__title">{t('dns.mode.provider')}</div>
+          <div class="card__subtitle">{t('dns.protocol')}</div>
+        </div>
+        <div style:margin-left="auto">
+          <Segmented
+            value={protocol}
+            options={protocols.filter((item) =>
+              selectedVariant ? selectedVariant.protocols.includes(item.value) : true,
+            )}
+            ariaLabel={t('dns.protocol')}
+            onchange={chooseProtocol}
+          />
+        </div>
+      </div>
+
+      <div class="card__body">
+        <div class="cluster" style:margin-bottom="12px">
+          <button class="chip" class:chip--active={category === 'all'} onclick={() => (category = 'all')}>
+            {t('dns.category.all')}
+          </button>
+          {#each categories as item (item.id)}
+            <button class="chip" class:chip--active={category === item.id} onclick={() => (category = item.id)}>
+              {categoryLabel(item)}
+            </button>
+          {/each}
+        </div>
+
+        {#if loading}
+          <div class="empty">…</div>
+        {:else}
+          <div class="providers">
+            {#each visible as variant (variant.id)}
+              <button
+                class="provider"
+                class:provider--active={variant.id === providerId}
+                onclick={() => chooseVariant(variant)}
+              >
+                <span class="provider__name">
+                  {variant.provider ?? ''}
+                  {#if variant.id === providerId}
+                    <Icon name="check" size={13} />
+                  {/if}
+                </span>
+                <span class="provider__desc">{localized(variant.label)} · {localized(variant.desc)}</span>
+                <span class="provider__tags">
+                  {#each variant.protocols as item (item)}
+                    <span class="badge">{item.toUpperCase()}</span>
+                  {/each}
+                </span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if mode === 'custom'}
+    <div class="card">
+      <div class="card__header">
+        <div>
+          <div class="card__title">{t('dns.custom.title')}</div>
+          <div class="card__subtitle">{t('dns.custom.placeholder')}</div>
+        </div>
+      </div>
+      <div class="card__body">
+        {#if custom.length === 0}
+          <div class="empty">{t('dns.custom.empty')}</div>
+        {:else}
+          {#each custom as entry (entry.id)}
+            <div class="row">
+              <div class="row__main">
+                <div class="row__title">
+                  {entry.name}
+                  {#if entry.id === customId}
+                    <span class="badge badge--accent">{t('dns.current')}</span>
+                  {/if}
+                </div>
+                <div class="row__desc mono">{entry.address}</div>
+              </div>
+              <div class="row__control">
+                <button class="button button--sm" onclick={() => chooseCustom(entry)}>{t('dns.protocol')}</button>
+                <button class="icon-button" title={t('dns.custom.remove')} onclick={() => removeCustom(entry)}>
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+            </div>
+          {/each}
+        {/if}
+
+        <div class="divider" style:margin="12px 0"></div>
+
+        <div class="stack">
+          <input class="input input--mono" bind:value={address} placeholder={t('dns.custom.placeholder')} />
+          <div class="cluster">
+            <input class="input" bind:value={name} placeholder={t('dns.custom.name')} style:flex="1" />
+            <button class="button button--primary" onclick={addCustom}>{t('dns.custom.add')}</button>
+          </div>
+          {#if addError}
+            <div class="callout callout--danger">
+              <span class="callout__icon"><Icon name="warning" size={14} /></span>
+              <span>{addError}</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if app.mode === 'advanced' || mode === 'provider'}
+    <Rules />
+  {/if}
+</div>
+
+<style>
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .card__main {
+    flex: 1;
+  }
+</style>

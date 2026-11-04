@@ -1,0 +1,125 @@
+# Liora
+
+**一个开源的浏览器框架：壳是核心，内核可替换。**
+
+Liora 不是"又一个 Chromium 换皮"。它把浏览器拆成两层：
+
+- **壳**（本仓库的 Core + Shell + WebUI）持有书签、历史、设置、网络规则和扩展元数据，负责界面与产品体验；
+- **内核**只负责渲染页面，可以按需更换、按需下载。
+
+所以切换内核不会丢数据，网络能力也不必绑死在某个内核上。
+
+```
+WebUI (Svelte 5)  ──  JSON-RPC  ──  Shell (C++ / Cocoa · Win32 · GTK · JNI)
+                                        │
+                                        ├── Core (C++20)：设置、DNS、规则、数据、备份、迁移、内核、组件
+                                        ├── liora-net (Rust)：DoH / DoT、按域名分流、HTTPS 记录合成、CONNECT 代理
+                                        └── 内核：系统 WebView（默认）/ CEF（按需下载）
+```
+
+## 当前状态
+
+这是一个**可运行的骨架**，核心链路已经打通并有测试覆盖，但还不是功能完整的成品浏览器。
+
+| 模块 | 状态 |
+|---|---|
+| Core（设置分层、DNS 目录、直连规则、书签、历史、备份、迁移、内核与组件管理、JSON-RPC） | 可用，62 个单元测试 |
+| WebUI（浏览器界面、设置、DNS/直连面板、迁移向导，中英双语，明暗主题） | 可用，`svelte-check` 零错误 |
+| macOS 壳（Cocoa + WKWebView + liora:// 资源协议 + 桥接） | 可构建运行 |
+| liora-net（本地 DoH、DoT 上游、HTTPS 记录改写、CONNECT 代理） | 可用，已对真实 Cloudflare 上游验证 |
+| Windows / Linux / Android / iOS 壳 | 未实现，接口已预留 |
+| CEF 内核适配 | 未实现（见 `kernels/cef/README.md`） |
+| MV3 扩展 | 未实现 |
+
+## 快速开始
+
+依赖：CMake ≥ 3.24、Ninja、C++20 编译器、Node ≥ 20 + pnpm、Rust stable。
+
+```bash
+./scripts/dev.sh      # 构建界面、Core、macOS 壳，并跑全部测试
+open build/shell/liora.app
+```
+
+只跑某一部分：
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLIORA_BUILD_SHELL=OFF
+cmake --build build --parallel && ctest --test-dir build --output-on-failure
+
+cd ui && pnpm install && pnpm dev      # 在普通浏览器里开发界面（内置 mock 后端）
+cd net && cargo test
+```
+
+> 如果构建报 "Toolchain Swift 6.3.0 could not be located"，说明 `PATH` 里有损坏的编译器转发脚本。`scripts/dev.sh` 已经固定使用 Xcode 的 `clang` / `ar` / `ranlib`，Rust 也使用同一个链接器。
+
+## 已经能做什么
+
+### DNS 与直连（核心差异化能力）
+
+- 内置 AdGuard DNS 知识库里的主流提供商，按广告拦截、家庭保护、恶意网站拦截、无过滤、隐私优先、国内可用分类。
+- 一键切换 DoH / DoT / DoQ；DoT 与 DoQ 由 `liora-net` 承接，因为 Chromium 原生只支持 DoH。
+- 支持自定义 DoH / DoT / DoQ 地址，输入即校验。
+- 按域名规则：优先或强制 H3、启用 ECH、单独指定 DNS。
+- **只对规则命中的域名生效**，其他站点保持标准浏览器行为。
+
+实测（本地 DoH → Cloudflare 上游）：
+
+```
+x.com        → HTTPS 记录 alpn=['h3','h2']，ECH 71 字节（来自 cloudflare-ech.com）
+example.com  → 原样转发，未做任何改写
+```
+
+### 数据与迁移
+
+- 书签、历史、设置、站点权限存在 Liora 自己的 SQLite 里，与内核无关。
+- `.liora` 备份包含校验和，可分区块恢复；自动备份保留最近 7 份。
+- 迁移支持 Chrome / Edge / Brave / Arc / Vivaldi / Opera / Yandex、Firefox / LibreWolf / Zen、Safari，以及通用的书签 HTML。
+- 迁移是只读的（先复制数据库），重复执行不会产生重复条目。
+
+## 设计原则
+
+1. **自动 → 一键 → 专家**：默认就能用；遇到问题点一下；需要时再进高级设置。
+2. **按需加载**：默认只用系统 WebView，CEF 等组件下载后校验签名与哈希再安装。
+3. **不假装支持**：内核做不到的能力会明确标注，而不是给一个无效开关。
+4. **默认零遥测**：崩溃报告需要主动开启。
+5. **可跟进上游**：与 Chromium 的耦合集中在 `liora-net` 的本地 DoH 与少量启动参数，便于跟随上游更新。
+
+## 目录
+
+```
+core/       C++20：设置、DNS、规则、存储、备份、迁移、内核与组件、RPC
+net/        Rust：本地 DoH、DoT 上游、HTTPS 记录合成、CONNECT 代理
+ui/         Svelte 5 + Vite：浏览器界面与全部设置面板
+shell/      平台宿主：macos/ 已实现，其余平台预留
+kernels/    内核适配（CEF 为下一步）
+data/       内置数据：DNS 提供商目录、规则预设、搜索引擎
+docs/       架构与能力边界说明
+scripts/    开发脚本
+```
+
+## 已知边界
+
+- **ECH 只对托管在支持 ECH 的 CDN 上的站点有效。** 外层 SNI 由服务端下发的 ECHConfig 决定，客户端无法指定。借用 `cloudflare-ech.com` 的配置只对 Cloudflare 站点成立；其他站点会连接失败，界面上有对应提示。
+- **强制 H3 只对规则里写死的域名生效**（`--origin-to-force-quic-on` 不支持通配符），子域依靠 HTTPS 记录优先走 h3，仍可能回落 TCP。
+- **系统 WebView 不支持 ECH / 强制 H3 / 自定义 DoH**，这些功能需要 CEF 内核。
+- 本仓库的 macOS 壳是单窗口实现；多标签的原生视图编排是下一阶段工作。
+
+更完整的说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/DNS-AND-DIRECT.md`](docs/DNS-AND-DIRECT.md)。
+
+## 路线图
+
+1. **CEF 内核适配**：`--enable-quic`、`--origin-to-force-quic-on`、本地 DoH 连接、MV3 扩展。
+2. **多标签原生编排**：每个标签一个内核视图，支持按站点/按标签切换内核。
+3. **Windows / Linux 壳**：WebView2 与 WebKitGTK。
+4. **扩展系统**：自有插件 API + MV3 兼容层。
+5. **同步**：端到端加密、可自托管。
+
+## 参与
+
+- 提交信息使用祈使句，说明"做了什么、为什么"。
+- 改动 Core 时请同时补 `core/tests` 里的测试。
+- 新增依赖前先确认许可证兼容（Apache-2.0）。
+
+## 许可证
+
+[Apache-2.0](LICENSE)。"Liora" 名称与标识不在许可证授权范围内。

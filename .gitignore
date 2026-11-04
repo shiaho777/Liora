@@ -1,0 +1,23 @@
+# build output
+build/
+out/
+dist/
+target/
+node_modules/
+.pnpm-store/
+
+# local data
+*.log
+*.db
+*.db-shm
+*.db-wal
+.liora
+*.liora
+
+# editors and platforms
+.DS_Store
+.idea/
+.vscode/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+compile_commands.json

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "x",
+      "name": { "en": "X (Twitter)", "zh": "X（Twitter）" },
+      "desc": { "en": "x.com, twitter.com and their media domains.", "zh": "x.com、twitter.com 及其媒体域名。" },
+      "domains": ["x.com", "twitter.com", "twimg.com", "t.co"],
+      "rule": { "h3": "prefer", "ech": true, "echSource": "cloudflare-ech.com", "alpn": ["h3", "h2"] }
+    },
+    {
+      "id": "discord",
+      "name": { "en": "Discord", "zh": "Discord" },
+      "desc": { "en": "Discord web client and invite links.", "zh": "Discord 网页版与邀请链接。" },
+      "domains": ["discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media"],
+      "rule": { "h3": "prefer", "ech": true, "echSource": "cloudflare-ech.com", "alpn": ["h3", "h2"] }
+    }
+  ]
+}
