@@ -408,6 +408,13 @@
           document.querySelector<HTMLElement>('.network-pending')?.click();
           break;
         }
+        case 'opendns': {
+          const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
+            item.textContent?.includes('DNS 与直连'),
+          );
+          dns?.click();
+          break;
+        }
         case 'leavepage': {
           const appearance = [...document.querySelectorAll<HTMLElement>('.nav-item')].find(
             (item) => item.textContent.trim() === '外观',

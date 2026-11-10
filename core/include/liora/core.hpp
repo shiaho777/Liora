@@ -113,6 +113,10 @@ class Core {
   RpcRouter rpc_;
   mutable std::mutex netMutex_;
   NetRuntime net_;
+  // Last network configuration the shell applied to kernel views. Persisted so
+  // the DNS panel can show it after navigation or a restart.
+  mutable std::mutex appliedMutex_;
+  Json applied_ = Json::object();
   bool started_ = false;
 };
 

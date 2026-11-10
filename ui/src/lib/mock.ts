@@ -489,6 +489,7 @@ export function createMockBackend(): MockBackend {
 
   // Mirrors the shell: the snapshot changes only when the kernel is (re)loaded.
   let mockAppliedConfig = JSON.stringify(netPlan().net);
+  let mockLastApplied: Record<string, unknown> | null = null;
 
   const methods: Record<string, Handler> = {
     'core.info': () => ({
@@ -655,6 +656,7 @@ export function createMockBackend(): MockBackend {
     },
 
     'net.plan': () => netPlan(),
+    'net.lastApplied': () => mockLastApplied ?? {},
     'net.forHost': (p) => methods['rules.match'](p),
     'net.config': () => ({ config: netPlan().net, needsNet: netPlan().needsNet, warnings: [], kernels: [] }),
     'net.runtime': () => ({
@@ -863,6 +865,15 @@ export function createMockBackend(): MockBackend {
         if (method === 'ui.restartKernel') {
           const plan = netPlan();
           mockAppliedConfig = JSON.stringify(plan.net);
+          const variant = flatProviders().find((item) => item.id === get('dns.provider'));
+          mockLastApplied = {
+            at: Date.now(),
+            proxy: 'http://127.0.0.1:5400',
+            provider: String(variant?.provider ?? 'Cloudflare'),
+            protocol: String(variant ? plan.dns.endpoint?.protocol ?? 'doh' : 'doh'),
+            mode: plan.dns.mode,
+            summary: plan.dns.summary,
+          };
           setTimeout(() => {
             respond({
               jsonrpc: '2.0',

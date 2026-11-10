@@ -67,6 +67,15 @@
     available: boolean;
   }
 
+  interface LastApplied {
+    at: number;
+    proxy: string;
+    provider: string;
+    protocol: string;
+    mode: string;
+    summary: string;
+  }
+
   let categories = $state<Category[]>([]);
   let providers = $state<Provider[]>([]);
   let custom = $state<CustomDns[]>([]);
@@ -75,6 +84,7 @@
   let setup = $state<KernelSetup | null>(null);
   let currentConfig = $state('');
   let kernels = $state<KernelInfo[]>([]);
+  let lastApplied = $state<LastApplied | null>(null);
   let restarting = $state(false);
   let category = $state('all');
   let loading = $state(true);
@@ -122,12 +132,13 @@
   }
 
   async function refreshPlan(): Promise<void> {
-    const [plan, current, kernelSetup, kernelList, config] = await Promise.allSettled([
+    const [plan, current, kernelSetup, kernelList, config, applied] = await Promise.allSettled([
       call<ActivePlan>('dns.plan'),
       call<Runtime>('net.runtime'),
       call<KernelSetup>('kernels.setup', {}),
       call<KernelInfo[]>('kernels.list'),
       call<{ config: unknown }>('net.config', {}),
+      call<LastApplied>('net.lastApplied'),
     ]);
     if (plan.status === 'fulfilled') active = plan.value;
     if (current.status === 'fulfilled') runtime = current.value;
@@ -136,6 +147,21 @@
       kernels = kernelList.value;
     }
     if (config.status === 'fulfilled') currentConfig = configFingerprint(config.value.config);
+    if (applied.status === 'fulfilled') {
+      const value = applied.value;
+      lastApplied =
+        value && typeof value === 'object' && typeof value.at === 'number' && value.at > 0
+          ? value
+          : null;
+    }
+  }
+
+  function proxyPort(value: string): string {
+    try {
+      return new URL(value).port;
+    } catch {
+      return /:(\d+)\/?$/.exec(value)?.[1] ?? '';
+    }
   }
 
   // Reuses the shell's restart path: new resolver process, new proxy port,
@@ -300,6 +326,18 @@
               {mode === 'auto' ? t('dns.mode.auto.desc') : mode === 'off' ? t('dns.mode.off.desc') : active?.summary}
             </div>
           </div>
+        </div>
+      {/if}
+
+      {#if lastApplied && lastApplied.at > 0}
+        <div class="applied-line">
+          {t('dns.lastApplied', { time: new Date(lastApplied.at).toLocaleTimeString() })}
+          {#if lastApplied.provider}
+            · {lastApplied.provider}{#if lastApplied.protocol}{' ('}{lastApplied.protocol}){/if}
+          {/if}
+          {#if lastApplied.proxy}
+            · {t('dns.runtime.proxy')} :{proxyPort(lastApplied.proxy)}
+          {/if}
         </div>
       {/if}
 
@@ -485,6 +523,12 @@
 </div>
 
 <style>
+  .applied-line {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
   .status {
     display: flex;
     align-items: center;

@@ -393,6 +393,42 @@ LIORA_TEST(core_net_runtime_roundtrip) {
   core.stop();
 }
 
+LIORA_TEST(core_net_applied_snapshot_survives_restart) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  Json recorded = core.handleJson(Json{
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "net.markApplied"},
+      {"params",
+       {{"proxy", "http://127.0.0.1:5300"},
+        {"provider", "Quad9"},
+        {"protocol", "doh"},
+        {"mode", "secure"},
+        {"at", 1700000000000LL}}}});
+  CHECK_EQ(recorded["result"]["provider"].get<std::string>(), std::string("Quad9"));
+
+  Json live =
+      core.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "net.lastApplied"}});
+  CHECK_EQ(live["result"]["proxy"].get<std::string>(), std::string("http://127.0.0.1:5300"));
+  core.stop();
+
+  // The snapshot is on disk, so it survives a restart.
+  Core reopened(options);
+  CHECK(!reopened.start());
+  Json restored =
+      reopened.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 3}, {"method", "net.lastApplied"}});
+  CHECK_EQ(restored["result"]["provider"].get<std::string>(), std::string("Quad9"));
+  CHECK_EQ(restored["result"]["protocol"].get<std::string>(), std::string("doh"));
+  CHECK_EQ(restored["result"]["at"].get<int64_t>(), int64_t{1700000000000LL});
+  reopened.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

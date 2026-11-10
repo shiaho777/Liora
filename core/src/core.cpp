@@ -67,6 +67,14 @@ std::optional<std::string> Core::start() {
   fs::path catalog = paths_.root / "components.json";
   if (fs::exists(catalog)) components_.loadCatalogFile(catalog);
 
+  if (auto text = readFile(paths_.root / "net-applied.json")) {
+    Json doc = Json::parse(*text, nullptr, false);
+    if (doc.is_object()) {
+      std::lock_guard lock(appliedMutex_);
+      applied_ = std::move(doc);
+    }
+  }
+
   // Keep a daily automatic backup without asking.
   if (!options_.skipAutoBackup) {
     std::string backupError;
@@ -374,6 +382,31 @@ void Core::registerCoreMethods() {
       }
     }
     return out;
+  });
+
+  rpc_.add("net.lastApplied", [this](const Json&) {
+    std::lock_guard lock(appliedMutex_);
+    return applied_;
+  });
+
+  rpc_.add("net.markApplied", [this](const Json& params) {
+    Json record = {
+        {"at", params::optionalInteger(params, "at").value_or(nowMs())},
+        {"proxy", params::optionalString(params, "proxy").value_or("")},
+        {"provider", params::optionalString(params, "provider").value_or("")},
+        {"protocol", params::optionalString(params, "protocol").value_or("")},
+        {"mode", params::optionalString(params, "mode").value_or("")},
+        {"summary", params::optionalString(params, "summary").value_or("")},
+    };
+    {
+      std::lock_guard lock(appliedMutex_);
+      applied_ = record;
+    }
+    std::string error;
+    if (!writeFileAtomic(paths_.root / "net-applied.json", record.dump(), &error)) {
+      rpcFail(kRpcInternalError, error);
+    }
+    return record;
   });
 
   rpc_.add("net.runtime", [this](const Json&) {

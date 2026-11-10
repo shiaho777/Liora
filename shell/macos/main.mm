@@ -465,14 +465,14 @@ NSString* jsonEscape(id object) {
 
   if (!needsNet) {
     [self.netService stop];
-    if (markApplied) self.appliedConfig = configText;
+    if (markApplied) [self markApplied:configText proxy:@""];
     [self publishRuntime];
     [self applyProxyPort:0];
     return;
   }
 
   if (self.netService.dohPort > 0 && [self.netService.runningConfig isEqualToString:configText]) {
-    if (markApplied) self.appliedConfig = configText;
+    if (markApplied) [self markApplied:configText proxy:[self localProxyURL]];
     [self publishRuntime];
     [self applyProxyPort:self.netService.proxyPort];
     return;
@@ -485,9 +485,59 @@ NSString* jsonEscape(id object) {
     [self applyProxyPort:0];
     return;
   }
-  if (markApplied) self.appliedConfig = configText;
+  if (markApplied) [self markApplied:configText proxy:[self localProxyURL]];
   [self publishRuntime];
   [self applyProxyPort:self.netService.proxyPort];
+}
+
+- (NSString*)localProxyURL {
+  return self.netService.proxyPort > 0
+             ? [NSString stringWithFormat:@"http://127.0.0.1:%d", self.netService.proxyPort]
+             : @"";
+}
+
+- (void)markApplied:(NSString*)config proxy:(NSString*)proxy {
+  self.appliedConfig = config;
+  [self recordNetApplied:proxy];
+}
+
+// Writes the applied snapshot to Core so the DNS panel can show it after a
+// navigation or app restart.
+- (void)recordNetApplied:(NSString*)proxy {
+  if (!_core) return;
+
+  liora::Json planRequest = {
+      {"jsonrpc", "2.0"}, {"id", 1}, {"method", "dns.plan"}, {"params", liora::Json::object()}};
+  liora::Json planResponse = _core->handleJson(planRequest);
+
+  std::string provider;
+  std::string protocol;
+  std::string mode;
+  std::string summary;
+  auto result = planResponse.find("result");
+  if (result != planResponse.end() && result->is_object()) {
+    mode = result->value("mode", std::string());
+    summary = result->value("summary", std::string());
+    auto endpoint = result->find("endpoint");
+    if (endpoint != result->end() && endpoint->is_object()) {
+      provider = endpoint->value("name", std::string());
+      protocol = endpoint->value("protocol", std::string());
+    }
+  }
+
+  liora::Json request = {
+      {"jsonrpc", "2.0"},
+      {"id", 2},
+      {"method", "net.markApplied"},
+      {"params",
+       {{"proxy", stdString(proxy)},
+        {"provider", provider},
+        {"protocol", protocol},
+        {"mode", mode},
+        {"summary", summary},
+        {"at", liora::nowMs()}}}};
+  _core->handleJson(request);
+  NSLog(@"Liora: applied snapshot provider=%s proxy=%s", provider.c_str(), stdString(proxy).c_str());
 }
 
 - (void)publishRuntime {
