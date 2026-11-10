@@ -440,6 +440,9 @@
         case 'reload': navigate(active.url); break;
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
+        case 'zoomIn': void changeZoom(10); break;
+        case 'zoomOut': void changeZoom(-10); break;
+        case 'zoomReset': void changeZoom(0); break;
         case 'downloads': downloads.open = !downloads.open; break;
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
         case 'copyreport':

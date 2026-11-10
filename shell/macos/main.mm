@@ -290,6 +290,10 @@ NSString* jsonEscape(id object) {
   [view addItemWithTitle:@"重新加载" action:@selector(reloadCommand:) keyEquivalent:@"r"];
   [view addItem:[NSMenuItem separatorItem]];
   [view addItemWithTitle:@"聚焦地址栏" action:@selector(focusAddressCommand:) keyEquivalent:@"l"];
+  [view addItem:[NSMenuItem separatorItem]];
+  [view addItemWithTitle:@"放大" action:@selector(zoomInCommand:) keyEquivalent:@"="];
+  [view addItemWithTitle:@"缩小" action:@selector(zoomOutCommand:) keyEquivalent:@"-"];
+  [view addItemWithTitle:@"实际大小" action:@selector(zoomResetCommand:) keyEquivalent:@"0"];
   [view addItemWithTitle:@"下载" action:@selector(showDownloadsCommand:) keyEquivalent:@"J"];
   [view addItemWithTitle:@"设置…" action:@selector(openSettingsCommand:) keyEquivalent:@","];
   viewItem.submenu = view;
@@ -354,6 +358,9 @@ NSString* jsonEscape(id object) {
 - (void)reloadCommand:(id)sender { [self sendUICommand:@"reload"]; }
 - (void)focusAddressCommand:(id)sender { [self sendUICommand:@"focusAddress"]; }
 - (void)openSettingsCommand:(id)sender { [self sendUICommand:@"settings"]; }
+- (void)zoomInCommand:(id)sender { [self sendUICommand:@"zoomIn"]; }
+- (void)zoomOutCommand:(id)sender { [self sendUICommand:@"zoomOut"]; }
+- (void)zoomResetCommand:(id)sender { [self sendUICommand:@"zoomReset"]; }
 - (void)showDownloadsCommand:(id)sender { [self sendUICommand:@"downloads"]; }
 
 - (void)startCore {
