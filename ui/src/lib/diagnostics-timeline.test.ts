@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTimeline, timelineToText } from './diagnostics-timeline';
+import { buildTimeline, parseTimelineText, timelineToText } from './diagnostics-timeline';
 
 const base = {
   generatedAt: '2026-11-10T08:00:00.000Z',
@@ -142,5 +142,35 @@ describe('timelineToText', () => {
     );
     expect(text).toContain('unknown  report-delta  2 difference(s)');
     expect(text).toContain('unknown  current-delta  1 difference(s)');
+  });
+});
+
+describe('parseTimelineText', () => {
+  const text = `Liora diagnostics timeline
+Exported: 2026-11-10T08:53:48.271Z
+2026-11-10T08:53:35.565Z  resolver  run 2
+2026-11-10T08:53:35.566Z  applied  Cloudflare Standard (doh) · http://127.0.0.1:49704
+2026-11-10T08:53:42.703Z  generated
+2026-11-10T08:53:45.438Z  current-resolver  run 3
+`;
+
+  it('parses the header, export time and ordered entries', () => {
+    const parsed = parseTimelineText(text);
+    expect(parsed).not.toBeNull();
+    if (!parsed) return;
+    expect(parsed.exported).toBe('2026-11-10T08:53:48.271Z');
+    expect(parsed.entries.map((entry) => entry.kind)).toEqual([
+      'resolver',
+      'applied',
+      'generated',
+      'current-resolver',
+    ]);
+    expect(parsed.entries[1].detail).toContain('Cloudflare Standard (doh)');
+    expect(parsed.entries[3].detail).toBe('run 3');
+  });
+
+  it('rejects files that are not timeline exports', () => {
+    expect(parseTimelineText('Liora diagnostic report\nreport: 1')).toBeNull();
+    expect(parseTimelineText('')).toBeNull();
   });
 });

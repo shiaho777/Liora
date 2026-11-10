@@ -28,6 +28,14 @@ interface CustomDns {
   protocol: string;
 }
 
+const SAMPLE_TIMELINE = `Liora diagnostics timeline
+Exported: 2026-11-10T08:53:48.271Z
+2026-11-10T08:53:35.565Z  resolver  run 2
+2026-11-10T08:53:35.566Z  applied  Cloudflare Standard (doh) · http://127.0.0.1:49704
+2026-11-10T08:53:42.703Z  generated
+2026-11-10T08:53:45.438Z  current-resolver  run 3
+`;
+
 const SAMPLE_REPORT = `report: 1
 Liora diagnostic report
 Generated: 2026-11-10T07:35:44.966Z
@@ -799,6 +807,13 @@ export function createMockBackend(): MockBackend {
 
     'diagnostics.recent': () => [
       {
+        name: 'liora-timeline-sample.txt',
+        path: '/mock/liora-timeline-sample.txt',
+        size: 420,
+        modified: Date.now() - 600000,
+        kind: 'timeline',
+      },
+      {
         name: 'liora-diagnostic-sample.txt',
         path: '/mock/liora-diagnostic-sample.txt',
         size: 640,
@@ -909,13 +924,14 @@ export function createMockBackend(): MockBackend {
           return;
         }
         if (method === 'ui.openDiagnostic') {
+          const timeline = request.params?.purpose === 'timeline';
           respond({
             jsonrpc: '2.0',
             method: 'ui.filePicked',
             params: {
-              purpose: 'diagnosticReport',
+              purpose: timeline ? 'timeline' : 'diagnosticReport',
               path: String(request.params?.path ?? ''),
-              content: SAMPLE_REPORT,
+              content: timeline ? SAMPLE_TIMELINE : SAMPLE_REPORT,
             },
           });
           return;

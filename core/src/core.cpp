@@ -198,7 +198,14 @@ void Core::registerCoreMethods() {
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
       if (!it->is_regular_file(ec)) continue;
       std::string name = pathToUtf8(it->path().filename());
-      if (!startsWith(name, "liora-diagnostic-") || !endsWith(name, ".txt")) continue;
+      std::string kind;
+      if (startsWith(name, "liora-diagnostic-") && endsWith(name, ".txt")) {
+        kind = "report";
+      } else if (startsWith(name, "liora-timeline-") && endsWith(name, ".txt")) {
+        kind = "timeline";
+      } else {
+        continue;
+      }
       auto modified = it->last_write_time(ec);
       if (ec) continue;
       // file_clock has no portable epoch conversion we rely on; derive the
@@ -209,7 +216,7 @@ void Core::registerCoreMethods() {
                     {"path", pathToUtf8(it->path())},
                     {"size", static_cast<int64_t>(it->file_size(ec))},
                     {"modified", nowMs() - age.count()},
-                    {"kind", "report"}};
+                    {"kind", kind}};
       found.emplace_back(modified, std::move(entry));
     }
     std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {

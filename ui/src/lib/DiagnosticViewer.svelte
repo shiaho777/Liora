@@ -27,7 +27,9 @@
   import { buildDiagnosticReport, toReportTimeline } from './diagnostic-report-build';
   import {
     buildTimeline,
+    parseTimelineText,
     timelineToText,
+    type ExportedTimeline,
     type TimelineEvent,
   } from './diagnostics-timeline';
 
@@ -47,6 +49,7 @@
   let currentAppliedInfo = $state<CurrentApplied | null>(null);
   let currentResolverInfo = $state<{ at: number; count: number } | null>(null);
   let recent = $state<Array<{ name: string; path: string; size: number; modified: number; kind: string }>>([]);
+  let timelineFile = $state<ExportedTimeline | null>(null);
   let restarting = $state(false);
   // After a restart the report's historical switches are replaced by the ones
   // the kernel actually received, while the raw text stays untouched.
@@ -183,8 +186,11 @@
     void loadRecent();
   });
 
-  function openRecent(entry: { path: string }): void {
-    notify('ui.openDiagnostic', { path: entry.path });
+  function openRecent(entry: { path: string; kind: string }): void {
+    notify('ui.openDiagnostic', {
+      path: entry.path,
+      purpose: entry.kind === 'timeline' ? 'timeline' : 'diagnosticReport',
+    });
   }
 
   $effect(() => {
@@ -221,7 +227,28 @@
         content?: string;
         error?: string;
       };
+      if (params.purpose === 'timeline') {
+        fileName = (params.path ?? '').split('/').pop() ?? '';
+        if (params.error) {
+          timelineFile = null;
+          report = null;
+          error = params.error;
+          return;
+        }
+        const parsed = params.content ? parseTimelineText(params.content) : null;
+        if (!parsed) {
+          timelineFile = null;
+          report = null;
+          error = 'timeline-invalid';
+          return;
+        }
+        timelineFile = parsed;
+        report = null;
+        error = '';
+        return;
+      }
       if (params.purpose !== 'diagnosticReport') return;
+      timelineFile = null;
       fileName = (params.path ?? '').split('/').pop() ?? '';
       if (params.error) {
         report = null;
@@ -240,6 +267,7 @@
       return;
     }
     report = result.report;
+    timelineFile = null;
     error = '';
     ruleCheck = null;
     rulesError = '';
@@ -535,6 +563,23 @@
     return parts.join(' · ');
   }
 
+  function exportedLabel(kind: string, detail: string): string {
+    const count = Number(/run (\d+)/.exec(detail)?.[1] ?? 0);
+    const differences = Number(/(\d+) difference/.exec(detail)?.[1] ?? 0);
+    if (kind === 'generated') return t('timeline.generated');
+    if (kind === 'applied') return t('timeline.applied');
+    if (kind === 'resolver') return t('timeline.resolver', { count });
+    if (kind === 'report-delta') return t('timeline.reportDelta', { count: differences });
+    if (kind === 'current-applied') return t('timeline.currentApplied');
+    if (kind === 'current-resolver') return t('timeline.currentResolver', { count });
+    if (kind === 'current-delta') return t('timeline.currentDelta', { count: differences });
+    return kind;
+  }
+
+  function exportedDetail(kind: string, detail: string): string {
+    return kind.includes('applied') ? detail : '';
+  }
+
   function formatTime(value: string): string {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
@@ -602,6 +647,7 @@
   }
 
   function errorText(): string {
+    if (error === 'timeline-invalid') return t('diag.timelineInvalid');
     if (error === 'missing-version') return t('diag.missingVersion');
     if (error === 'unsupported-version') return t('diag.unsupportedVersion');
     if (error === 'empty') return t('diag.empty');
@@ -631,7 +677,37 @@
 </script>
 
 <div class="diag">
-  {#if !report}
+  {#if timelineFile}
+    <section class="diag__section">
+      <div class="diag__label diag__label--row">
+        <span class="mono">{fileName || t('diag.timelineFile')}</span>
+        <button class="button button--ghost button--sm" onclick={() => (timelineFile = null)}>
+          {t('site.close')}
+        </button>
+      </div>
+      {#if timelineFile.exported}
+        <div class="diag__note">Exported: {formatTime(timelineFile.exported)}</div>
+      {/if}
+      <div class="timeline">
+        {#each timelineFile.entries as entry, index (entry.at + entry.kind + index)}
+          <div class="timeline__item">
+            <span class="timeline__time mono">{formatTime(entry.at)}</span>
+            <span class="timeline__dot"></span>
+            <span class="timeline__copy">
+              <span class="timeline__label">{exportedLabel(entry.kind, entry.detail)}</span>
+              {#if exportedDetail(entry.kind, entry.detail)}
+                <span class="timeline__detail mono">{exportedDetail(entry.kind, entry.detail)}</span>
+              {/if}
+            </span>
+          </div>
+        {/each}
+      </div>
+      <details class="diag__raw">
+        <summary>{t('diag.raw')}</summary>
+        <pre>{timelineFile.raw}</pre>
+      </details>
+    </section>
+  {:else if !report}
     <div class="diag__empty">
       <div class="diag__empty-icon"><Icon name="info" size={22} stroke={1.4} /></div>
       <div class="diag__empty-title">{t('diag.title')}</div>
@@ -651,8 +727,15 @@
         <div class="recent">
           <div class="recent__title">{t('diag.recent')}</div>
           {#each recent as entry (entry.path)}
-            <button class="recent__item" onclick={() => openRecent(entry)}>
+            <button
+              class="recent__item"
+              data-kind={entry.kind}
+              onclick={() => openRecent(entry)}
+            >
               <span class="recent__name mono">{entry.name}</span>
+              <span class="badge">
+                {entry.kind === 'timeline' ? t('diag.recentTimeline') : t('diag.recentReport')}
+              </span>
               <span class="recent__meta">
                 {formatEpoch(entry.modified)} · {entry.size} B
               </span>

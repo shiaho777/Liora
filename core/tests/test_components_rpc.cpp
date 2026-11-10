@@ -481,11 +481,14 @@ LIORA_TEST(core_lists_recent_diagnostic_reports) {
 
   Json recent = core.handleJson(
       Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "diagnostics.recent"}, {"params", Json::object()}});
-  CHECK_EQ(recent["result"].size(), size_t{2});
-  CHECK_EQ(recent["result"][0]["name"].get<std::string>(), std::string("liora-diagnostic-20260102-000000.txt"));
-  CHECK_EQ(recent["result"][0]["kind"].get<std::string>(), std::string("report"));
-  CHECK(recent["result"][0]["modified"].get<int64_t>() > 0);
-  CHECK_EQ(recent["result"][1]["name"].get<std::string>(), std::string("liora-diagnostic-20260101-000000.txt"));
+  CHECK_EQ(recent["result"].size(), size_t{3});
+  // Newest first: the timeline was written after the newer report.
+  CHECK_EQ(recent["result"][0]["kind"].get<std::string>(), std::string("timeline"));
+  CHECK_EQ(recent["result"][0]["name"].get<std::string>(), std::string("liora-timeline-20260103-000000.txt"));
+  CHECK_EQ(recent["result"][1]["name"].get<std::string>(), std::string("liora-diagnostic-20260102-000000.txt"));
+  CHECK_EQ(recent["result"][1]["kind"].get<std::string>(), std::string("report"));
+  CHECK(recent["result"][1]["modified"].get<int64_t>() > 0);
+  CHECK_EQ(recent["result"][2]["name"].get<std::string>(), std::string("liora-diagnostic-20260101-000000.txt"));
   core.stop();
 }
 

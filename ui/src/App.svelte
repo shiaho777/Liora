@@ -507,6 +507,10 @@
           document.querySelector<HTMLElement>('.recent__item')?.click();
           break;
         }
+        case 'openrecenttimeline': {
+          document.querySelector<HTMLElement>('.recent__item[data-kind="timeline"]')?.click();
+          break;
+        }
         case 'opendns': {
           const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
             item.textContent?.includes('DNS 与直连'),

@@ -886,10 +886,10 @@ NSString* jsonEscape(id object) {
 
 // Reads a diagnostic report and hands its contents to the interface, which
 // cannot fetch file:// URLs itself.
-- (void)deliverDiagnosticFile:(NSString*)path {
+- (void)deliverDiagnosticFile:(NSString*)path purpose:(NSString*)purpose {
   if (!path.length) return;
   NSMutableDictionary* payload = [NSMutableDictionary dictionary];
-  payload[@"purpose"] = @"diagnosticReport";
+  payload[@"purpose"] = purpose.length ? purpose : @"diagnosticReport";
   payload[@"path"] = path;
   NSError* readError = nil;
   NSString* content = [NSString stringWithContentsOfFile:path
@@ -937,7 +937,7 @@ NSString* jsonEscape(id object) {
 - (void)handleShellMessage:(NSString*)method params:(id)params {
   if ([method isEqualToString:@"ui.openDiagnostic"]) {
     NSString* path = params[@"path"];
-    if (path.length) [self deliverDiagnosticFile:path];
+    if (path.length) [self deliverDiagnosticFile:path purpose:params[@"purpose"]];
     return;
   }
 
@@ -1054,7 +1054,7 @@ NSString* jsonEscape(id object) {
                     NSString* purpose = params[@"purpose"] ?: @"";
 
                     if ([purpose isEqualToString:@"diagnosticReport"]) {
-                      [self deliverDiagnosticFile:path];
+                      [self deliverDiagnosticFile:path purpose:@"diagnosticReport"];
                       return;
                     }
 

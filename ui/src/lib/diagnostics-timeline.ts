@@ -176,3 +176,41 @@ export function timelineToText(
   }
   return lines.join('\n');
 }
+
+export interface ExportedTimelineEntry {
+  at: string;
+  kind: string;
+  detail: string;
+}
+
+export interface ExportedTimeline {
+  exported?: string;
+  entries: ExportedTimelineEntry[];
+  raw: string;
+}
+
+/** Parses the plain-text file written by 'save timeline'. */
+export function parseTimelineText(text: string): ExportedTimeline | null {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const first = lines.findIndex((line) => line.trim().length > 0);
+  if (first < 0 || lines[first].trim() !== 'Liora diagnostics timeline') return null;
+
+  let exported: string | undefined;
+  const entries: ExportedTimelineEntry[] = [];
+  for (let i = first + 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.startsWith('Exported:')) {
+      exported = line.slice('Exported:'.length).trim();
+      continue;
+    }
+    const parts = line.split(/\s{2,}/).filter(Boolean);
+    if (parts.length < 2) continue;
+    entries.push({
+      at: parts[0],
+      kind: parts[1],
+      detail: parts.slice(2).join('  '),
+    });
+  }
+  return { exported, entries, raw: text };
+}
