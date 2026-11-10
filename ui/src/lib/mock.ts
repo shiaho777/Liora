@@ -711,6 +711,14 @@ export function createMockBackend(): MockBackend {
       persist();
       return { ok: true };
     },
+    'downloads.list': () => {
+      const raw = localStorage.getItem('liora.mock.downloads');
+      return raw ? JSON.parse(raw) : [];
+    },
+    'downloads.clear': () => {
+      localStorage.removeItem('liora.mock.downloads');
+      return { ok: true };
+    },
     'session.load': () => {
       const raw = localStorage.getItem('liora.mock.session');
       return raw ? JSON.parse(raw) : { tabs: [], active: 0 };
@@ -843,7 +851,25 @@ export function createMockBackend(): MockBackend {
               respond({ jsonrpc: '2.0', method: 'browser.download', params: { id, path: '/Users/you/Downloads/sample.bin', filename: 'sample.bin', ...payload } });
             emit({ state: 'started', received: 0, total: 4_000_000 });
             setTimeout(() => emit({ state: 'progress', received: 1_600_000, total: 4_000_000 }), 400);
-            setTimeout(() => emit({ state: 'finished', received: 4_000_000, total: 4_000_000 }), 1200);
+            setTimeout(() => {
+              emit({ state: 'finished', received: 4_000_000, total: 4_000_000 });
+              // Mirror the native shell, which stores terminal states in Core.
+              localStorage.setItem(
+                'liora.mock.downloads',
+                JSON.stringify([
+                  {
+                    id,
+                    filename: 'sample.bin',
+                    path: '/Users/you/Downloads/sample.bin',
+                    bytes: 4_000_000,
+                    total: 4_000_000,
+                    state: 'finished',
+                    error: '',
+                    created: Date.now(),
+                  },
+                ]),
+              );
+            }, 1200);
           }
         }
         return;

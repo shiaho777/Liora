@@ -183,6 +183,26 @@ void Core::registerDataMethods() {
     return Json{{"ok", true}};
   });
 
+  // ---- Downloads ----
+
+  rpc_.add("downloads.list", [this](const Json& params) {
+    int limit = static_cast<int>(params::optionalInteger(params, "limit").value_or(100));
+    Json out = Json::array();
+    for (const auto& record : storage_.downloads(limit)) out.push_back(record.toJson());
+    return out;
+  });
+
+  rpc_.add("downloads.clear", [this](const Json&) {
+    storage_.clearDownloads();
+    rpc_.notify("downloads.changed", nullptr);
+    return Json{{"ok", true}};
+  });
+
+  rpc_.add("downloads.remove", [this](const Json& params) {
+    if (!storage_.removeDownload(params::string(params, "id"))) rpcFail(kRpcNotFound, "download not found");
+    return Json{{"ok", true}};
+  });
+
   // ---- Backup ----
 
   rpc_.add("backup.sections", [this](const Json&) {

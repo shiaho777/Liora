@@ -537,13 +537,27 @@ NSString* jsonEscape(id object) {
       [weakSelf handleLoadFailure:failedUrl code:code message:reason tab:tab];
     });
   };
-  events.onDownload = [weakSelf](const liora::DownloadEvent& event) {
+  events.onDownload = [weakSelf, core = _core.get()](const liora::DownloadEvent& event) {
     NSString* state = @"started";
     switch (event.state) {
       case liora::DownloadState::kStarted: state = @"started"; break;
       case liora::DownloadState::kProgress: state = @"progress"; break;
       case liora::DownloadState::kFinished: state = @"finished"; break;
       case liora::DownloadState::kFailed: state = @"failed"; break;
+    }
+
+    // Persist only terminal states; progress is too noisy for disk history.
+    if (core && (event.state == liora::DownloadState::kFinished || event.state == liora::DownloadState::kFailed)) {
+      liora::DownloadRecord record;
+      record.id = event.id;
+      record.filename = event.filename;
+      record.path = event.path;
+      record.state = event.state == liora::DownloadState::kFinished ? "finished" : "failed";
+      record.error = event.error;
+      record.bytes = event.received;
+      record.total = event.total;
+      record.created = liora::nowMs();
+      core->storage().saveDownload(record);
     }
     NSDictionary* params = @{
       @"id" : ns(event.id),

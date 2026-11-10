@@ -10,7 +10,9 @@
     activeDownloadCount,
     downloads,
     handleDownloadEvent,
+    seedDownloadHistory,
     type DownloadItem,
+    type DownloadRecord,
   } from './lib/downloads.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { call, describeSettings, notify, onNotification } from './lib/bridge';
@@ -61,6 +63,7 @@
       if (restore?.value !== false) await restoreSession();
       sessionReady = true;
       await loadBookmarks();
+      await loadDownloadHistory();
     })
     .catch((error) => toast(String(error?.message ?? error), 'error'));
 
@@ -98,8 +101,16 @@
     }
   }
 
-  async function loadBookmarks(): Promise<void> {
+  async function loadDownloadHistory(): Promise<void> {
     try {
+      const records = await call<DownloadRecord[]>('downloads.list', { limit: 50 });
+      seedDownloadHistory(records);
+    } catch {
+      /* history is optional; the panel still works without it */
+    }
+  }
+
+  async function loadBookmarks(): Promise<void> {    try {
       const tree = await call<Record<string, { children?: Array<{ id: number; type: string; title: string; url?: string }> }>>(
         'bookmarks.tree',
       );

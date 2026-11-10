@@ -334,6 +334,36 @@ LIORA_TEST(core_permissions_over_rpc) {
   core.stop();
 }
 
+LIORA_TEST(core_download_history_over_rpc) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  DownloadRecord record;
+  record.id = "download-1";
+  record.filename = "report.pdf";
+  record.path = "/Users/example/Downloads/report.pdf";
+  record.state = "finished";
+  record.bytes = 4096;
+  record.created = nowMs();
+  core.storage().saveDownload(record);
+
+  Json listed = core.handleJson(
+      Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "downloads.list"}, {"params", Json::object()}});
+  CHECK_EQ(listed["result"].size(), size_t{1});
+  CHECK_EQ(listed["result"][0]["filename"], std::string("report.pdf"));
+  CHECK_EQ(listed["result"][0]["bytes"], int64_t{4096});
+
+  core.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "downloads.clear"}, {"params", Json::object()}});
+  Json cleared = core.handleJson(
+      Json{{"jsonrpc", "2.0"}, {"id", 3}, {"method", "downloads.list"}, {"params", Json::object()}});
+  CHECK_EQ(cleared["result"].size(), size_t{0});
+  core.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

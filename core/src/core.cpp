@@ -156,6 +156,8 @@ void Core::registerCoreMethods() {
   rpc_.setNamespaceDescription("session", "Tabs restored on the next start");
   rpc_.setNamespaceDescription("kernels", "Browser kernels");
   rpc_.setNamespaceDescription("components", "Downloadable components");
+  rpc_.setNamespaceDescription("permissions", "Remembered site permissions");
+  rpc_.setNamespaceDescription("downloads", "Download history");
 
   rpc_.add("core.info", [this](const Json&) {
     NetConfig net = NetPlanner::build(rules_, dns_, settings_);

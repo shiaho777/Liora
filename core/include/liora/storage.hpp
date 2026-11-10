@@ -48,6 +48,21 @@ struct Permission {
   Json toJson() const;
 };
 
+// A finished or failed download, kept so the panel survives a restart.
+struct DownloadRecord {
+  std::string id;
+  std::string filename;
+  std::string path;
+  std::string state;  // "finished" | "failed"
+  std::string error;
+  int64_t bytes = 0;
+  int64_t total = 0;
+  int64_t created = 0;
+  int64_t updated = 0;
+
+  Json toJson() const;
+};
+
 // Kernel-independent user data: bookmarks, history and site permissions.
 // All methods are thread safe.
 class Storage {
@@ -102,6 +117,12 @@ class Storage {
   void setPermission(std::string_view origin, std::string_view name, std::string_view value);
   std::optional<std::string> permission(std::string_view origin, std::string_view name) const;
   std::vector<Permission> permissions(std::string_view origin = {}) const;
+
+  // ---- Downloads ----
+  void saveDownload(const DownloadRecord& record);
+  std::vector<DownloadRecord> downloads(int limit = 100) const;
+  void clearDownloads();
+  bool removeDownload(std::string_view id);
 
   // ---- Backup ----
   Json exportData() const;

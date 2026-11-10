@@ -1,4 +1,4 @@
-import { notify } from './bridge';
+import { call, notify } from './bridge';
 
 export interface DownloadItem {
   id: string;
@@ -8,6 +8,17 @@ export interface DownloadItem {
   total: number;
   state: 'started' | 'progress' | 'finished' | 'failed';
   error?: string;
+}
+
+export interface DownloadRecord {
+  id: string;
+  filename: string;
+  path: string;
+  bytes: number;
+  total: number;
+  state: 'finished' | 'failed';
+  error?: string;
+  created: number;
 }
 
 export const downloads = $state({
@@ -38,8 +49,29 @@ export function activeDownloadCount(): number {
   return downloads.items.filter((item) => item.state === 'started' || item.state === 'progress').length;
 }
 
-export function clearFinishedDownloads(): void {
+export function seedDownloadHistory(records: DownloadRecord[]): void {
+  const known = new Set(downloads.items.map((item) => item.id));
+  const restored: DownloadItem[] = records
+    .filter((record) => !known.has(record.id))
+    .map((record) => ({
+      id: record.id,
+      filename: record.filename,
+      path: record.path,
+      received: record.bytes,
+      total: record.total || record.bytes,
+      state: record.state === 'failed' ? 'failed' : 'finished',
+      error: record.error,
+    }));
+  if (restored.length > 0) downloads.items = [...downloads.items, ...restored];
+}
+
+export async function clearFinishedDownloads(): Promise<void> {
   downloads.items = downloads.items.filter((item) => item.state === 'started' || item.state === 'progress');
+  try {
+    await call('downloads.clear');
+  } catch {
+    /* the local list is already cleared; history will retry on next clear */
+  }
 }
 
 export function revealDownload(item: DownloadItem): void {

@@ -191,6 +191,46 @@ LIORA_TEST(storage_permissions) {
   CHECK(!f.storage.permission("https://a.example", "camera").has_value());
 }
 
+LIORA_TEST(storage_download_history) {
+  Fixture f;
+
+  DownloadRecord first;
+  first.id = "d1";
+  first.filename = "first.bin";
+  first.path = "/tmp/first.bin";
+  first.state = "finished";
+  first.bytes = 100;
+  first.created = 1000;
+  f.storage.saveDownload(first);
+
+  DownloadRecord second;
+  second.id = "d2";
+  second.filename = "second.bin";
+  second.path = "/tmp/second.bin";
+  second.state = "failed";
+  second.error = "network lost";
+  second.created = 2000;
+  f.storage.saveDownload(second);
+
+  // Re-saving the same id updates it rather than duplicating.
+  first.bytes = 250;
+  first.state = "finished";
+  f.storage.saveDownload(first);
+
+  auto list = f.storage.downloads(10);
+  CHECK_EQ(list.size(), size_t{2});
+  CHECK_EQ(list[0].id, std::string("d2"));  // newest first
+  CHECK_EQ(list[0].error, std::string("network lost"));
+  CHECK_EQ(list[1].id, std::string("d1"));
+  CHECK_EQ(list[1].bytes, int64_t{250});
+
+  CHECK(f.storage.removeDownload("d2"));
+  CHECK_EQ(f.storage.downloads(10).size(), size_t{1});
+
+  f.storage.clearDownloads();
+  CHECK(f.storage.downloads(10).empty());
+}
+
 LIORA_TEST(storage_export_import_roundtrip_and_dedupe) {
   Fixture f;
   CHECK(f.storage.addBookmark(Storage::kBookmarkBar, "One", "https://one.example").has_value());

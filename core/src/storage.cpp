@@ -58,6 +58,22 @@ INSERT OR IGNORE INTO bookmarks(id, parent, folder, title, position) VALUES
 PRAGMA user_version = 1;
 )sql";
 
+// Added in schema version 2. Kept separate so existing databases migrate by
+// running this idempotent block at startup.
+constexpr const char* kDownloadsSchema = R"sql(
+CREATE TABLE IF NOT EXISTS downloads(
+  id TEXT PRIMARY KEY,
+  filename TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  bytes INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created INTEGER NOT NULL DEFAULT 0,
+  updated INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS downloads_created ON downloads(created);
+)sql";
+
 const std::string kBookmarkCols =
     "SELECT id, IFNULL(parent, 0), folder, title, url, position, created, modified FROM bookmarks ";
 const std::string kHistoryCols =
@@ -134,6 +150,12 @@ Json Permission::toJson() const {
   return {{"origin", origin}, {"name", name}, {"value", value}, {"modified", modified}};
 }
 
+Json DownloadRecord::toJson() const {
+  return {{"id", id},       {"filename", filename}, {"path", path},   {"state", state},
+          {"error", error}, {"bytes", bytes},       {"total", total}, {"created", created},
+          {"updated", updated}};
+}
+
 Storage::Storage(fs::path file) : file_(std::move(file)) {}
 
 Storage::~Storage() { close(); }
@@ -173,7 +195,7 @@ bool Storage::open(std::string* error) {
     Stmt st(db_, "PRAGMA user_version");
     if (st.step()) version = st.i64(0);
   }
-  if (version > 1) {
+  if (version > 2) {
     if (error) *error = "database was created by a newer version of Liora";
     close();
     return false;
@@ -182,6 +204,11 @@ bool Storage::open(std::string* error) {
     close();
     return false;
   }
+  if (!exec(kDownloadsSchema, error)) {
+    close();
+    return false;
+  }
+  exec("PRAGMA user_version = 2");
   return true;
 }
 
@@ -553,6 +580,56 @@ std::vector<Permission> Storage::permissions(std::string_view origin) const {
   st.bind(1, origin);
   while (st.step()) out.push_back({st.text(0), st.text(1), st.text(2), st.i64(3)});
   return out;
+}
+
+// ---- Downloads ----
+
+void Storage::saveDownload(const DownloadRecord& record) {
+  std::lock_guard lock(mutex_);
+  if (!db_ || record.id.empty()) return;
+  int64_t now = nowMs();
+  Stmt st(db_,
+          "INSERT INTO downloads(id, filename, path, bytes, total, state, error, created, updated) "
+          "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) "
+          "ON CONFLICT(id) DO UPDATE SET filename = excluded.filename, path = excluded.path, "
+          "bytes = excluded.bytes, total = excluded.total, state = excluded.state, "
+          "error = excluded.error, updated = excluded.updated");
+  st.bind(1, record.id)
+      .bind(2, record.filename)
+      .bind(3, record.path)
+      .bind(4, record.bytes)
+      .bind(5, record.total)
+      .bind(6, record.state)
+      .bind(7, record.error)
+      .bind(8, record.created > 0 ? record.created : now)
+      .bind(9, now);
+  st.exec();
+}
+
+std::vector<DownloadRecord> Storage::downloads(int limit) const {
+  std::lock_guard lock(mutex_);
+  std::vector<DownloadRecord> out;
+  Stmt st(db_,
+          "SELECT id, filename, path, bytes, total, state, error, created, updated FROM downloads "
+          "ORDER BY created DESC LIMIT ?");
+  st.bind(1, int64_t{limit > 0 ? limit : 100});
+  while (st.step()) {
+    out.push_back({st.text(0), st.text(1), st.text(2), st.text(5), st.text(6),
+                   st.i64(3), st.i64(4), st.i64(7), st.i64(8)});
+  }
+  return out;
+}
+
+void Storage::clearDownloads() {
+  std::lock_guard lock(mutex_);
+  if (!db_) return;
+  exec("DELETE FROM downloads");
+}
+
+bool Storage::removeDownload(std::string_view id) {
+  std::lock_guard lock(mutex_);
+  if (!db_) return false;
+  return Stmt(db_, "DELETE FROM downloads WHERE id = ?").bind(1, id).exec();
 }
 
 // ---- Backup ----
