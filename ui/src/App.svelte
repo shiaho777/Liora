@@ -264,6 +264,9 @@
         case 'settings': openSettings(); break;
         case 'downloads': downloads.open = !downloads.open; break;
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
+        case 'copyreport':
+          (window as unknown as { __lioraCopyReport?: () => void }).__lioraCopyReport?.();
+          break;
       }
     };
   });

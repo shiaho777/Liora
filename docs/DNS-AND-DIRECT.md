@@ -92,6 +92,23 @@ ECH 的**外层 SNI 由服务端下发的 ECHConfig 里的 `public_name` 决定*
 
 站点卡片与**加载失败页**共用这个端点：失败页会同时显示错误码含义、TLS 是否建立、是否命中规则、解析到的地址与上游，用来区分"DNS 没解析出来"和"解析出来了但连接/TLS 失败"。
 
+失败页还能复制一份纯文本报告：
+
+```
+Liora diagnostic report
+Generated: 2026-11-10T07:29:50.007Z
+Version: 0.1.0 (macos arm64)
+URL: https://expired.badssl.com/
+Host: expired.badssl.com
+Error: -1202 - 证书校验未通过（可能已过期或不受信任）。
+Kernel: system
+TLS: subject=*.badssl.com valid=no expires=2015-04-12
+Rule: none
+Upstream: doh cloudflare https://cloudflare-dns.com/dns-query 413ms
+Addresses: 104.154.89.105
+HTTPS: alpn=- ech=0B
+```
+
 ```bash
 curl "http://127.0.0.1:<diagPort>/diagnose?host=x.com"
 ```

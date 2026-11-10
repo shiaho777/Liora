@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { call } from './bridge';
+  import { app, toast } from './state.svelte';
   import { t } from './i18n.svelte';
 
   interface Props {
@@ -27,6 +28,7 @@
 
   let diag = $state<Diagnostics | null>(null);
   let diagError = $state('');
+  let kernelId = $state('');
 
   let host = $derived.by(() => {
     try {
@@ -57,10 +59,86 @@
     void loadDiagnostics();
   });
 
+  // A plain-text report that can be pasted into a bug report. Kept in one
+  // place so the visible preview and the clipboard cannot drift apart.
+  const report = $derived.by(() => {
+    const lines = [
+      'Liora diagnostic report',
+      `Generated: ${new Date().toISOString()}`,
+      `Version: ${app.version} (${app.platform} ${app.arch})`,
+      `URL: ${url}`,
+      `Host: ${host}`,
+      `Error: ${code}${reason ? ` - ${reason}` : ''}`,
+      `Kernel: ${kernelId || 'unknown'}`,
+    ];
+
+    if (security?.https && security.host === host) {
+      const expires = security.notAfter > 0 ? new Date(security.notAfter).toISOString().slice(0, 10) : '-';
+      lines.push(`TLS: subject=${security.subject} valid=${security.valid ? 'yes' : 'no'} expires=${expires}`);
+    } else if (tlsFailure) {
+      lines.push('TLS: handshake failed');
+    } else {
+      lines.push('TLS: not established');
+    }
+
+    lines.push(
+      `Rule: ${diag?.rule ? `${diag.rule.name} (h3=${diag.rule.h3}, ech=${diag.rule.ech})` : 'none'}`,
+    );
+    if (diag) {
+      lines.push(
+        `Upstream: ${diag.upstream.protocol} ${diag.upstream.id} ${diag.upstream.address} ${diag.elapsedMs}ms`,
+      );
+      lines.push(`Addresses: ${diag.addresses.join(', ') || 'none'}`);
+      lines.push(
+        `HTTPS: alpn=${diag.https?.alpn.join(',') || '-'} ech=${diag.https?.echBytes ?? 0}B`,
+      );
+    } else {
+      lines.push(`Diagnostics: ${diagError || 'unavailable'}`);
+    }
+
+    return lines.join('\n');
+  });
+
+  async function copyReport(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(report);
+      toast(t('error.copied'));
+    } catch {
+      // WKWebView can refuse the async clipboard API; the old selector trick
+      // still works from a click handler.
+      const area = document.createElement('textarea');
+      area.value = report;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      toast(copied ? t('error.copied') : t('error.copyFailed'));
+    }
+  }
+
+  // The shell's menu command path uses this for the verification hook.
+  $effect(() => {
+    const hooks = window as unknown as {
+      __lioraCopyReport?: () => void;
+      __lioraReportText?: string;
+    };
+    hooks.__lioraCopyReport = () => {
+      void copyReport();
+    };
+    hooks.__lioraReportText = report;
+  });
+
   async function loadDiagnostics(): Promise<void> {
     diag = null;
     diagError = '';
     if (!host) return;
+
+    call<{ id: string }>('kernels.current', { site: host })
+      .then((value) => (kernelId = value.id))
+      .catch(() => (kernelId = ''));
+
     try {
       const runtime = await call<{ running: boolean; diagPort: number }>('net.runtime');
       if (!runtime.running || !runtime.diagPort) {
@@ -165,6 +243,16 @@
         </div>
       {/if}
     </div>
+
+    <details class="report">
+      <summary>{t('error.report')}</summary>
+      <pre>{report}</pre>
+    </details>
+
+    <button class="button button--ghost button--sm" onclick={copyReport}>
+      <Icon name="download" size={12} />
+      {t('error.copy')}
+    </button>
 
     <div class="errorpage__footer">
       <span class="mono muted">NSURLError {code}</span>
@@ -285,6 +373,34 @@
     flex-wrap: wrap;
     align-items: center;
     word-break: break-all;
+  }
+
+  .report {
+    margin-top: 12px;
+    width: min(520px, 100%);
+    text-align: left;
+  }
+
+  .report summary {
+    cursor: pointer;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .report pre {
+    margin: 6px 0 0;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    max-height: 180px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: text;
   }
 
   .link {

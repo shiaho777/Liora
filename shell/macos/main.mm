@@ -179,6 +179,17 @@ NSString* jsonEscape(id object) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       [self sendUICommand:name];
       NSLog(@"Liora: command %@", name);
+      // Verification hook: print the failure report the interface generated.
+      if ([name isEqualToString:@"reporttext"]) {
+        [self.ui evaluateJavaScript:@"window.__lioraReportText || ''"
+                  completionHandler:^(id result, NSError* error) {
+                    if (error) {
+                      NSLog(@"Liora: report unavailable: %@", error.localizedDescription);
+                    } else {
+                      NSLog(@"Liora: report\n%@", result);
+                    }
+                  }];
+      }
     });
   }
 
