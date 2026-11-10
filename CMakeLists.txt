@@ -36,6 +36,10 @@ target_compile_definitions(liora_sqlite PRIVATE
 )
 set_target_properties(liora_sqlite PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
+
 add_subdirectory(core)
 
 if(APPLE AND LIORA_CEF_ROOT)

@@ -13,6 +13,7 @@
 #include "include/cef_load_handler.h"
 #include "include/cef_version.h"
 #include "include/wrapper/cef_helpers.h"
+#include "include/wrapper/cef_library_loader.h"
 
 namespace liora::cef {
 namespace {
@@ -236,11 +237,32 @@ class CefKernel final : public IKernel {
 std::mutex g_mutex;
 bool g_initialized = false;
 NSTimer* g_timer = nil;
+// The framework must stay loaded for the lifetime of the process.
+std::unique_ptr<CefScopedLibraryLoader> g_loader;
+
+bool ensureLibraryLoaded(std::string* error) {
+  if (g_loader) return true;
+  auto loader = std::make_unique<CefScopedLibraryLoader>();
+  if (!loader->LoadInMain()) {
+    if (error) *error = "cannot load the Chromium Embedded Framework";
+    return false;
+  }
+  g_loader = std::move(loader);
+  return true;
+}
 
 }  // namespace
 
 void pump() {
   CefDoMessageLoopWork();
+}
+
+int executeProcess(int argc, char** argv) {
+  std::string error;
+  if (!ensureLibraryLoaded(&error)) return -1;
+  CefMainArgs args(argc, argv);
+  CefRefPtr<KernelApp> app = new KernelApp({});
+  return CefExecuteProcess(args, app, nullptr);
 }
 
 bool initialize(const Startup& startup, std::string* error) {
@@ -257,6 +279,7 @@ bool initialize(const Startup& startup, std::string* error) {
   settings.log_severity = LOGSEVERITY_WARNING;
 
   CefRefPtr<KernelApp> app = new KernelApp(startup.switches);
+  if (!ensureLibraryLoaded(error)) return false;
   if (!CefInitialize(args, settings, app, nullptr)) {
     if (error) *error = "CefInitialize failed";
     return false;

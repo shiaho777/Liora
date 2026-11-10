@@ -18,9 +18,12 @@ struct Startup {
   std::vector<std::string> switches;
   bool noSandbox = true;
 };
+// Runs helper subprocesses. Must be called at the very start of main(), before
+// NSApplication: Chromium re-launches this executable for renderer, GPU and
+// utility processes. Returns -1 in the browser process.
+int executeProcess(int argc, char** argv);
 
-// Starts the CEF runtime on the main thread. The caller must have processed
-// CefExecuteProcess() for helper processes before this.
+// Starts the CEF runtime on the main thread.
 bool initialize(const Startup& startup, std::string* error);
 
 // Drives the message loop when external_message_pump is enabled. Called from a

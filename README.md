@@ -28,7 +28,7 @@ WebUI (Svelte 5)  ──  JSON-RPC  ──  Shell (C++ / Cocoa · Win32 · GTK �
 | macOS 壳（Cocoa + WKWebView + liora:// 资源协议 + 桥接） | 可构建运行 |
 | liora-net（本地 DoH、DoT 上游、HTTPS 记录改写、CONNECT 代理） | 可用，已对真实 Cloudflare 上游验证 |
 | Windows / Linux / Android / iOS 壳 | 未实现，接口已预留 |
-| CEF 内核适配 | 适配层可用真实 CEF 156 编译链接，尚不能运行（见 `kernels/cef/README.md`） |
+| CEF 内核适配 | 可编译、可初始化；helper 进程需 Developer ID 签名才能启动（见 `kernels/cef/README.md`） |
 | MV3 扩展 | 未实现 |
 
 ## 快速开始

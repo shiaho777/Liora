@@ -2,13 +2,25 @@
 
 ## 现状
 
-**适配层已能用真实 CEF 156 编译并链接，但还不能运行。**
+**适配层能用真实 CEF 156 编译、链接并初始化；Chromium 的渲染进程目前无法启动。**
 
-- 已完成：`IKernel` 实现、`SetAsChild` 子视图渲染、加载/前进后退/缩放/注入消息、启动参数映射、外部消息泵。
-- 已验证：`cmake -DLIORA_CEF_ROOT=...` 后构建 `liora_cef_kernel` 成功，包含完整的 `libcef_dll_wrapper`（246 个目标）。
-- 未完成：让 Chromium 真正跑起来所需的打包与进程集成（见下）。
+已验证：
 
-默认内核仍然是系统 WebView。CEF 是可选构建，不拉取就不会参与编译。
+- `cmake -DLIORA_CEF_ROOT=...` 可构建 `liora_cef_kernel`（含完整 `libcef_dll_wrapper`，246 个目标）。
+- 应用运行时 `CefInitialize` 成功（日志：`CEF kernel ready`），框架能从 app bundle 正确加载。
+- 4 个 helper app（Helper / GPU / Renderer / Alerts）已生成，框架符号链接布局正确。
+
+**阻塞点：** Chromium 启动 helper 时做代码签名校验，失败并拒绝启动：
+
+```
+ERROR:base/mac/process_requirement.cc:159] Unable to derive validation category
+for current process. Signature validation of current process failed:
+Error Domain=NSOSStatusErrorDomain Code=-67030
+```
+
+原因：ad-hoc 签名（`codesign --sign -`）没有 Team ID，无法导出进程校验类别。这不是代码问题，需要 **Developer ID 证书**对主程序、helper 与 CEF 框架统一签名（并公证）。这也正是正式发行本来就需要的东西。
+
+因此 `kernel.default` 不应设为 `cef`；默认仍是系统 WebView。
 
 ## 复现构建
 
@@ -33,12 +45,12 @@ cmake --build build-cef --target liora_cef_kernel
 
 ## 距离可运行还差什么
 
-1. **Helper 进程包**：macOS 上 Chromium 需要 `Liora Helper.app`、`Liora Helper (GPU).app`、`Liora Helper (Renderer).app`，放在 `Contents/Frameworks`。CEF 发行包不生成它们，需要按 cefclient 的布局自行创建，并确保与主程序同一签名。
-2. **主进程入口**：`main()` 必须先调用 `CefExecuteProcess()` 并把非零返回值作为退出码；只有浏览器进程继续初始化。
-3. **框架嵌入**：把 `Chromium Embedded Framework.framework` 拷进 `Contents/Frameworks` 并修正 `@rpath`。
-4. **消息泵**：当前用 `NSTimer` 驱动 `CefDoMessageLoopWork()`；正式版应改为在 `NSApplication` 事件循环里按需调用，避免 120Hz 空转。
-5. **生命周期**：`CefInitialize`/`CefShutdown` 必须成对且在主线程；应用退出时要先关闭全部 browser。
-6. **壳接入**：`shell/macos` 目前只注册系统内核；需要按 `kernels.list` 中 `cef` 是否可用决定是否调用 `cef::initialize()` 并 `attach` 内核。
+1. **Developer ID 签名（阻塞项）**：见上，ad-hoc 签名无法通过 Chromium 的进程校验。
+2. **框架嵌入与 helper**：已完成（`scripts/bundle-cef.sh`），需要在签名后重新验证。
+3. **主进程入口**：已完成，`main()` 先调用 `CefExecuteProcess`。
+4. **消息泵**：当前用 `NSTimer` 驱动 `CefDoMessageLoopWork()`；正式版应改为按需调用，避免 120Hz 空转。
+5. **生命周期**：`CefInitialize`/`CefShutdown` 必须成对且在主线程；退出时先关闭全部 browser。
+6. **壳接入**：已完成，`kernel.default = cef` 时初始化并 attach；未就绪时回退系统内核。
 
 ## 接口位置
 

@@ -16,6 +16,10 @@
 #include "liora/core.hpp"
 #include "liora/paths.hpp"
 
+#ifdef LIORA_WITH_CEF
+#include "liora/cef_kernel.hpp"
+#endif
+
 namespace {
 
 NSString* ns(const std::string& value) {
@@ -251,6 +255,9 @@ NSString* jsonEscape(id object) {
   shell::registerSystemKernel(_core->kernels());
   // Start liora-net and point WebKit at it before any page loads.
   [self refreshNetworkNow];
+#ifdef LIORA_WITH_CEF
+  [self startCefIfSelected];
+#endif
 
   __weak LioraController* weakSelf = self;
   _core->setNotificationSink([weakSelf](const liora::Json& message) {
@@ -270,6 +277,30 @@ NSString* jsonEscape(id object) {
   if (!_netService) _netService = [[LioraNetService alloc] init];
   return _netService;
 }
+
+#ifdef LIORA_WITH_CEF
+// Chromium is heavy and its network switches are start-up arguments, so it is
+// only initialized when the user actually selected it.
+- (void)startCefIfSelected {
+  if (!_core) return;
+  // Read the setting directly: resolve() only returns kernels that are already
+  // available, which is exactly what initialisation establishes.
+  liora::Json chosen = _core->settings().get("kernel.default");
+  if (!chosen.is_string() || chosen.get<std::string>() != liora::KernelManager::kCef) return;
+
+  liora::cef::Startup startup;
+  startup.cachePath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF");
+  startup.switches = _core->applyNetwork(liora::KernelManager::kCef).switches;
+
+  std::string error;
+  if (!liora::cef::initialize(startup, &error)) {
+    NSLog(@"Liora: CEF failed to start: %s", error.c_str());
+    return;
+  }
+  _core->attachKernel(liora::cef::createKernel());
+  NSLog(@"Liora: CEF kernel ready (%zu switches)", startup.switches.size());
+}
+#endif
 
 - (void)scheduleNetworkRefresh {
   if (self.refreshPending) return;
@@ -395,14 +426,21 @@ NSString* jsonEscape(id object) {
   if (existing != _views.end()) return existing->second.get();
   if (!_core) return nullptr;
 
-  auto kernel = _core->kernels().instance(liora::KernelManager::kSystem);
+  liora::Scope scope{"", tab};
+  std::string kernelId = _core->kernels().resolve(_core->settings(), scope);
+  auto kernel = _core->kernels().instance(kernelId);
   if (!kernel) {
-    NSLog(@"Liora: the system kernel is not registered");
+    NSLog(@"Liora: kernel '%s' is not ready, using the system kernel", kernelId.c_str());
+    kernel = _core->kernels().instance(liora::KernelManager::kSystem);
+  }
+  if (!kernel) {
+    NSLog(@"Liora: no kernel is available");
     return nullptr;
   }
 
   liora::ViewOptions options;
   options.tab = tab;
+  options.parent = (__bridge void*)self.container;
 
   liora::ViewEvents events;
   __weak LioraController* weakSelf = self;
@@ -621,6 +659,12 @@ LioraController* g_controller = nil;
 
 int main(int argc, const char* argv[]) {
   @autoreleasepool {
+#ifdef LIORA_WITH_CEF
+    // Chromium re-launches this executable for renderer and utility processes.
+    // This must run before NSApplication is created.
+    int code = liora::cef::executeProcess(argc, const_cast<char**>(argv));
+    if (code >= 0) return code;
+#endif
     NSApplication* app = [NSApplication sharedApplication];
     g_controller = [[LioraController alloc] init];
     app.delegate = g_controller;
