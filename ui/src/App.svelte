@@ -4,6 +4,7 @@
   import Settings from './lib/Settings.svelte';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
+  import SiteCard from './lib/SiteCard.svelte';
   import DownloadsPanel from './lib/DownloadsPanel.svelte';
   import DownloadPage from './lib/DownloadPage.svelte';
   import {
@@ -35,6 +36,7 @@
   let addressFocused = $state(false);
   let contentEl = $state<HTMLDivElement | null>(null);
   let addressEl = $state<HTMLInputElement | null>(null);
+  let siteCardOpen = $state(false);
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -219,6 +221,7 @@
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
     notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error && !active?.download });
+    siteCardOpen = false;
   });
 
   // Used by the shell's menu shortcuts, which work regardless of which view
@@ -237,6 +240,7 @@
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
         case 'downloads': downloads.open = !downloads.open; break;
+        case 'sitecard': siteCardOpen = !siteCardOpen; break;
       }
     };
   });
@@ -298,6 +302,7 @@
   }
 
   function navigate(raw: string): void {
+    siteCardOpen = false;
     const url = resolveInput(raw);
     const internal = internalPageFor(url);
 
@@ -508,7 +513,15 @@
 
       <form class="address" onsubmit={submitAddress}>
         <span class="address__scheme">
-          <Icon name={active.page === 'web' ? 'globe' : 'shield'} size={12} />
+          <button
+            type="button"
+            class="address__scheme-button"
+            title={t('site.title')}
+            aria-label={t('site.title')}
+            onclick={() => (siteCardOpen = !siteCardOpen)}
+          >
+            <Icon name={active.page === 'web' ? 'globe' : 'shield'} size={12} />
+          </button>
         </span>
         <input
           class="address__input"
@@ -547,6 +560,18 @@
         <DownloadsPanel />
       {/if}
     </div>
+
+    {#if siteCardOpen && active.page === 'web'}
+      <SiteCard
+        url={active.url}
+        tab={activeId}
+        onclose={() => (siteCardOpen = false)}
+        onopenDns={() => {
+          siteCardOpen = false;
+          openSettings('dns');
+        }}
+      />
+    {/if}
 
     <div class="bookmarksbar">
       <button class="bookmark-chip" onclick={() => navigate('liora://bookmarks')}>

@@ -171,7 +171,12 @@ NSString* jsonEscape(id object) {
   const char* command = getenv("LIORA_TEST_COMMAND");
   if (command && *command) {
     NSString* name = ns(command);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+    // A URL opened in the same launch needs a moment to become the active tab.
+    double delay = 0.3;
+    if (const char* ms = getenv("LIORA_TEST_COMMAND_DELAY_MS")) {
+      delay = atof(ms) / 1000.0;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       [self sendUICommand:name];
       NSLog(@"Liora: command %@", name);
     });

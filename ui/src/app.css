@@ -416,6 +416,18 @@ a {
   letter-spacing: 0.02em;
 }
 
+.address__scheme-button {
+  display: flex;
+  align-items: center;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+}
+
+.address__scheme-button:hover {
+  color: var(--text);
+}
+
 .address__input {
   flex: 1;
   min-width: 0;
