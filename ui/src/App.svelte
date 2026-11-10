@@ -235,7 +235,9 @@
       toast(
         t('timeline.saved', { name }),
         'info',
-        directory ? { label: t('downloads.reveal'), path: directory } : undefined,
+        directory
+          ? [{ label: t('downloads.reveal'), path: directory, kind: 'folder' }]
+          : undefined,
       );
       return;
     }
@@ -252,7 +254,9 @@
       toast(
         t('error.saved', { name }),
         'info',
-        directory ? { label: t('downloads.reveal'), path: directory } : undefined,
+        directory
+          ? [{ label: t('downloads.reveal'), path: directory, kind: 'folder' }]
+          : undefined,
       );
       return;
     }
@@ -296,11 +300,12 @@
         const path = params.path ?? '';
         const name = path.split('/').pop() || params.filename || '';
         const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-        toast(
-          t('downloads.saved', { name }),
-          'info',
-          directory ? { label: t('downloads.reveal'), path: directory } : undefined,
-        );
+        const actions = [];
+        if (path) actions.push({ label: t('downloads.openFile'), path, kind: 'file' as const });
+        if (directory) {
+          actions.push({ label: t('downloads.reveal'), path: directory, kind: 'folder' as const });
+        }
+        toast(t('downloads.saved', { name }), 'info', actions);
       }
       const tab = tabs.find((entry) => entry.id === Number(params.tab));
       const item = downloads.items.find((entry) => entry.id === params.id);
@@ -444,7 +449,16 @@
           break;
         }
         case 'revealtoast': {
-          const action = document.querySelector<HTMLElement>('.toast__action');
+          const action = document.querySelector<HTMLElement>(
+            '.toast__action[data-kind="folder"]',
+          );
+          action?.click();
+          break;
+        }
+        case 'openfiletoast': {
+          const action = document.querySelector<HTMLElement>(
+            '.toast__action[data-kind="file"]',
+          );
           action?.click();
           break;
         }
@@ -948,14 +962,15 @@
       {#each app.toasts as item (item.id)}
         <div class="toast" class:toast--error={item.kind === 'error'}>
           <span>{item.text}</span>
-          {#if item.action}
+          {#each item.actions ?? [] as action (action.kind + action.path)}
             <button
               class="toast__action"
-              onclick={() => notify('ui.openPath', { path: item.action?.path })}
+              data-kind={action.kind}
+              onclick={() => notify('ui.openPath', { path: action.path })}
             >
-              {item.action.label}
+              {action.label}
             </button>
-          {/if}
+          {/each}
         </div>
       {/each}
     </div>

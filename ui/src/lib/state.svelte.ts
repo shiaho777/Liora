@@ -1,12 +1,19 @@
 import { call, describeSettings, setSetting as rpcSetSetting, start } from './bridge';
 import { setLocale } from './i18n.svelte';
 
+export interface ToastAction {
+  label: string;
+  path: string;
+  /** Distinguishes opening the file itself from revealing its folder. */
+  kind: 'file' | 'folder';
+}
+
 export interface Toast {
   id: number;
   text: string;
   kind: 'info' | 'error';
-  /** Optional action, e.g. reveal a saved file in the download folder. */
-  action?: { label: string; path: string };
+  /** Optional actions, e.g. open a downloaded file or reveal its folder. */
+  actions?: ToastAction[];
 }
 
 export type PageKind = 'browser' | 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics';
@@ -37,14 +44,14 @@ let toastSeq = 1;
 export function toast(
   text: string,
   kind: 'info' | 'error' = 'info',
-  action?: { label: string; path: string },
+  actions?: ToastAction[],
 ): void {
   const id = toastSeq++;
-  app.toasts.push({ id, text, kind, action });
+  app.toasts.push({ id, text, kind, actions });
   setTimeout(() => {
     const index = app.toasts.findIndex((item) => item.id === id);
     if (index >= 0) app.toasts.splice(index, 1);
-  }, action ? 8000 : kind === 'error' ? 5200 : 2600);
+  }, actions && actions.length > 0 ? 8000 : kind === 'error' ? 5200 : 2600);
 }
 
 function applyAppearance(): void {
