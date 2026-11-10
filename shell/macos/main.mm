@@ -1006,6 +1006,7 @@ NSString* jsonEscape(id object) {
 
   if ([method isEqualToString:@"ui.openPath"]) {
     NSString* path = params[@"path"];
+    NSLog(@"Liora: opening path %@", path);
     if (path.length) [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:path]];
     return;
   }

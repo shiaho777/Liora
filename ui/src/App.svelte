@@ -229,8 +229,14 @@
     }
     if (message.method === 'browser.timelineSaved' && message.params) {
       const params = message.params as { path?: string };
-      const name = (params.path ?? '').split('/').pop() ?? '';
-      toast(t('timeline.saved', { name }));
+      const path = params.path ?? '';
+      const name = path.split('/').pop() ?? '';
+      const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+      toast(
+        t('timeline.saved', { name }),
+        'info',
+        directory ? { label: t('downloads.reveal'), path: directory } : undefined,
+      );
       return;
     }
     if (message.method === 'browser.timelineFailed' && message.params) {
@@ -240,8 +246,14 @@
     }
     if (message.method === 'browser.diagnosticSaved' && message.params) {
       const params = message.params as { path?: string };
-      const name = (params.path ?? '').split('/').pop() ?? '';
-      toast(t('error.saved', { name }));
+      const path = params.path ?? '';
+      const name = path.split('/').pop() ?? '';
+      const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+      toast(
+        t('error.saved', { name }),
+        'info',
+        directory ? { label: t('downloads.reveal'), path: directory } : undefined,
+      );
       return;
     }
     if (message.method === 'browser.diagnosticFailed' && message.params) {
@@ -413,6 +425,11 @@
             button.textContent?.includes('重启'),
           );
           restart?.click();
+          break;
+        }
+        case 'revealtoast': {
+          const action = document.querySelector<HTMLElement>('.toast__action');
+          action?.click();
           break;
         }
         case 'savetimeline': {
@@ -913,7 +930,17 @@
 
     <div class="toasts">
       {#each app.toasts as item (item.id)}
-        <div class="toast" class:toast--error={item.kind === 'error'}>{item.text}</div>
+        <div class="toast" class:toast--error={item.kind === 'error'}>
+          <span>{item.text}</span>
+          {#if item.action}
+            <button
+              class="toast__action"
+              onclick={() => notify('ui.openPath', { path: item.action?.path })}
+            >
+              {item.action.label}
+            </button>
+          {/if}
+        </div>
       {/each}
     </div>
   </div>
