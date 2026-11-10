@@ -448,6 +448,10 @@ NSString* jsonEscape(id object) {
     startup.switches.push_back("--enable-features=NetworkServiceInProcess");
   }
   if (getenv("LIORA_CEF_NO_SANDBOX")) startup.switches.push_back("--no-sandbox");
+  // Test hook: window.open without a gesture is normally popup-blocked.
+  if (getenv("LIORA_CEF_DISABLE_POPUP_BLOCKING")) {
+    startup.switches.push_back("--disable-popup-blocking");
+  }
 
   std::string error;
   if (!liora::cef::initialize(startup, &error)) {
@@ -796,9 +800,19 @@ NSString* jsonEscape(id object) {
       [weakSelf notifyInterface:@"browser.security" params:params];
     });
   };
-  // target="_blank" opens in the same view for now; real tabs arrive with the
-  // tab model in the interface.
-  events.onOpenWindow = [](const std::string&, bool) { return false; };
+  // A page-created window becomes a real interface tab. Returning true tells
+  // the kernel that the shell owns the window and it must not create one.
+  events.onOpenWindow = [weakSelf](const std::string& url, bool) {
+    if (url.empty() || !weakSelf) return false;
+    NSString* text = ns(url);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSLog(@"Liora: opening popup tab %@", text);
+      NSString* script = [NSString stringWithFormat:@"window.__lioraNewTab && window.__lioraNewTab(%@);",
+                                                    jsonEscape(text)];
+      [weakSelf.ui evaluateJavaScript:script completionHandler:nil];
+    });
+    return true;
+  };
   // A kernel may create its native view asynchronously (CEF). Lay out again
   // once it exists so a newly opened tab cannot cover the toolbar.
   events.onReady = [weakSelf]() {

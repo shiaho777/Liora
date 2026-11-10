@@ -200,6 +200,8 @@
             {t('site.expires')}: {new Date(security.notAfter).toLocaleDateString()}
           </div>
         {/if}
+      {:else if kernelId === 'cef' && url.startsWith('https://')}
+        <div class="sitecard__empty">{t('site.cefNoCertificate')}</div>
       {:else}
         <div class="sitecard__empty">{t('site.noTls')}</div>
       {/if}

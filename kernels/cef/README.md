@@ -30,7 +30,8 @@
 
 - `OnLoadError` 把 Chromium net error 映射为界面认识的 NSURLError 码（例如 `ERR_NAME_NOT_RESOLVED` → `-1003`、证书错误 → `-1202`），交给现有错误页显示，不再留下空白视图。
 - `CefDownloadHandler` 把附件保存到 `downloads.dir`（默认下载目录，重名自动编号；`downloads.ask` 打开时询问位置），进度与完成事件复用现有下载页、历史记录与 toast。
-- `target="_blank"` 暂时通过 `OnBeforePopup` 在当前视图打开；完整的标签模型接入后再改成新标签。
+- `target="_blank"` / `window.open` 通过 `OnBeforePopup` 交给界面新建标签；壳返回 `true` 后 Chromium 不再创建自己的弹出窗口。
+- 站点卡片对 CEF 的 HTTPS 页面显示“CEF 内核暂不提供证书摘要；Chromium 仍会校验证书”，而不是误报“未建立 TLS”。
 - 单进程兼容模式下同样支持下载与错误页；DoH/代理仍不会启用。
 
 ## 多标签与布局

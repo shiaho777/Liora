@@ -102,7 +102,6 @@ class KernelClient : public CefClient,
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
-
   // target="_blank": keep the popup in the same view until the shell owns a
   // full tab model for kernel-created windows.
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
@@ -119,6 +118,11 @@ class KernelClient : public CefClient,
                      CefRefPtr<CefDictionaryValue>& extra_info,
                      bool* no_javascript_access) override {
     if (!frame || target_url.empty()) return false;
+    if (bridge_ && bridge_->alive && bridge_->events.onOpenWindow &&
+        bridge_->events.onOpenWindow(target_url.ToString(), user_gesture)) {
+      return true;
+    }
+    // Fallback for shells without a tab model.
     frame->LoadURL(target_url);
     return true;
   }
