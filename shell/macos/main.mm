@@ -2,6 +2,7 @@
 // All state lives in Core; this file only moves pixels and messages.
 
 #import <Cocoa/Cocoa.h>
+#import <Network/Network.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/WebKit.h>
 
@@ -9,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#import "LioraNet.h"
 #include "SystemKernel.h"
 #include "liora/core.hpp"
 #include "liora/paths.hpp"
@@ -101,8 +103,14 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, strong) WKWebView* ui;
 @property(nonatomic, strong) WKWebView* content;
 @property(nonatomic, strong) NSView* container;
+@property(nonatomic, strong) LioraNetService* netService;
 @property(nonatomic, assign) CGRect pendingContentRect;
 @property(nonatomic, assign) BOOL contentVisible;
+@property(nonatomic, assign) BOOL refreshPending;
+@property(nonatomic, assign) BOOL openedLaunchUrl;
+
+- (void)refreshNetworkNow;
+- (void)scheduleNetworkRefresh;
 @end
 
 // The message handler is a separate object so the web view configuration does
@@ -144,9 +152,23 @@ NSString* jsonEscape(id object) {
   [NSApp activateIgnoringOtherApps:YES];
 }
 
+// Deep link for automation: once the interface is ready, ask it to navigate.
+// Going through the interface keeps one code path for real navigation.
+- (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
+  if (webView != self.ui || self.openedLaunchUrl) return;
+  const char* target = getenv("LIORA_OPEN_URL");
+  if (!target || !*target) return;
+  self.openedLaunchUrl = YES;
+  NSString* script = [NSString stringWithFormat:@"window.__lioraOpenUrl && window.__lioraOpenUrl(%@);",
+                                                jsonEscape(ns(target))];
+  [self.ui evaluateJavaScript:script completionHandler:nil];
+  NSLog(@"Liora: opening %s", target);
+}
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender { return YES; }
 
 - (void)applicationWillTerminate:(NSNotification*)notification {
+  [self.netService stop];
   if (_core) _core->stop();
 }
 
@@ -199,23 +221,109 @@ NSString* jsonEscape(id object) {
   }
 
   shell::registerSystemKernel(_core->kernels());
-  [self applyNetworkToKernel];
+  // Start liora-net and point WebKit at it before any page loads.
+  [self refreshNetworkNow];
 
   __weak LioraController* weakSelf = self;
   _core->setNotificationSink([weakSelf](const liora::Json& message) {
     NSString* text = ns(message.dump());
+    std::string method = message.value("method", std::string());
     dispatch_async(dispatch_get_main_queue(), ^{
       [weakSelf deliver:text];
+      // Network settings changed: rebuild the local resolver and proxy.
+      if (method == "net.rulesChanged" || method == "settings.changed") {
+        [weakSelf scheduleNetworkRefresh];
+      }
     });
   });
 }
 
-- (void)applyNetworkToKernel {
+- (LioraNetService*)netService {
+  if (!_netService) _netService = [[LioraNetService alloc] init];
+  return _netService;
+}
+
+- (void)scheduleNetworkRefresh {
+  if (self.refreshPending) return;
+  self.refreshPending = YES;
+  __weak LioraController* weakSelf = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+    [weakSelf refreshNetworkNow];
+  });
+}
+
+- (void)refreshNetworkNow {
+  self.refreshPending = NO;
   if (!_core) return;
+
+  liora::Json request = {
+      {"jsonrpc", "2.0"}, {"id", 1}, {"method", "net.config"}, {"params", liora::Json::object()}};
+  liora::Json response = _core->handleJson(request);
+  auto result = response.find("result");
+  if (result == response.end() || !result->is_object()) {
+    NSLog(@"Liora: net.config failed: %s", response.dump().c_str());
+    return;
+  }
+
+  bool needsNet = result->value("needsNet", false);
+  std::string config = result->contains("config") ? (*result)["config"].dump() : "{}";
+
+  // The kernel decides whether it needs the local service: a kernel without
+  // native DoH needs the proxy even for a plain DoH provider.
   liora::KernelNetSetup setup = _core->applyNetwork(liora::KernelManager::kSystem);
+  needsNet = needsNet || setup.usesNet || setup.netMissing;
   if (!setup.unsupported.empty()) {
-    // Visible in the interface; the shell does not pretend to apply them.
     NSLog(@"Liora: kernel cannot apply: %s", liora::join(setup.unsupported, ", ").c_str());
+  }
+
+  if (!needsNet) {
+    [self.netService stop];
+    _core->setNetRuntime(liora::NetRuntime{});
+    [self applyProxyPort:0];
+    return;
+  }
+
+  NSString* configText = ns(config);
+  if (self.netService.dohPort > 0 && [self.netService.runningConfig isEqualToString:configText]) {
+    [self publishRuntime];
+    [self applyProxyPort:self.netService.proxyPort];
+    return;
+  }
+
+  NSString* message = nil;
+  if (![self.netService startWithConfig:configText error:&message]) {
+    NSLog(@"Liora: liora-net failed: %@", message);
+    _core->setNetRuntime(liora::NetRuntime{});
+    [self applyProxyPort:0];
+    return;
+  }
+  [self publishRuntime];
+  [self applyProxyPort:self.netService.proxyPort];
+}
+
+- (void)publishRuntime {
+  liora::NetRuntime runtime;
+  runtime.running = self.netService.dohPort > 0;
+  runtime.dohPort = static_cast<uint16_t>(self.netService.dohPort);
+  runtime.proxyPort = static_cast<uint16_t>(self.netService.proxyPort);
+  runtime.spki = stdString(self.netService.spki);
+  if (_core) _core->setNetRuntime(runtime);
+}
+
+- (void)applyProxyPort:(int)port {
+  if (@available(macOS 14.0, *)) {
+    WKWebsiteDataStore* store = [WKWebsiteDataStore defaultDataStore];
+    if (port > 0) {
+      NSString* portText = [NSString stringWithFormat:@"%d", port];
+      nw_endpoint_t endpoint = nw_endpoint_create_host("127.0.0.1", portText.UTF8String);
+      nw_proxy_config_t config = nw_proxy_config_create_http_connect(endpoint, NULL);
+      store.proxyConfigurations = config ? @[ config ] : @[];
+      NSLog(@"Liora: kernel traffic goes through the local resolver on port %d", port);
+    } else {
+      store.proxyConfigurations = @[];
+    }
+  } else if (port > 0) {
+    NSLog(@"Liora: the system WebView needs macOS 14 or later to use a proxy");
   }
 }
 

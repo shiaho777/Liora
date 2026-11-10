@@ -48,6 +48,12 @@
     if (active) addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
   });
 
+  // Used by the shell for automated checks and deep links.
+  $effect(() => {
+    (window as unknown as { __lioraOpenUrl?: (url: string) => void }).__lioraOpenUrl = (url: string) =>
+      navigate(url);
+  });
+
   // Tell the shell where the kernel view goes. It is repositioned on resize.
   $effect(() => {
     if (!contentEl) return;

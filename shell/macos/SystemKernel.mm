@@ -163,10 +163,13 @@ KernelInfo SystemKernel::info() const {
   info.name = "System WebView (WebKit)";
   NSOperatingSystemVersion version = NSProcessInfo.processInfo.operatingSystemVersion;
   info.version = std::to_string(version.majorVersion) + "." + std::to_string(version.minorVersion);
-  // WebKit cannot be pointed at a local DoH resolver, so neither encrypted DNS
-  // nor ECH nor forced QUIC is advertised. Saying otherwise would offer
-  // switches that silently do nothing.
-  info.caps = 0;
+
+  // WebKit can be pointed at a local HTTP proxy only from macOS 14, so encrypted
+  // DNS via liora-net is advertised only there. ECH and forced QUIC are never
+  // available: the page's TLS is owned by WebKit.
+  uint32_t caps = 0;
+  if (@available(macOS 14.0, *)) caps |= kCapProxy;
+  info.caps = caps;
   info.available = true;
   info.netNeedsRestart = false;
   return info;
