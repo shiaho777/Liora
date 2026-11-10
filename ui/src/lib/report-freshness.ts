@@ -35,6 +35,8 @@ export interface ReportFreshness {
   currentApplied: CurrentApplied | null;
   reportDelta: DeltaLike[];
   currentDelta: DeltaLike[];
+  /** How many resolver starts happened after the report was written. */
+  resolverRestarts: number;
 }
 
 function text(value: string | undefined): string {
@@ -71,6 +73,8 @@ export function reportFreshness(
   reportDelta: DeltaLike[],
   currentApplied: CurrentApplied | null,
   currentConfig: NetworkSnapshot,
+  reportResolverCount?: number,
+  currentResolverCount?: number,
 ): ReportFreshness {
   const fields = appliedFields(reportApplied, currentApplied);
   const currentDelta = currentApplied
@@ -88,6 +92,17 @@ export function reportFreshness(
   const appliedChanged = fields.length > 0;
   const deltaChanged = deltaKey(reportDelta) !== deltaKey(currentDelta);
 
+  // A restarted resolver does not change the configuration, so it must not
+  // trigger the "report no longer matches" warning on its own. It is still
+  // useful context: the process that produced the report is gone.
+  const resolverRestarts =
+    typeof reportResolverCount === 'number' &&
+    reportResolverCount > 0 &&
+    typeof currentResolverCount === 'number' &&
+    currentResolverCount > reportResolverCount
+      ? currentResolverCount - reportResolverCount
+      : 0;
+
   return {
     changed: appliedChanged || deltaChanged,
     appliedChanged,
@@ -97,5 +112,6 @@ export function reportFreshness(
     currentApplied,
     reportDelta,
     currentDelta,
+    resolverRestarts,
   };
 }

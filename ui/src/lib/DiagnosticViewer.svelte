@@ -151,7 +151,8 @@
   ): Promise<void> {
     if (!parsed.switchesKnown) return;
     const kernel = parsed.kernel && parsed.kernel !== 'unknown' ? parsed.kernel : '';
-    const [rules, plan, setup, runtime, appliedResult] = await Promise.allSettled([
+    const [rules, plan, setup, runtime, appliedResult, resolverResult] =
+      await Promise.allSettled([
       call<{
         rules: Array<{ name: string; enabled: boolean; domains: string[]; h3: string }>;
         enabled: boolean;
@@ -164,6 +165,7 @@
       kernel ? call<KernelSetupLike>('kernels.setup', { id: kernel }) : Promise.resolve(null),
       call<ProxyRuntimeLike>('net.runtime'),
       call<CurrentApplied>('net.lastApplied'),
+      call<{ at: number; count: number }>('net.resolverStatus'),
     ]);
     if (report?.raw !== parsed.raw) return;
 
@@ -204,6 +206,12 @@
       appliedResult.value.at > 0
         ? appliedResult.value
         : null;
+    const currentResolverCount =
+      resolverResult.status === 'fulfilled' &&
+      resolverResult.value &&
+      typeof resolverResult.value.count === 'number'
+        ? resolverResult.value.count
+        : undefined;
     if (parsed.appliedKnown && plan.status === 'fulfilled') {
       freshness = reportFreshness(
         parsed.applied
@@ -222,6 +230,8 @@
           mode: plan.value.mode,
           proxy: setupValue?.proxy ?? '',
         },
+        parsed.resolver?.count,
+        currentResolverCount,
       );
     } else {
       freshness = null;
@@ -710,6 +720,11 @@
               </span>
             </div>
           {/each}
+        {/if}
+        {#if freshness?.resolverRestarts}
+          <div class="diag__note">
+            {t('diag.resolverRestarts', { count: freshness.resolverRestarts })}
+          </div>
         {/if}
         {#if freshness?.changed}
           <div class="callout callout--warning" style="margin-top: 8px">

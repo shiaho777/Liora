@@ -90,3 +90,28 @@ describe('reportFreshness', () => {
     expect(freshness.changed).toBe(false);
   });
 });
+
+describe('resolver restart count', () => {
+  it('reports how many runs happened since the report', () => {
+    const freshness = reportFreshness(
+      reportApplied,
+      [],
+      { ...currentApplied, ...reportApplied },
+      { ...currentConfig, provider: 'Quad9 Secure', proxy: 'http://127.0.0.1:57009' },
+      2,
+      4,
+    );
+    expect(freshness.resolverRestarts).toBe(2);
+    // A resolver restart alone is not a configuration mismatch.
+    expect(freshness.changed).toBe(false);
+  });
+
+  it('ignores equal, older or missing counts', () => {
+    const base = { ...currentApplied, ...reportApplied };
+    const config = { ...currentConfig, provider: 'Quad9 Secure', proxy: 'http://127.0.0.1:57009' };
+    expect(reportFreshness(reportApplied, [], base, config, 3, 3).resolverRestarts).toBe(0);
+    expect(reportFreshness(reportApplied, [], base, config, 4, 2).resolverRestarts).toBe(0);
+    expect(reportFreshness(reportApplied, [], base, config).resolverRestarts).toBe(0);
+    expect(reportFreshness(reportApplied, [], base, config, 2, undefined).resolverRestarts).toBe(0);
+  });
+});
