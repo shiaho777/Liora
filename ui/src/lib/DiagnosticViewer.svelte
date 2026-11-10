@@ -94,8 +94,18 @@
   const timelineText = $derived(timeline.length > 0 ? timelineToText(timeline) : '');
 
   $effect(() => {
-    (window as unknown as { __lioraTimelineText?: string }).__lioraTimelineText = timelineText;
+    const hooks = window as unknown as {
+      __lioraTimelineText?: string;
+      __lioraSaveTimeline?: () => void;
+    };
+    hooks.__lioraTimelineText = timelineText;
+    hooks.__lioraSaveTimeline = () => saveTimeline();
   });
+
+  function saveTimeline(): void {
+    if (!timelineText) return;
+    notify('ui.saveTimeline', { content: timelineText });
+  }
 
   async function copyTimeline(): Promise<void> {
     if (!timelineText) return;
@@ -908,9 +918,14 @@
       <section class="diag__section">
         <div class="diag__label diag__label--row">
           <span>{t('diag.timeline')}</span>
-          <button class="button button--ghost button--sm" onclick={copyTimeline}>
-            {t('timeline.copy')}
-          </button>
+          <span class="cluster">
+            <button class="button button--ghost button--sm" onclick={copyTimeline}>
+              {t('timeline.copy')}
+            </button>
+            <button class="button button--ghost button--sm" onclick={saveTimeline}>
+              {t('timeline.save')}
+            </button>
+          </span>
         </div>
         <div class="timeline">
           {#each timeline as event, index (event.kind + index)}

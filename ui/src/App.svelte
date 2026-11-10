@@ -227,6 +227,17 @@
       (window as unknown as { __lioraRuntimeSeen?: unknown }).__lioraRuntimeSeen = app.runtime;
       return;
     }
+    if (message.method === 'browser.timelineSaved' && message.params) {
+      const params = message.params as { path?: string };
+      const name = (params.path ?? '').split('/').pop() ?? '';
+      toast(t('timeline.saved', { name }));
+      return;
+    }
+    if (message.method === 'browser.timelineFailed' && message.params) {
+      const params = message.params as { message?: string };
+      toast(params.message || t('timeline.saveFailed'), 'error');
+      return;
+    }
     if (message.method === 'browser.diagnosticSaved' && message.params) {
       const params = message.params as { path?: string };
       const name = (params.path ?? '').split('/').pop() ?? '';
@@ -402,6 +413,10 @@
             button.textContent?.includes('重启'),
           );
           restart?.click();
+          break;
+        }
+        case 'savetimeline': {
+          (window as unknown as { __lioraSaveTimeline?: () => void }).__lioraSaveTimeline?.();
           break;
         }
         case 'setprovider': {

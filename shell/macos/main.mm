@@ -884,6 +884,37 @@ NSString* jsonEscape(id object) {
         ns(setup.proxy), (unsigned long)setup.switches.size());
 }
 
+// Writes text into the configured downloads folder with a timestamped name.
+- (BOOL)saveTextFile:(NSString*)content
+              prefix:(NSString*)prefix
+                path:(NSString**)outPath
+               error:(NSString**)error {
+  NSString* directory = nil;
+  if (_core) {
+    std::string configured = _core->settings().get("downloads.dir").get<std::string>();
+    if (!configured.empty()) directory = ns(configured);
+  }
+  if (!directory.length) {
+    directory =
+        [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES) firstObject];
+  }
+  if (!directory.length) directory = NSTemporaryDirectory();
+
+  NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+  formatter.dateFormat = @"yyyyMMdd-HHmmss";
+  NSString* stamp = [formatter stringFromDate:[NSDate date]];
+  NSString* path =
+      [directory stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@.txt", prefix, stamp]];
+
+  NSError* writeError = nil;
+  if ([content writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&writeError]) {
+    if (outPath) *outPath = path;
+    return YES;
+  }
+  if (error) *error = writeError.localizedDescription ?: @"";
+  return NO;
+}
+
 - (void)handleShellMessage:(NSString*)method params:(id)params {
   if ([method isEqualToString:@"ui.restartKernel"]) {
     [self restartKernel:params[@"kernel"]];
@@ -948,30 +979,27 @@ NSString* jsonEscape(id object) {
   if ([method isEqualToString:@"ui.saveDiagnostic"]) {
     NSString* content = params[@"content"];
     if (!content.length) return;
-
-    NSString* directory = nil;
-    if (_core) {
-      std::string configured = _core->settings().get("downloads.dir").get<std::string>();
-      if (!configured.empty()) directory = ns(configured);
-    }
-    if (!directory.length) {
-      directory = [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES) firstObject];
-    }
-    if (!directory.length) directory = NSTemporaryDirectory();
-
-    NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
-    formatter.dateFormat = @"yyyyMMdd-HHmmss";
-    NSString* stamp = [formatter stringFromDate:[NSDate date]];
-    NSString* path =
-        [directory stringByAppendingPathComponent:[NSString stringWithFormat:@"liora-diagnostic-%@.txt", stamp]];
-
-    NSError* writeError = nil;
-    if ([content writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&writeError]) {
+    NSString* path = nil;
+    NSString* message = nil;
+    if ([self saveTextFile:content prefix:@"liora-diagnostic" path:&path error:&message]) {
       NSLog(@"Liora: diagnostic saved %@", path);
       [self notifyInterface:@"browser.diagnosticSaved" params:@{@"path" : path}];
     } else {
-      [self notifyInterface:@"browser.diagnosticFailed"
-                     params:@{@"message" : writeError.localizedDescription ?: @""}];
+      [self notifyInterface:@"browser.diagnosticFailed" params:@{@"message" : message ?: @""}];
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.saveTimeline"]) {
+    NSString* content = params[@"content"];
+    if (!content.length) return;
+    NSString* path = nil;
+    NSString* message = nil;
+    if ([self saveTextFile:content prefix:@"liora-timeline" path:&path error:&message]) {
+      NSLog(@"Liora: timeline saved %@", path);
+      [self notifyInterface:@"browser.timelineSaved" params:@{@"path" : path}];
+    } else {
+      [self notifyInterface:@"browser.timelineFailed" params:@{@"message" : message ?: @""}];
     }
     return;
   }
