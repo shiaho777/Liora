@@ -25,6 +25,10 @@
   import { i18n, t } from './i18n.svelte';
   import { networkDelta } from './network-delta';
   import { buildDiagnosticReport } from './diagnostic-report-build';
+  import {
+    buildTimeline,
+    type TimelineEvent,
+  } from './diagnostics-timeline';
 
   let report = $state<DiagnosticReport | null>(null);
   let error = $state('');
@@ -39,12 +43,30 @@
   let proxyError = $state('');
   let freshness = $state<ReportFreshness | null>(null);
   let savingRefresh = $state(false);
+  let currentAppliedInfo = $state<CurrentApplied | null>(null);
+  let currentResolverInfo = $state<{ at: number; count: number } | null>(null);
   let restarting = $state(false);
   // After a restart the report's historical switches are replaced by the ones
   // the kernel actually received, while the raw text stays untouched.
   let liveSwitches = $state<string[] | null>(null);
 
   const displaySwitches = $derived(liveSwitches ?? report?.switches ?? []);
+  const timeline = $derived.by(() => {
+    if (!report) return [];
+    if (!report.appliedKnown && !report.resolverKnown) return [];
+    return buildTimeline({
+      generatedAt: report.generated,
+      reportApplied: report.applied,
+      reportResolver: report.resolver,
+      reportDeltaCount: report.delta.length,
+      currentApplied: currentAppliedInfo,
+      currentResolver: currentResolverInfo,
+      currentDeltaCount: freshness?.currentDelta.length ?? 0,
+      currentDeltaChanged: freshness?.deltaChanged ?? false,
+      now: Date.now(),
+    });
+  });
+
   const stale = $derived(staleItems(ruleCheck, dohCheck, proxyCheck));
   const errored = $derived(
     [
@@ -88,6 +110,12 @@
   // pasted text block. All of them go through the same parser.
   $effect(() => {
     return onNotification((message) => {
+      if (message.method === 'settings.changed' || message.method === 'net.rulesChanged') {
+        setTimeout(() => {
+          if (report) void loadCrossChecks(report, liveSwitches ?? report.switches);
+        }, 900);
+        return;
+      }
       if (message.method === 'browser.kernelRestarted') {
         const params = (message.params ?? {}) as {
           switches?: string[];
@@ -137,6 +165,8 @@
     proxyCheck = null;
     proxyError = '';
     freshness = null;
+    currentAppliedInfo = null;
+    currentResolverInfo = null;
     restarting = false;
     liveSwitches = null;
     void loadCrossChecks(result.report);
@@ -205,6 +235,14 @@
       typeof appliedResult.value.at === 'number' &&
       appliedResult.value.at > 0
         ? appliedResult.value
+        : null;
+    currentAppliedInfo = currentApplied;
+    currentResolverInfo =
+      resolverResult.status === 'fulfilled' &&
+      resolverResult.value &&
+      typeof resolverResult.value.at === 'number' &&
+      resolverResult.value.count > 0
+        ? resolverResult.value
         : null;
     const currentResolverCount =
       resolverResult.status === 'fulfilled' &&
@@ -359,6 +397,36 @@
     } finally {
       savingRefresh = false;
     }
+  }
+
+  function formatEpoch(value: number): string {
+    return value > 0 ? new Date(value).toLocaleString() : '—';
+  }
+
+  function timelineLabel(event: TimelineEvent): string {
+    if (event.kind === 'generated') return t('timeline.generated');
+    if (event.kind === 'applied') return t('timeline.applied');
+    if (event.kind === 'resolver') return t('timeline.resolver', { count: event.count ?? 0 });
+    if (event.kind === 'report-delta') {
+      return t('timeline.reportDelta', { count: event.differences ?? 0 });
+    }
+    if (event.kind === 'current-applied') return t('timeline.currentApplied');
+    if (event.kind === 'current-resolver') {
+      return t('timeline.currentResolver', { count: event.count ?? 0 });
+    }
+    return t('timeline.currentDelta', { count: event.differences ?? 0 });
+  }
+
+  function timelineDetail(event: TimelineEvent): string {
+    const parts: string[] = [];
+    if (event.provider) {
+      parts.push(`${event.provider}${event.protocol ? ` (${event.protocol})` : ''}`);
+    }
+    if (event.proxy) {
+      const port = portOf(event.proxy);
+      parts.push(port ? `:${port}` : event.proxy);
+    }
+    return parts.join(' · ');
   }
 
   function formatTime(value: string): string {
@@ -765,6 +833,26 @@
       </section>
     {/if}
 
+    {#if timeline.length > 0}
+      <section class="diag__section">
+        <div class="diag__label">{t('diag.timeline')}</div>
+        <div class="timeline">
+          {#each timeline as event, index (event.kind + index)}
+            <div class="timeline__item">
+              <span class="timeline__time mono">{formatEpoch(event.at)}</span>
+              <span class="timeline__dot"></span>
+              <span class="timeline__copy">
+                <span class="timeline__label">{timelineLabel(event)}</span>
+                {#if timelineDetail(event)}
+                  <span class="timeline__detail mono">{timelineDetail(event)}</span>
+                {/if}
+              </span>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <section class="diag__section">
       <div class="diag__label">{t('error.connection')}</div>
       <div class="diag__row">
@@ -1014,6 +1102,50 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--text-muted);
+  }
+
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .timeline__item {
+    display: grid;
+    grid-template-columns: 132px 8px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+  }
+
+  .timeline__time {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding-top: 1px;
+  }
+
+  .timeline__dot {
+    width: 6px;
+    height: 6px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .timeline__copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .timeline__label {
+    font-size: 11.5px;
+    font-weight: 550;
+  }
+
+  .timeline__detail {
+    font-size: 11px;
+    color: var(--text-muted);
+    word-break: break-all;
   }
 
   .diag__note {

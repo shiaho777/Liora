@@ -404,6 +404,11 @@
           restart?.click();
           break;
         }
+        case 'setprovider': {
+          void call('settings.set', { key: 'dns.mode', value: 'provider' });
+          void call('settings.set', { key: 'dns.provider', value: 'quad9' });
+          break;
+        }
         case 'restartservice': {
           notify('ui.restartKernel', {});
           break;
