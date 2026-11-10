@@ -71,6 +71,57 @@ export function expectedForcedOrigins(rules: RuleLike[], rulesEnabled: boolean):
   return out;
 }
 
+export interface DnsPlanLike {
+  mode: string;
+  dohTemplates: string;
+  endpoint?: { name?: string; id?: string; protocol?: string } | null;
+}
+
+export interface KernelSetupLike {
+  dohTemplates: string;
+  dnsMode: string;
+  usesNet: boolean;
+  netMissing: boolean;
+}
+
+export interface DohTemplateCheck {
+  /** Template recorded in the report, or an empty string. */
+  reported: string;
+  /** Template the current settings would hand to this kernel now. */
+  expected: string;
+  stale: boolean;
+  mode: string;
+  provider?: string;
+  protocol?: string;
+}
+
+function normalizeTemplate(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Compares the kernel's start-up DoH template with the current DNS plan and
+ * the template the kernel would receive now. The kernel setup is preferred
+ * because it accounts for liora-net (a local https://127.0.0.1:... template)
+ * and for kernels that do not use native DoH at all.
+ */
+export function checkDohTemplate(
+  switches: string[],
+  plan: DnsPlanLike,
+  setup: KernelSetupLike | null,
+): DohTemplateCheck {
+  const reported = normalizeTemplate(switchValue(switches, 'dns-over-https-templates'));
+  const expected = normalizeTemplate(setup ? setup.dohTemplates : plan.dohTemplates);
+  return {
+    reported,
+    expected,
+    stale: reported !== expected,
+    mode: plan.mode,
+    provider: plan.endpoint?.name || plan.endpoint?.id || undefined,
+    protocol: plan.endpoint?.protocol,
+  };
+}
+
 export function checkForcedOrigins(
   switches: string[],
   rules: RuleLike[],

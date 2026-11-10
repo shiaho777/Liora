@@ -4,7 +4,13 @@
   import { call, notify, onNotification } from './bridge';
   import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
   import { explainLimit, explainSwitch } from './kernel-explanations';
-  import { checkForcedOrigins, type ForcedOriginsCheck } from './kernel-switch-check';
+  import {
+    checkDohTemplate,
+    checkForcedOrigins,
+    type DohTemplateCheck,
+    type ForcedOriginsCheck,
+    type KernelSetupLike,
+  } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
 
   let report = $state<DiagnosticReport | null>(null);
@@ -14,6 +20,8 @@
   let pasteOpen = $state(false);
   let ruleCheck = $state<ForcedOriginsCheck | null>(null);
   let rulesError = $state('');
+  let dohCheck = $state<DohTemplateCheck | null>(null);
+  let dohError = $state('');
 
   // Turns generic switch/limit copy into statements about this report.
   const context = $derived({
@@ -54,23 +62,49 @@
     error = '';
     ruleCheck = null;
     rulesError = '';
-    void loadRules(result.report);
+    dohCheck = null;
+    dohError = '';
+    void loadCrossChecks(result.report);
   }
 
-  // A running kernel keeps the switches it started with, so a report can list
-  // origins the current rules no longer produce. Compare against the rules that
-  // are active now and say so explicitly.
-  async function loadRules(parsed: DiagnosticReport): Promise<void> {
+  // A running kernel keeps the switches it started with, so both the forced
+  // origins and the DoH endpoint can be stale. Compare against what the
+  // current rules and DNS settings would produce now.
+  async function loadCrossChecks(parsed: DiagnosticReport): Promise<void> {
     if (!parsed.switchesKnown) return;
-    try {
-      const listing = await call<{
+    const kernel = parsed.kernel && parsed.kernel !== 'unknown' ? parsed.kernel : '';
+    const [rules, plan, setup] = await Promise.allSettled([
+      call<{
         rules: Array<{ name: string; enabled: boolean; domains: string[]; h3: string }>;
         enabled: boolean;
-      }>('rules.list');
-      if (report?.raw !== parsed.raw) return;
-      ruleCheck = checkForcedOrigins(parsed.switches, listing.rules, listing.enabled !== false);
-    } catch {
-      if (report?.raw === parsed.raw) rulesError = t('stale.unavailable');
+      }>('rules.list'),
+      call<{
+        mode: string;
+        dohTemplates: string;
+        endpoint?: { name?: string; id?: string; protocol?: string } | null;
+      }>('dns.plan'),
+      kernel ? call<KernelSetupLike>('kernels.setup', { id: kernel }) : Promise.resolve(null),
+    ]);
+    if (report?.raw !== parsed.raw) return;
+
+    if (rules.status === 'fulfilled') {
+      ruleCheck = checkForcedOrigins(parsed.switches, rules.value.rules, rules.value.enabled !== false);
+    } else {
+      rulesError = t('stale.unavailable');
+    }
+
+    const setupValue =
+      setup.status === 'fulfilled' && setup.value ? (setup.value as KernelSetupLike) : null;
+    if (plan.status === 'fulfilled') {
+      dohCheck = checkDohTemplate(parsed.switches, plan.value, setupValue);
+    } else if (setupValue) {
+      dohCheck = checkDohTemplate(
+        parsed.switches,
+        { mode: setupValue.dnsMode, dohTemplates: setupValue.dohTemplates, endpoint: null },
+        setupValue,
+      );
+    } else {
+      dohError = t('dnsStale.unavailable');
     }
   }
 
@@ -265,6 +299,29 @@
         </div>
       {:else if ruleCheck && ruleCheck.reported.length > 0}
         <div class="diag__note diag__note--ok">{t('stale.match')}</div>
+      {/if}
+
+      {#if dohCheck?.stale}
+        <div class="callout callout--warning" style="margin-top: 2px">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span class="flag__copy">
+            <span class="flag__title">{t('dnsStale.title')}</span>
+            <span class="flag__detail">{t('dnsStale.body')}</span>
+            <span class="flag__detail mono">
+              {t('dnsStale.reported')}: {dohCheck.reported || t('dnsStale.none')}
+            </span>
+            <span class="flag__detail mono">
+              {t('dnsStale.expected')}: {dohCheck.expected || t('dnsStale.none')}
+            </span>
+            <span class="flag__detail">
+              {t('dnsStale.config')}: {dohCheck.provider ?? '—'}{#if dohCheck.protocol}{' · '}{dohCheck.protocol}{/if}{' · '}{dohCheck.mode}
+            </span>
+          </span>
+        </div>
+      {:else if dohCheck && (dohCheck.reported || dohCheck.expected)}
+        <div class="diag__note diag__note--ok">{t('dnsStale.match')}</div>
+      {:else if dohError}
+        <div class="diag__note">{dohError}</div>
       {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.limits')}</span>

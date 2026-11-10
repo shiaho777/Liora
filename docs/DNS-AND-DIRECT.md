@@ -144,7 +144,18 @@ ech
 当前规则新增: example.org:443
 ```
 
-旧格式报告（没有 `Switches` 字段）会明确显示“无法比对”，而不是误报一致。
+同样会比对 DoH 模板：优先使用 `kernels.setup` 给出的模板（它可能是 liora-net 的 `https://127.0.0.1:<port>/dns-query`），再辅以 `dns.plan` 的当前模式与提供商。
+
+```
+DNS 启动参数已过期
+报告使用的 DoH 地址与当前 DNS 配置不一致。DNS 设置只在启动时读取，
+修改 DNS 模式或提供商后需要重启内核。
+报告: https://dns.quad9.net/dns-query
+当前: https://cloudflare-dns.com/dns-query
+当前配置: Cloudflare Standard · doh · secure
+```
+
+一致时显示“DoH 地址与当前 DNS 配置一致”；尾部斜杠差异不会误报。旧格式报告（没有 `Switches` 字段）会明确显示“无法比对”，而不是误报一致。
 
 条目与通用含义：
 

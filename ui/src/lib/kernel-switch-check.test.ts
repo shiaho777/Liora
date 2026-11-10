@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkDohTemplate,
   checkForcedOrigins,
   expectedForcedOrigins,
   parseForcedOrigins,
@@ -92,6 +93,89 @@ describe('checkForcedOrigins', () => {
 
   it('is clean when neither side forces anything', () => {
     const check = checkForcedOrigins([], [forceRule(['x.com'])], false);
+    expect(check.stale).toBe(false);
+  });
+});
+
+describe('checkDohTemplate', () => {
+  const plan = {
+    mode: 'provider',
+    dohTemplates: 'https://cloudflare-dns.com/dns-query',
+    endpoint: { name: 'Cloudflare', id: 'cloudflare', protocol: 'doh' },
+  };
+
+  it('is clean when the report matches the current template', () => {
+    const check = checkDohTemplate(
+      ['--dns-over-https-templates=https://cloudflare-dns.com/dns-query'],
+      plan,
+      {
+        dohTemplates: 'https://cloudflare-dns.com/dns-query',
+        dnsMode: 'secure',
+        usesNet: false,
+        netMissing: false,
+      },
+    );
+    expect(check.stale).toBe(false);
+    expect(check.provider).toBe('Cloudflare');
+    expect(check.mode).toBe('provider');
+  });
+
+  it('flags a provider change since the kernel started', () => {
+    const check = checkDohTemplate(
+      ['--dns-over-https-templates=https://dns.quad9.net/dns-query'],
+      plan,
+      {
+        dohTemplates: 'https://cloudflare-dns.com/dns-query',
+        dnsMode: 'secure',
+        usesNet: false,
+        netMissing: false,
+      },
+    );
+    expect(check.stale).toBe(true);
+    expect(check.reported).toBe('https://dns.quad9.net/dns-query');
+    expect(check.expected).toBe('https://cloudflare-dns.com/dns-query');
+  });
+
+  it('prefers the kernel setup because it may point at liora-net', () => {
+    const check = checkDohTemplate(
+      ['--dns-over-https-templates=https://dns.quad9.net/dns-query'],
+      plan,
+      {
+        dohTemplates: 'https://127.0.0.1:5300/dns-query',
+        dnsMode: 'secure',
+        usesNet: true,
+        netMissing: false,
+      },
+    );
+    expect(check.expected).toBe('https://127.0.0.1:5300/dns-query');
+    expect(check.stale).toBe(true);
+  });
+
+  it('flags encryption being turned off or on', () => {
+    const disabled = checkDohTemplate(
+      ['--dns-over-https-templates=https://cloudflare-dns.com/dns-query'],
+      { mode: 'system', dohTemplates: '', endpoint: null },
+      null,
+    );
+    expect(disabled.stale).toBe(true);
+    expect(disabled.expected).toBe('');
+
+    const enabledSinceStart = checkDohTemplate([], plan, {
+      dohTemplates: 'https://cloudflare-dns.com/dns-query',
+      dnsMode: 'secure',
+      usesNet: false,
+      netMissing: false,
+    });
+    expect(enabledSinceStart.stale).toBe(true);
+    expect(enabledSinceStart.reported).toBe('');
+  });
+
+  it('ignores a trailing slash difference', () => {
+    const check = checkDohTemplate(
+      ['--dns-over-https-templates=https://cloudflare-dns.com/dns-query/'],
+      plan,
+      null,
+    );
     expect(check.stale).toBe(false);
   });
 });
