@@ -375,6 +375,28 @@ a {
   border-color: var(--warning);
 }
 
+.network-pending:disabled {
+  cursor: default;
+}
+
+.network-pending--applied {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.network-pending--applied:hover {
+  border-color: var(--success);
+}
+
+.network-pending--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.network-pending--error:hover {
+  border-color: var(--danger);
+}
+
 .network-pending .dot {
   width: 6px;
   height: 6px;

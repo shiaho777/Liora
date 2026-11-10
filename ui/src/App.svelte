@@ -132,6 +132,42 @@
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
   let networkTimer: ReturnType<typeof setTimeout> | undefined;
+  let applyTimer: ReturnType<typeof setTimeout> | undefined;
+  let applyState = $state<'idle' | 'applying' | 'applied' | 'error'>('idle');
+
+  // The toolbar badge applies changes directly: restart the resolver, re-apply
+  // the proxy and reload pages, then confirm or report failure.
+  function applyNetworkChanges(): void {
+    if (applyState === 'applying' || applyState === 'applied') return;
+    applyState = 'applying';
+    notify('ui.restartKernel', {});
+    clearTimeout(applyTimer);
+    applyTimer = setTimeout(() => {
+      if (applyState !== 'applying') return;
+      applyState = 'error';
+      toast(t('network.applyFailed'), 'error');
+      applyTimer = setTimeout(() => {
+        applyState = 'idle';
+      }, 3000);
+    }, 15000);
+  }
+
+  async function finishNetworkApply(): Promise<void> {
+    await refreshNetworkStatus();
+    clearTimeout(applyTimer);
+    if (networkPending()) {
+      applyState = 'error';
+      toast(t('network.applyFailed'), 'error');
+      applyTimer = setTimeout(() => {
+        applyState = 'idle';
+      }, 3000);
+    } else {
+      applyState = 'applied';
+      applyTimer = setTimeout(() => {
+        applyState = 'idle';
+      }, 2500);
+    }
+  }
 
   // Network settings can change from the DNS panel, the rules list or a
   // restart. Refresh the global "unapplied changes" state shortly afterwards.
@@ -151,6 +187,9 @@
       message.method === 'core.reloaded'
     ) {
       scheduleNetworkStatus();
+    }
+    if (message.method === 'browser.kernelRestarted' && applyState === 'applying') {
+      void finishNetworkApply();
     }
     if (message.method === 'browser.runtime' && message.params) {
       const params = message.params as { codeSigning?: string; cefStatus?: string };
@@ -337,6 +376,10 @@
             button.textContent?.includes('重启'),
           );
           restart?.click();
+          break;
+        }
+        case 'applyfrombadge': {
+          document.querySelector<HTMLElement>('.network-pending')?.click();
           break;
         }
         case 'leavepage': {
@@ -668,14 +711,23 @@
       </form>
 
       <div class="toolbar__group">
-        {#if networkPending()}
+        {#if networkPending() || applyState !== 'idle'}
           <button
             class="network-pending"
-            title={t('network.pendingHint')}
-            onclick={() => openSettings('dns')}
+            class:network-pending--applied={applyState === 'applied'}
+            class:network-pending--error={applyState === 'error'}
+            title={t('network.applyHint')}
+            disabled={applyState === 'applying' || applyState === 'applied'}
+            onclick={applyNetworkChanges}
           >
             <span class="dot"></span>
-            {t('network.pending')}
+            {applyState === 'applying'
+              ? t('network.applying')
+              : applyState === 'applied'
+                ? t('network.applied')
+                : applyState === 'error'
+                  ? t('network.applyFailed')
+                  : t('network.pending')}
           </button>
         {/if}
         <button

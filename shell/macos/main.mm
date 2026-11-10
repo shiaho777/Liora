@@ -186,11 +186,13 @@ NSString* jsonEscape(id object) {
   // Verification hooks for the command bridge. Several commands allow a test
   // to open a screen, act, then dump the resulting state.
   const char* commandEnvs[] = {"LIORA_TEST_COMMAND",  "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3",
-                               "LIORA_TEST_COMMAND4", "LIORA_TEST_COMMAND5", "LIORA_TEST_COMMAND6"};
+                               "LIORA_TEST_COMMAND4", "LIORA_TEST_COMMAND5", "LIORA_TEST_COMMAND6",
+                               "LIORA_TEST_COMMAND7"};
   const char* delayEnvs[] = {"LIORA_TEST_COMMAND_DELAY_MS",  "LIORA_TEST_COMMAND2_DELAY_MS",
                              "LIORA_TEST_COMMAND3_DELAY_MS", "LIORA_TEST_COMMAND4_DELAY_MS",
-                             "LIORA_TEST_COMMAND5_DELAY_MS", "LIORA_TEST_COMMAND6_DELAY_MS"};
-  for (int index = 0; index < 6; ++index) {
+                             "LIORA_TEST_COMMAND5_DELAY_MS", "LIORA_TEST_COMMAND6_DELAY_MS",
+                             "LIORA_TEST_COMMAND7_DELAY_MS"};
+  for (int index = 0; index < 7; ++index) {
     const char* command = getenv(commandEnvs[index]);
     if (!command || !*command) continue;
     NSString* name = ns(command);
@@ -770,7 +772,11 @@ NSString* jsonEscape(id object) {
 // and the new ephemeral proxy port take effect. Chromium reads these at start-up.
 - (void)restartKernel:(NSString*)kernelId {
   if (!_core) return;
-  NSString* kernel = kernelId.length ? kernelId : ns(liora::KernelManager::kSystem);
+  // No explicit kernel (the toolbar action) means the resolved default.
+  std::string chosen = kernelId.length
+                           ? stdString(kernelId)
+                           : _core->kernels().resolve(_core->settings(), liora::Scope{});
+  NSString* kernel = ns(chosen);
 
   [self.netService stop];
   _core->setNetRuntime(liora::NetRuntime{});
