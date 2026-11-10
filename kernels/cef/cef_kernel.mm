@@ -13,6 +13,7 @@
 #include "include/cef_download_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
+#include "include/cef_permission_handler.h"
 #include "include/cef_version.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/wrapper/cef_library_loader.h"
@@ -100,7 +101,8 @@ class KernelClient : public CefClient,
                      public CefLifeSpanHandler,
                      public CefLoadHandler,
                      public CefDisplayHandler,
-                     public CefDownloadHandler {
+                     public CefDownloadHandler,
+                     public CefPermissionHandler {
  public:
   KernelClient(std::shared_ptr<Bridge> bridge, const ViewOptions& options)
       : bridge_(std::move(bridge)), options_(options) {}
@@ -109,6 +111,68 @@ class KernelClient : public CefClient,
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+  CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
+
+  bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,
+                              uint64_t prompt_id,
+                              const CefString& requesting_origin,
+                              uint32_t requested_permissions,
+                              CefRefPtr<CefPermissionPromptCallback> callback) override {
+    if (!callback) return false;
+    const bool camera = (requested_permissions & CEF_PERMISSION_TYPE_CAMERA_STREAM) != 0;
+    const bool microphone = (requested_permissions & CEF_PERMISSION_TYPE_MIC_STREAM) != 0;
+    std::string kind;
+    if (camera && microphone) kind = "camera+microphone";
+    else if (camera) kind = "camera";
+    else if (microphone) kind = "microphone";
+    // Other prompts (geolocation, clipboard, ...) are not part of Liora's
+    // permission UI yet; let CEF apply its default handling.
+    if (kind.empty()) return false;
+
+    if (!options_.askPermission) {
+      callback->Continue(CEF_PERMISSION_RESULT_DENY);
+      return true;
+    }
+    const std::string origin = requesting_origin.ToString();
+    auto ask = options_.askPermission;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      const bool allowed = ask(origin, kind);
+      callback->Continue(allowed ? CEF_PERMISSION_RESULT_ACCEPT : CEF_PERMISSION_RESULT_DENY);
+    });
+    return true;
+  }
+
+  bool OnRequestMediaAccessPermission(
+      CefRefPtr<CefBrowser> browser,
+      CefRefPtr<CefFrame> frame,
+      const CefString& requesting_origin,
+      uint32_t requested_permissions,
+      CefRefPtr<CefMediaAccessCallback> callback) override {
+    if (!callback) return false;
+    const bool audio =
+        (requested_permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) != 0;
+    const bool video =
+        (requested_permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE) != 0;
+    std::string kind;
+    if (audio && video) kind = "camera+microphone";
+    else if (video) kind = "camera";
+    else if (audio) kind = "microphone";
+    if (kind.empty() || !options_.askPermission) {
+      callback->Cancel();
+      return true;
+    }
+    const std::string origin = requesting_origin.ToString();
+    auto ask = options_.askPermission;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      const bool allowed = ask(origin, kind);
+      if (allowed) {
+        callback->Continue(requested_permissions);
+      } else {
+        callback->Cancel();
+      }
+    });
+    return true;
+  }
 
   void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override {
     if (!bridge_ || !bridge_->alive) return;
