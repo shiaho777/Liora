@@ -408,6 +408,7 @@ NSString* jsonEscape(id object) {
   runtime.running = self.netService.dohPort > 0;
   runtime.dohPort = static_cast<uint16_t>(self.netService.dohPort);
   runtime.proxyPort = static_cast<uint16_t>(self.netService.proxyPort);
+  runtime.diagPort = static_cast<uint16_t>(self.netService.diagPort);
   runtime.spki = stdString(self.netService.spki);
   if (_core) _core->setNetRuntime(runtime);
   NSLog(@"Liora: resolver runtime running=%d doh=%u proxy=%u", (int)runtime.running,
@@ -542,8 +543,7 @@ NSString* jsonEscape(id object) {
       [weakSelf handleLoadFailure:failedUrl code:code message:reason tab:tab];
     });
   };
-  events.onDownload = [weakSelf, core = _core.get()](const liora::DownloadEvent& event) {
-    NSString* state = @"started";
+  events.onDownload = [weakSelf, core = _core.get()](const liora::DownloadEvent& event) {    NSString* state = @"started";
     switch (event.state) {
       case liora::DownloadState::kStarted: state = @"started"; break;
       case liora::DownloadState::kProgress: state = @"progress"; break;
@@ -582,6 +582,19 @@ NSString* jsonEscape(id object) {
         [weakSelf layoutContent];
       }
       [weakSelf notifyInterface:@"browser.download" params:params];
+    });
+  };
+  events.onSecurity = [weakSelf, tab](const liora::SecurityInfo& info) {
+    NSDictionary* params = @{
+      @"tab" : @(tab),
+      @"host" : ns(info.host),
+      @"subject" : ns(info.subject),
+      @"valid" : @(info.valid),
+      @"notAfter" : @(info.notAfter),
+      @"https" : @(info.https),
+    };
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.security" params:params];
     });
   };
   // target="_blank" opens in the same view for now; real tabs arrive with the

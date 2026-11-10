@@ -129,6 +129,7 @@
 
   _dohPort = [state[@"dohPort"] intValue];
   _proxyPort = [state[@"proxyPort"] intValue];
+  _diagPort = [state[@"diagPort"] intValue];
   _spki = [state[@"spki"] copy];
   _runningConfig = [configJSON copy];
   _task = task;
@@ -156,6 +157,7 @@
   _task = nil;
   _dohPort = 0;
   _proxyPort = 0;
+  _diagPort = 0;
   _spki = nil;
   _runningConfig = nil;
   [_logFile closeFile];

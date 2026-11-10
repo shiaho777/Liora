@@ -7,11 +7,12 @@
   interface Props {
     url: string;
     tab: number;
+    security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean } | null;
     onclose?: () => void;
     onopenDns?: () => void;
   }
 
-  let { url, tab, onclose, onopenDns }: Props = $props();
+  let { url, tab, security = null, onclose, onopenDns }: Props = $props();
 
   interface Permission {
     origin: string;
@@ -29,10 +30,22 @@
     dns?: { name: string; protocol: string } | null;
   }
 
+  interface Diagnostics {
+    host: string;
+    rule: { name: string; h3: string; ech: boolean; dns: string | null } | null;
+    upstream: { id: string; protocol: string; address: string };
+    addresses: string[];
+    https: { alpn: string[]; echBytes: number } | null;
+    resolved: boolean;
+    elapsedMs: number;
+  }
+
   let permissions = $state<Permission[]>([]);
   let match = $state<RuleMatch | null>(null);
   let kernelId = $state('');
   let adding = $state(false);
+  let diag = $state<Diagnostics | null>(null);
+  let diagError = $state('');
 
   const host = $derived.by(() => {
     try {
@@ -68,7 +81,31 @@
   $effect(() => {
     void url;
     void load();
+    void loadDiagnostics();
   });
+
+  async function loadDiagnostics(): Promise<void> {
+    diag = null;
+    diagError = '';
+    if (!isWeb || !host) return;
+    try {
+      const runtime = await call<{ running: boolean; diagPort: number }>('net.runtime');
+      if (!runtime.running || !runtime.diagPort) {
+        diagError = t('site.diagOff');
+        return;
+      }
+      const response = await fetch(
+        `http://127.0.0.1:${runtime.diagPort}/diagnose?host=${encodeURIComponent(host)}`,
+      );
+      if (!response.ok) {
+        diagError = t('site.diagFailed');
+        return;
+      }
+      diag = (await response.json()) as Diagnostics;
+    } catch {
+      diagError = t('site.diagFailed');
+    }
+  }
 
   async function revoke(entry: Permission): Promise<void> {
     await call('permissions.set', { origin: entry.origin, name: entry.name, value: '' });
@@ -146,6 +183,52 @@
             <button class="button button--sm" onclick={() => revoke(entry)}>{t('site.revoke')}</button>
           </div>
         {/each}
+      {/if}
+    </section>
+
+    <section class="sitecard__section">
+      <div class="sitecard__label">{t('site.connection')}</div>
+      {#if security?.https}
+        <div class="sitecard__row">
+          <span class="badge" class:badge--success={security.valid} class:badge--danger={!security.valid}>
+            {security.valid ? t('site.valid') : t('site.invalid')}
+          </span>
+          <span class="sitecard__row-main mono">{security.subject || host}</span>
+        </div>
+        {#if security.notAfter > 0}
+          <div class="sitecard__empty">
+            {t('site.expires')}: {new Date(security.notAfter).toLocaleDateString()}
+          </div>
+        {/if}
+      {:else}
+        <div class="sitecard__empty">{t('site.noTls')}</div>
+      {/if}
+    </section>
+
+    <section class="sitecard__section">
+      <div class="sitecard__label">{t('site.resolve')}</div>
+      {#if diagError}
+        <div class="sitecard__empty">{diagError}</div>
+      {:else if !diag}
+        <div class="sitecard__empty">{t('site.resolving')}</div>
+      {:else}
+        <div class="sitecard__facts">
+          <span class="badge mono">{diag.upstream.protocol.toUpperCase()}</span>
+          {#if diag.rule}<span class="badge badge--accent">{t('site.ruleMatched')}</span>{/if}
+          <span class="badge">{diag.elapsedMs} ms</span>
+        </div>
+        <div class="sitecard__empty mono">{diag.upstream.id} · {diag.upstream.address}</div>
+        {#if diag.addresses.length > 0}
+          <div class="sitecard__empty mono">{diag.addresses.slice(0, 4).join(', ')}</div>
+        {:else}
+          <div class="sitecard__empty">{t('site.noAddress')}</div>
+        {/if}
+        {#if diag.https}
+          <div class="sitecard__facts">
+            <span class="badge">ALPN {diag.https.alpn.join('/') || '—'}</span>
+            <span class="badge" class:badge--accent={diag.https.echBytes > 0}>ECH {diag.https.echBytes}B</span>
+          </div>
+        {/if}
       {/if}
     </section>
 

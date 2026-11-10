@@ -26,6 +26,7 @@
     page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'web';
     error?: { url: string; code: number; message: string };
     download?: DownloadItem;
+    security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
   }
 
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
@@ -128,6 +129,28 @@
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
   onNotification((message) => {
+    if (message.method === 'browser.security' && message.params) {
+      const params = message.params as {
+        tab?: number;
+        host?: string;
+        subject?: string;
+        valid?: boolean;
+        notAfter?: number;
+        https?: boolean;
+      };
+      const tab = tabs.find((entry) => entry.id === Number(params.tab));
+      if (tab) {
+        tab.security = {
+          host: params.host ?? '',
+          subject: params.subject ?? '',
+          valid: params.valid ?? false,
+          notAfter: params.notAfter ?? 0,
+          https: params.https ?? true,
+        };
+        tabs = [...tabs];
+      }
+      return;
+    }
     if (message.method === 'browser.download' && message.params) {
       const params = message.params as { id: string; tab?: number };
       handleDownloadEvent(params as never);
@@ -565,6 +588,7 @@
       <SiteCard
         url={active.url}
         tab={activeId}
+        security={active.security}
         onclose={() => (siteCardOpen = false)}
         onopenDns={() => {
           siteCardOpen = false;

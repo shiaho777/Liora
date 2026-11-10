@@ -165,8 +165,22 @@ async fn main() {
         .map(|address| address.port())
         .unwrap_or(0);
 
-    let state_line =
-        format!(r#"{{"dohPort":{doh_port},"proxyPort":{proxy_port},"spki":"{spki}"}}"#);
+    // Diagnostics for the interface: cleartext, loopback only.
+    let diag_listener = match TcpListener::bind((args.host.as_str(), 0)).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            error!(%error, "cannot bind the diagnostics port");
+            std::process::exit(1);
+        }
+    };
+    let diag_port = diag_listener
+        .local_addr()
+        .map(|address| address.port())
+        .unwrap_or(0);
+
+    let state_line = format!(
+        r#"{{"dohPort":{doh_port},"proxyPort":{proxy_port},"diagPort":{diag_port},"spki":"{spki}"}}"#
+    );
     if let Some(path) = &args.state_file {
         let _ = std::fs::write(path, &state_line);
     }
@@ -184,6 +198,9 @@ async fn main() {
 
     let doh_state = state.clone();
     tokio::spawn(server::serve(doh_listener, tls, doh_state));
+
+    let diag_state = state.clone();
+    tokio::spawn(server::serve_plain(diag_listener, diag_state));
 
     if let Some(listener) = proxy_listener {
         tokio::spawn(proxy::serve(listener, state));

@@ -23,6 +23,7 @@ target_link_libraries(liora PRIVATE
   "-framework Cocoa"
   "-framework WebKit"
   "-framework Network"
+  "-framework Security"
   "-framework UniformTypeIdentifiers")
 
 target_compile_definitions(liora PRIVATE

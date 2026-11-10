@@ -51,6 +51,8 @@ struct NetRuntime {
   bool running = false;
   uint16_t dohPort = 0;
   uint16_t proxyPort = 0;
+  // Loopback HTTP endpoint for the interface's diagnostics.
+  uint16_t diagPort = 0;
   // base64 SHA-256 of the local DoH certificate's SubjectPublicKeyInfo.
   std::string spki;
 };
@@ -88,6 +90,16 @@ struct DownloadEvent {
   std::string error;
 };
 
+// Summary of the TLS session the kernel actually established.
+struct SecurityInfo {
+  std::string host;
+  std::string subject;
+  bool valid = false;
+  // Unix milliseconds; 0 when unknown.
+  int64_t notAfter = 0;
+  bool https = true;
+};
+
 struct ViewOptions {
   void* parent = nullptr;  // native parent window or view
   int64_t tab = 0;
@@ -116,6 +128,8 @@ struct ViewEvents {
   // Download progress. The kernel reports started, periodic progress, then
   // finished or failed.
   std::function<void(const DownloadEvent& event)> onDownload;
+  // TLS details for the page that just loaded.
+  std::function<void(const SecurityInfo& info)> onSecurity;
 };
 
 class IKernelView {

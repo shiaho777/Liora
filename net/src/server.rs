@@ -10,6 +10,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
+use serde_json::json;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, warn};
@@ -179,6 +180,176 @@ fn rand_id() -> u16 {
 
 // ---- HTTP server -------------------------------------------------------------
 
+async fn handle_request(
+    state: SharedState,
+    request: Request<Incoming>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    if request.uri().path() == "/diagnose" {
+        return Ok(handle_diagnose(&state, &request).await);
+    }
+    handle_doh(state, request).await
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(byte) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn json_response(status: StatusCode, body: serde_json::Value) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .header("access-control-allow-origin", "*")
+        .header("cache-control", "no-store")
+        .body(Full::new(Bytes::from(body.to_string())))
+        .unwrap()
+}
+
+/// Plain HTTP diagnostics on a separate loopback port. The DoH listener uses a
+/// self-signed certificate, which a web page cannot fetch, so this endpoint is
+/// deliberately cleartext and bound to 127.0.0.1 only.
+pub async fn serve_plain(listener: TcpListener, state: SharedState) {
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(%error, "diagnostics accept failed");
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                continue;
+            }
+        };
+        let state = state.clone();
+        tokio::spawn(async move {
+            let service = hyper::service::service_fn(move |request| {
+                let state = state.clone();
+                async move {
+                    if request.uri().path() == "/diagnose" {
+                        Ok::<_, Infallible>(handle_diagnose(&state, &request).await)
+                    } else {
+                        Ok(json_response(
+                            StatusCode::NOT_FOUND,
+                            json!({ "error": "not found" }),
+                        ))
+                    }
+                }
+            });
+            let io = hyper_util::rt::TokioIo::new(stream);
+            if let Err(error) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(io, service)
+                .await
+            {
+                debug!(%peer, %error, "diagnostics connection closed");
+            }
+        });
+    }
+}
+
+/// Answers "what would the browser see for this host": the matched rule, the
+/// upstream used, resolved addresses, and the effective HTTPS parameters.
+async fn handle_diagnose(
+    state: &SharedState,
+    request: &Request<Incoming>,
+) -> Response<Full<Bytes>> {
+    let query = request.uri().query().unwrap_or("");
+    let host = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("host="))
+        .map(percent_decode)
+        .unwrap_or_default();
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "host is required" }),
+        );
+    }
+
+    let Some(endpoint) = state.config.endpoint_for(&host) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "no resolver for this host" }),
+        );
+    };
+
+    let started = std::time::Instant::now();
+    let mut addresses: Vec<String> = Vec::new();
+    let mut https = serde_json::Value::Null;
+    let mut resolved = false;
+
+    let a_query = wire::build_query(rand_id(), &host, TYPE_A, true);
+    {
+        let bytes = resolve(state, &a_query).await;
+        if let Ok(message) = Message::parse(&bytes) {
+            addresses = message.ips().iter().map(|ip| ip.to_string()).collect();
+            resolved = !addresses.is_empty();
+        }
+    }
+
+    let https_query = wire::build_query(rand_id(), &host, TYPE_HTTPS, true);
+    {
+        let bytes = resolve(state, &https_query).await;
+        if let Ok(message) = Message::parse(&bytes) {
+            for record in &message.answers {
+                if record.rtype != TYPE_HTTPS {
+                    continue;
+                }
+                if let Ok((_, _, params)) = wire::parse_https(&record.rdata) {
+                    let mut alpn = Vec::new();
+                    let mut ech_bytes = 0usize;
+                    for (key, value) in params {
+                        if key == wire::SVCB_ALPN {
+                            alpn = wire::decode_alpn(&value);
+                        } else if key == wire::SVCB_ECH {
+                            ech_bytes = value.len();
+                        }
+                    }
+                    https = json!({ "alpn": alpn, "echBytes": ech_bytes });
+                }
+            }
+        }
+    }
+
+    let rule = state.config.rule_for(&host).map(|rule| {
+        json!({
+            "name": if rule.id.is_empty() { host.clone() } else { rule.id.clone() },
+            "h3": rule.h3,
+            "ech": rule.ech,
+            "dns": rule.dns.as_ref().map(|endpoint| endpoint.id.clone()),
+        })
+    });
+
+    json_response(
+        StatusCode::OK,
+        json!({
+            "host": host,
+            "rule": rule,
+            "upstream": {
+                "id": endpoint.id,
+                "protocol": endpoint.protocol,
+                "address": endpoint.address,
+            },
+            "addresses": addresses,
+            "https": https,
+            "resolved": resolved,
+            "elapsedMs": started.elapsed().as_millis() as u64,
+        }),
+    )
+}
+
 pub async fn handle_doh(
     state: SharedState,
     request: Request<Incoming>,
@@ -247,7 +418,7 @@ pub async fn serve(listener: TcpListener, tls: TlsAcceptor, state: SharedState) 
             };
             let service = hyper::service::service_fn(move |request| {
                 let state = state.clone();
-                handle_doh(state, request)
+                handle_request(state, request)
             });
             let io = hyper_util::rt::TokioIo::new(stream);
             if let Err(error) =
@@ -277,4 +448,17 @@ pub async fn resolve_addresses(state: &SharedState, host: &str) -> Vec<IpAddr> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::percent_decode;
+
+    #[test]
+    fn decodes_percent_escapes() {
+        assert_eq!(percent_decode("x.com"), "x.com");
+        assert_eq!(percent_decode("xn--fiqs8s"), "xn--fiqs8s");
+        assert_eq!(percent_decode("a%2Eb"), "a.b");
+        assert_eq!(percent_decode("bad%2"), "bad%2");
+    }
 }

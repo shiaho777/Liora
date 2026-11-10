@@ -24,6 +24,11 @@
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>NSCameraUsageDescription</key>
   <string>Liora uses the camera only when a site you allow asks for it.</string>
   <key>NSMicrophoneUsageDescription</key>

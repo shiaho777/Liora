@@ -381,6 +381,7 @@ void Core::registerCoreMethods() {
     return Json{{"running", runtime.running},
                 {"dohPort", runtime.dohPort},
                 {"proxyPort", runtime.proxyPort},
+                {"diagPort", runtime.diagPort},
                 {"spki", runtime.spki}};
   });
 
@@ -389,6 +390,7 @@ void Core::registerCoreMethods() {
     runtime.running = params::boolean(params, "running", false);
     runtime.dohPort = static_cast<uint16_t>(params::optionalInteger(params, "dohPort").value_or(0));
     runtime.proxyPort = static_cast<uint16_t>(params::optionalInteger(params, "proxyPort").value_or(0));
+    runtime.diagPort = static_cast<uint16_t>(params::optionalInteger(params, "diagPort").value_or(0));
     runtime.spki = params::optionalString(params, "spki").value_or("");
     setNetRuntime(runtime);
     rpc_.notify("net.runtimeChanged", nullptr);

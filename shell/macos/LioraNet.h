@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, readonly) int dohPort;
 @property(nonatomic, readonly) int proxyPort;
+@property(nonatomic, readonly) int diagPort;
 @property(nonatomic, readonly, nullable, copy) NSString* spki;
 @property(nonatomic, readonly, nullable, copy) NSString* runningConfig;
 

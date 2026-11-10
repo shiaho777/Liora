@@ -78,6 +78,26 @@ ECH 的**外层 SNI 由服务端下发的 ECHConfig 里的 `public_name` 决定*
 
 ## 4. 诊断
 
+### 界面内的诊断
+
+地址栏站点卡片会向 `liora-net` 的本地诊断端点发起一次真实查询，展示：
+
+- 命中的规则（名称、H3 强度、ECH、单独指定的 DNS）
+- 使用的上游（协议、地址）
+- 实际解析出的地址
+- 该域名 HTTPS 记录的 ALPN 与 ECH 长度
+- 往返耗时
+
+诊断端点**不是** DoH 端口：DoH 使用自签证书，网页无法直接访问，所以另开一个只绑定 `127.0.0.1` 的明文 HTTP 端口，并返回 `Access-Control-Allow-Origin: *`。它只做只读查询，不修改任何配置。
+
+```bash
+curl "http://127.0.0.1:<diagPort>/diagnose?host=x.com"
+```
+
+端口由 `liora-net` 启动时输出，壳写入 Core（`net.runtime`）。
+
+### 规则检查
+
 `rules.match` 返回命中规则、H3 强度、ECH 状态与生效的 DNS。设置面板的"检查域名"直接调用它，用来回答"为什么这个站点没有走直连"。
 
 ## 5. 代码位置

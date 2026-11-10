@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <Security/Security.h>
 #import <WebKit/WebKit.h>
 
 #include <algorithm>
@@ -204,6 +205,61 @@ int64_t fileSize(NSString* path) {
     _options = options;
   }
   return self;
+}
+
+- (void)webView:(WKWebView*)webView
+    didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge*)challenge
+                    completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition,
+                                                NSURLCredential*))completionHandler {
+  NSURLProtectionSpace* space = challenge.protectionSpace;
+  if (_events && _events->onSecurity &&
+      [space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+      space.serverTrust != NULL) {
+    liora::SecurityInfo info;
+    info.host = toStdString(space.host);
+    info.https = true;
+
+    if (@available(macOS 12.0, *)) {
+      CFArrayRef chain = SecTrustCopyCertificateChain(space.serverTrust);
+      if (chain != NULL) {
+        if (CFArrayGetCount(chain) > 0) {
+          SecCertificateRef leaf =
+              static_cast<SecCertificateRef>(const_cast<void*>(CFArrayGetValueAtIndex(chain, 0)));
+          if (leaf) {
+            CFStringRef summary = SecCertificateCopySubjectSummary(leaf);
+            if (summary) {
+              info.subject = toStdString((__bridge NSString*)summary);
+              CFRelease(summary);
+            }
+            CFStringRef keys[] = {kSecOIDX509V1ValidityNotAfter};
+            CFArrayRef keyList = CFArrayCreate(nullptr, (const void**)keys, 1, &kCFTypeArrayCallBacks);
+            CFDictionaryRef values = SecCertificateCopyValues(leaf, keyList, nullptr);
+            if (values) {
+              NSDictionary* dict = CFBridgingRelease(values);
+              NSDictionary* field = dict[(__bridge NSString*)kSecOIDX509V1ValidityNotAfter];
+              NSNumber* value = field[(__bridge NSString*)kSecPropertyKeyValue];
+              if (value) {
+                // CFAbsoluteTime counts seconds from 2001-01-01, not from 1970.
+                const double kCFAbsoluteEpoch = 978307200.0;
+                info.notAfter = static_cast<int64_t>((value.doubleValue + kCFAbsoluteEpoch) * 1000.0);
+              }
+            }
+            if (keyList) CFRelease(keyList);
+          }
+        }
+        CFRelease(chain);
+      }
+    }
+
+    CFErrorRef trustError = nullptr;
+    info.valid = SecTrustEvaluateWithError(space.serverTrust, &trustError);
+    if (trustError) CFRelease(trustError);
+
+    NSLog(@"Liora: TLS %s valid=%d subject=%@", info.host.c_str(), (int)info.valid,
+          toNSString(info.subject));
+    _events->onSecurity(info);
+  }
+  completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
