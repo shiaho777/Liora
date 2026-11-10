@@ -20,6 +20,15 @@ export interface RuleSummary {
   raw: string;
 }
 
+export interface TimelineSummary {
+  at: string;
+  /** report | applied | resolver | differences */
+  kind: string;
+  count?: number;
+  differences?: number;
+  raw: string;
+}
+
 export interface ResolverSummary {
   at: string;
   count?: number;
@@ -61,6 +70,8 @@ export interface DiagnosticReport {
   /** Last successful local resolver start. */
   resolver: ResolverSummary | null;
   resolverKnown: boolean;
+  timeline: TimelineSummary[];
+  timelineKnown: boolean;
   /** Network configuration the kernel last loaded. */
   applied: AppliedSummary | null;
   appliedKnown: boolean;
@@ -139,6 +150,29 @@ function parseUpstream(value: string): DiagnosticReport['upstream'] {
   const elapsed = /^(\d+)ms$/.exec(last);
   const address = tokens.slice(2, elapsed ? tokens.length - 1 : tokens.length).join(' ');
   return { protocol, id, address, elapsedMs: elapsed ? Number(elapsed[1]) : undefined };
+}
+
+function parseTimeline(value: string): TimelineSummary[] {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none') return [];
+  return trimmed
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const tokens = part.split(/\s+/);
+      const at = tokens.shift() ?? '';
+      const kind = tokens.shift() ?? '';
+      let count: number | undefined;
+      let differences: number | undefined;
+      if (kind === 'resolver') {
+        const run = tokens.indexOf('run');
+        if (run >= 0 && tokens[run + 1]) count = Number(tokens[run + 1]);
+      } else if (kind === 'differences' && tokens[0]) {
+        differences = Number(tokens[0]);
+      }
+      return { at, kind, count, differences, raw: part };
+    });
 }
 
 function parseResolver(value: string): ResolverSummary | null {
@@ -248,6 +282,8 @@ export function parseDiagnosticReport(text: string): ParseResult {
     components: splitList(fields.get('components'), ','),
     resolver: parseResolver(fields.get('resolver') ?? ''),
     resolverKnown: fields.has('resolver'),
+    timeline: parseTimeline(fields.get('timeline') ?? ''),
+    timelineKnown: fields.has('timeline'),
     applied: parseApplied(fields.get('applied') ?? ''),
     appliedKnown: fields.has('applied'),
     delta: parseDelta(fields.get('delta') ?? ''),
@@ -284,6 +320,7 @@ export function parseDiagnosticReport(text: string): ParseResult {
     'signature',
     'cef',
     'resolver',
+    'timeline',
     'applied',
     'delta',
     'tls',

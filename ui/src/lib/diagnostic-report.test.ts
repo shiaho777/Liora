@@ -235,3 +235,37 @@ describe('resolver restart metadata', () => {
     expect(missing.report.resolverKnown).toBe(false);
   });
 });
+
+describe('timeline section', () => {
+  it('parses ordered report, applied, resolver and difference events', () => {
+    const result = parseDiagnosticReport(
+      `${dnsReport}Timeline: 2026-11-10T07:59:50.000Z applied · 2026-11-10T07:59:40.000Z resolver run 2 · 2026-11-10T08:00:00.000Z report · 2026-11-10T08:00:00.000Z differences 1
+`,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.timelineKnown).toBe(true);
+    expect(result.report.timeline.map((event) => event.kind)).toEqual([
+      'applied',
+      'resolver',
+      'report',
+      'differences',
+    ]);
+    expect(result.report.timeline[1].count).toBe(2);
+    expect(result.report.timeline[3].differences).toBe(1);
+  });
+
+  it('handles none and reports that predate the section', () => {
+    const none = parseDiagnosticReport(`${dnsReport}Timeline: none
+`);
+    expect(none.ok).toBe(true);
+    if (!none.ok) return;
+    expect(none.report.timelineKnown).toBe(true);
+    expect(none.report.timeline).toEqual([]);
+
+    const missing = parseDiagnosticReport(dnsReport);
+    expect(missing.ok).toBe(true);
+    if (!missing.ok) return;
+    expect(missing.report.timelineKnown).toBe(false);
+  });
+});

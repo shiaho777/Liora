@@ -24,7 +24,7 @@
   } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
   import { networkDelta } from './network-delta';
-  import { buildDiagnosticReport } from './diagnostic-report-build';
+  import { buildDiagnosticReport, toReportTimeline } from './diagnostic-report-build';
   import {
     buildTimeline,
     type TimelineEvent,
@@ -54,7 +54,26 @@
   const timeline = $derived.by(() => {
     if (!report) return [];
     if (!report.appliedKnown && !report.resolverKnown) return [];
+    const reportedEvents =
+      report.timelineKnown && report.timeline.length > 0
+        ? report.timeline.map((event) => ({
+            kind:
+              event.kind === 'report'
+                ? ('generated' as const)
+                : event.kind === 'resolver'
+                  ? ('resolver' as const)
+                  : event.kind === 'applied'
+                    ? ('applied' as const)
+                    : event.kind === 'differences'
+                      ? ('report-delta' as const)
+                      : ('generated' as const),
+            at: new Date(event.at).getTime() || 0,
+            count: event.count,
+            differences: event.differences,
+          }))
+        : undefined;
     return buildTimeline({
+      reportedEvents,
       generatedAt: report.generated,
       reportApplied: report.applied,
       reportResolver: report.resolver,
@@ -349,7 +368,30 @@
             )
           : [];
 
+      const generated = new Date();
+      const timeline = buildTimeline({
+        generatedAt: generated.toISOString(),
+        reportApplied: currentApplied
+          ? {
+              at: new Date(currentApplied.at as number).toISOString(),
+              provider: currentApplied.provider,
+              protocol: currentApplied.protocol,
+              proxy: currentApplied.proxy,
+            }
+          : null,
+        reportResolver: resolverValue
+          ? { at: new Date(resolverValue.at).toISOString(), count: resolverValue.count }
+          : null,
+        reportDeltaCount: currentDelta.length,
+        currentApplied: null,
+        currentResolver: null,
+        currentDeltaCount: 0,
+        currentDeltaChanged: false,
+      });
+
       const content = buildDiagnosticReport({
+        generated,
+        timeline: toReportTimeline(timeline),
         version: app.version,
         platform: app.platform,
         arch: app.arch,

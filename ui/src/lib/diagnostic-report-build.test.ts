@@ -29,9 +29,17 @@ describe('buildDiagnosticReport', () => {
       ...base,
       generated: new Date('2026-11-10T16:41:08.000Z'),
       resolver: { at: '2026-11-10T16:41:08.000Z', count: 2 },
+      timeline: [
+        { at: '2026-11-10T16:40:00.000Z', kind: 'applied' },
+        { at: '2026-11-10T16:41:08.000Z', kind: 'resolver', count: 2 },
+        { at: '2026-11-10T16:41:08.000Z', kind: 'report' },
+      ],
     });
     expect(report.startsWith('report: 1\nLiora diagnostic report\n')).toBe(true);
     expect(report).toContain('Resolver: restarted 2026-11-10T16:41:08.000Z (run 2)');
+    expect(report).toContain(
+      'Timeline: 2026-11-10T16:40:00.000Z applied · 2026-11-10T16:41:08.000Z resolver run 2 · 2026-11-10T16:41:08.000Z report',
+    );
     expect(report).toContain('Applied: none');
     expect(report).toContain('Delta: none');
     expect(report).toContain('Addresses: 93.184.216.34');
@@ -40,5 +48,6 @@ describe('buildDiagnosticReport', () => {
   it('writes Resolver: none when no resolver has run', () => {
     const report = buildDiagnosticReport({ ...base, resolver: null });
     expect(report).toContain('Resolver: none');
+    expect(report).toContain('Timeline: none');
   });
 });

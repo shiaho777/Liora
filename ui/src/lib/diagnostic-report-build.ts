@@ -1,6 +1,16 @@
 // Single source of truth for the plain-text diagnostic report, shared by the
 // failure page and the viewer's "save refreshed report" action.
 import type { DeltaLike } from './report-freshness';
+import type { TimelineEvent } from './diagnostics-timeline';
+
+export interface ReportTimelineEvent {
+  /** ISO timestamp. */
+  at: string;
+  /** report | applied | resolver | differences */
+  kind: string;
+  count?: number;
+  differences?: number;
+}
 
 export interface ReportSections {
   version: string;
@@ -17,6 +27,7 @@ export interface ReportSections {
   signature: string;
   cef: string;
   resolver?: { at: string; count: number } | null;
+  timeline?: ReportTimelineEvent[];
   applied: { at: string; provider: string; protocol: string; proxy: string } | null;
   delta: DeltaLike[];
   /** Text after "TLS:", e.g. "subject=... valid=no expires=..." */
@@ -28,6 +39,21 @@ export interface ReportSections {
   https?: { alpn: string[]; echBytes: number };
   diagnostics?: string;
   generated?: Date;
+}
+
+/** Converts timeline events into the compact form written to a report. */
+export function toReportTimeline(events: TimelineEvent[]): ReportTimelineEvent[] {
+  return events.map((event) => ({
+    at: new Date(event.at).toISOString(),
+    kind:
+      event.kind === 'generated'
+        ? 'report'
+        : event.kind === 'report-delta'
+          ? 'differences'
+          : event.kind,
+    count: event.count,
+    differences: event.differences,
+  }));
 }
 
 export function buildDiagnosticReport(sections: ReportSections): string {
@@ -52,6 +78,24 @@ export function buildDiagnosticReport(sections: ReportSections): string {
     lines.push(`Resolver: restarted ${sections.resolver.at} (run ${sections.resolver.count})`);
   } else {
     lines.push('Resolver: none');
+  }
+
+  if (sections.timeline && sections.timeline.length > 0) {
+    lines.push(
+      `Timeline: ${sections.timeline
+        .map((event) => {
+          if (event.kind === 'resolver') {
+            return `${event.at} resolver run ${event.count ?? 0}`;
+          }
+          if (event.kind === 'differences') {
+            return `${event.at} differences ${event.differences ?? 0}`;
+          }
+          return `${event.at} ${event.kind}`;
+        })
+        .join(' · ')}`,
+    );
+  } else {
+    lines.push('Timeline: none');
   }
 
   if (sections.applied) {

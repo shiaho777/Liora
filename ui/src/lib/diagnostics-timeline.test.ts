@@ -70,6 +70,23 @@ describe('buildTimeline', () => {
     expect(events[0].at).toBe(0);
   });
 
+  it('keeps the saved report order when reported events are provided', () => {
+    const events = buildTimeline({
+      ...base,
+      reportedEvents: [
+        { kind: 'resolver', at: 1794299000000, count: 2 },
+        { kind: 'applied', at: 1794299100000, provider: 'Quad9 Secure' },
+        { kind: 'generated', at: 1794299200000 },
+      ],
+      currentApplied: null,
+      currentResolver: null,
+      currentDeltaCount: 0,
+      currentDeltaChanged: false,
+    });
+    expect(events.map((event) => event.kind)).toEqual(['resolver', 'applied', 'generated']);
+    expect(events[0].at).toBe(1794299000000);
+  });
+
   it('shows the current delta only when it changed', () => {
     const events = buildTimeline({
       ...base,

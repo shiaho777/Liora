@@ -107,6 +107,7 @@ Error: -1202 - 证书校验未通过（可能已过期或不受信任）。
 Kernel: system
 Kernel: cef
 Resolver: restarted 2026-11-10T08:42:58.529Z (run 2)
+Timeline: 2026-11-10T08:42:58.528Z resolver run 2 · 2026-11-10T08:42:58.529Z applied · 2026-11-10T08:43:00.000Z report
 Applied: 2026-11-10T08:27:51.284Z · Quad9 Secure (doh) · proxy http://127.0.0.1:57009
 Delta: provider Quad9 Secure -> Cloudflare Standard · proxy http://127.0.0.1:57009 -> http://127.0.0.1:57051
 Switches: --enable-quic --origin-to-force-quic-on=x.com:443 --dns-over-https-mode=secure
@@ -131,7 +132,7 @@ HTTPS: alpn=- ech=0B
 当前的差异: 无
 ```
 
-查看器会把报告生成、应用配置、解析器启动以及当前状态按时间排序展示：
+报告里的 `Timeline:` 保存了事件顺序；查看器优先使用它，并在后面追加当前状态。打开报告时展示：
 
 ```
 时间线

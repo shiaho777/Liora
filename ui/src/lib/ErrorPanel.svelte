@@ -4,7 +4,8 @@
   import { app, toast } from './state.svelte';
   import { buildKernelSwitches } from './kernel-switch-check';
   import { networkDelta } from './network-delta';
-  import { buildDiagnosticReport } from './diagnostic-report-build';
+  import { buildDiagnosticReport, toReportTimeline } from './diagnostic-report-build';
+  import { buildTimeline } from './diagnostics-timeline';
   import { t } from './i18n.svelte';
 
   interface Props {
@@ -90,6 +91,7 @@
   // formatting lives in diagnostic-report-build.ts so the viewer can build a
   // refreshed report with the same shape.
   const report = $derived.by(() => {
+    const generated = new Date();
     const tls =
       security?.https && security.host === host
         ? `subject=${security.subject} valid=${security.valid ? 'yes' : 'no'} expires=${
@@ -99,7 +101,28 @@
           ? 'handshake failed'
           : 'not established';
 
+    const timeline = buildTimeline({
+      generatedAt: generated.toISOString(),
+      reportApplied: applied
+        ? {
+            at: new Date(applied.at).toISOString(),
+            provider: applied.provider,
+            protocol: applied.protocol,
+            proxy: applied.proxy,
+          }
+        : null,
+      reportResolver: resolverStatus
+        ? { at: new Date(resolverStatus.at).toISOString(), count: resolverStatus.count }
+        : null,
+      reportDeltaCount: appliedDelta.length,
+      currentApplied: null,
+      currentResolver: null,
+      currentDeltaCount: 0,
+      currentDeltaChanged: false,
+    });
+
     return buildDiagnosticReport({
+      generated,
       version: app.version,
       platform: app.platform,
       arch: app.arch,
@@ -115,6 +138,7 @@
       resolver: resolverStatus
         ? { at: new Date(resolverStatus.at).toISOString(), count: resolverStatus.count }
         : null,
+      timeline: toReportTimeline(timeline),
       applied: applied
         ? {
             at: new Date(applied.at).toISOString(),

@@ -23,6 +23,8 @@ export interface TimelineInput {
   currentResolver?: TimelineResolver | null;
   currentDeltaCount: number;
   currentDeltaChanged: boolean;
+  /** Events read from a saved report; replaces the synthesized report events. */
+  reportedEvents?: TimelineEvent[];
   now?: number;
 }
 
@@ -61,31 +63,37 @@ export function buildTimeline(input: TimelineInput): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   const generatedAt = timeOf(input.generatedAt);
 
-  if (generatedAt > 0) {
-    events.push({ kind: 'generated', at: generatedAt });
-  }
-  if (input.reportApplied) {
-    events.push({
-      kind: 'applied',
-      at: timeOf(input.reportApplied.at),
-      provider: input.reportApplied.provider,
-      protocol: input.reportApplied.protocol,
-      proxy: input.reportApplied.proxy,
-    });
-  }
-  if (input.reportResolver) {
-    events.push({
-      kind: 'resolver',
-      at: timeOf(input.reportResolver.at),
-      count: input.reportResolver.count,
-    });
-  }
-  if (input.reportDeltaCount > 0) {
-    events.push({
-      kind: 'report-delta',
-      at: generatedAt,
-      differences: input.reportDeltaCount,
-    });
+  if (input.reportedEvents && input.reportedEvents.length > 0) {
+    // A saved report carries its own chronology; keep that exact order/content
+    // instead of re-deriving it from the summary lines.
+    events.push(...input.reportedEvents.map((event) => ({ ...event })));
+  } else {
+    if (generatedAt > 0) {
+      events.push({ kind: 'generated', at: generatedAt });
+    }
+    if (input.reportApplied) {
+      events.push({
+        kind: 'applied',
+        at: timeOf(input.reportApplied.at),
+        provider: input.reportApplied.provider,
+        protocol: input.reportApplied.protocol,
+        proxy: input.reportApplied.proxy,
+      });
+    }
+    if (input.reportResolver) {
+      events.push({
+        kind: 'resolver',
+        at: timeOf(input.reportResolver.at),
+        count: input.reportResolver.count,
+      });
+    }
+    if (input.reportDeltaCount > 0) {
+      events.push({
+        kind: 'report-delta',
+        at: generatedAt,
+        differences: input.reportDeltaCount,
+      });
+    }
   }
 
   // Only add "current" events when they carry new information; a fresh report
