@@ -101,6 +101,7 @@ class IKernelView {
   virtual void forward() = 0;
   virtual void reload(bool bypassCache) = 0;
   virtual void stop() = 0;
+  // Bounds are in the host view's coordinate space (AppKit: bottom-left origin).
   virtual void setBounds(int x, int y, int width, int height) = 0;
   virtual void setVisible(bool visible) = 0;
   virtual void setZoom(double percent) = 0;

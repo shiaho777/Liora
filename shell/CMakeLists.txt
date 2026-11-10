@@ -52,5 +52,7 @@ add_custom_target(liora-bundle-ui ALL
           $<TARGET_BUNDLE_CONTENT_DIR:liora>/Resources/liora-net
           ${PROJECT_SOURCE_DIR}/net/target/release/liora-net
           ${PROJECT_SOURCE_DIR}/net/target/debug/liora-net
+  # macOS refuses to run nested helpers in an unsigned bundle.
+  COMMAND sh ${PROJECT_SOURCE_DIR}/scripts/sign-app.sh $<TARGET_BUNDLE_DIR:liora>
   COMMENT "Bundling the interface and liora-net")
 add_dependencies(liora liora-bundle-ui)

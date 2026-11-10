@@ -50,8 +50,12 @@
 
   // Used by the shell for automated checks and deep links.
   $effect(() => {
-    (window as unknown as { __lioraOpenUrl?: (url: string) => void }).__lioraOpenUrl = (url: string) =>
-      navigate(url);
+    const hooks = window as unknown as {
+      __lioraOpenUrl?: (url: string) => void;
+      __lioraNewTab?: (url: string) => void;
+    };
+    hooks.__lioraOpenUrl = (url: string) => navigate(url);
+    hooks.__lioraNewTab = (url: string) => newTab(url);
   });
 
   // Tell the shell where the kernel view goes. It is repositioned on resize.
@@ -65,10 +69,16 @@
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         visible: active?.page === 'web',
+        tab: active?.id,
       });
     });
     observer.observe(contentEl);
     return () => observer.disconnect();
+  });
+
+  // Switching tabs activates that tab's kernel view.
+  $effect(() => {
+    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' });
   });
 
   function updateTab(id: number, patch: Partial<Tab>): void {
@@ -86,11 +96,13 @@
   function closeTab(id: number): void {
     if (tabs.length === 1) {
       updateTab(id, { title: t('tab.new'), url: 'liora://newtab', page: 'newtab' });
+      notify('ui.setPage', { page: 'newtab' });
       return;
     }
     const index = tabs.findIndex((tab) => tab.id === id);
     tabs = tabs.filter((tab) => tab.id !== id);
     if (activeId === id) activeId = tabs[Math.max(0, index - 1)].id;
+    notify('ui.closeTab', { tab: id });
   }
 
   function looksLikeUrl(input: string): boolean {

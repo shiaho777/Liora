@@ -7,6 +7,7 @@
 #import <WebKit/WebKit.h>
 
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -101,11 +102,11 @@ NSString* jsonEscape(id object) {
 @interface LioraController : NSObject <NSApplicationDelegate, WKNavigationDelegate>
 @property(nonatomic, strong) NSWindow* window;
 @property(nonatomic, strong) WKWebView* ui;
-@property(nonatomic, strong) WKWebView* content;
 @property(nonatomic, strong) NSView* container;
 @property(nonatomic, strong) LioraNetService* netService;
 @property(nonatomic, assign) CGRect pendingContentRect;
 @property(nonatomic, assign) BOOL contentVisible;
+@property(nonatomic, assign) int64_t activeTab;
 @property(nonatomic, assign) BOOL refreshPending;
 @property(nonatomic, assign) BOOL openedLaunchUrl;
 
@@ -122,6 +123,8 @@ NSString* jsonEscape(id object) {
 
 @implementation LioraController {
   std::unique_ptr<liora::Core> _core;
+  // One kernel view per tab. The shell only positions and activates them.
+  std::map<int64_t, std::unique_ptr<liora::IKernelView>> _views;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
@@ -146,7 +149,6 @@ NSString* jsonEscape(id object) {
 
   [self startCore];
   [self buildInterface];
-  [self buildContent];
 
   [self.window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
@@ -156,13 +158,39 @@ NSString* jsonEscape(id object) {
 // Going through the interface keeps one code path for real navigation.
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation {
   if (webView != self.ui || self.openedLaunchUrl) return;
+  self.openedLaunchUrl = YES;
+
+  const char* tabs = getenv("LIORA_OPEN_TABS");
+  if (tabs && *tabs) {
+    NSString* list = ns(tabs);
+    // Let the interface finish mounting before calling into it.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      for (NSString* entry in [list componentsSeparatedByString:@","]) {
+        NSString* url = [entry stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (!url.length) continue;
+        NSString* script = [NSString stringWithFormat:@"window.__lioraNewTab && window.__lioraNewTab(%@);",
+                                                      jsonEscape(url)];
+        [self.ui evaluateJavaScript:script
+                  completionHandler:^(id result, NSError* error) {
+                    if (error) NSLog(@"Liora: new tab script failed: %@", error.localizedDescription);
+                  }];
+        NSLog(@"Liora: opening tab %@", url);
+      }
+    });
+    return;
+  }
+
   const char* target = getenv("LIORA_OPEN_URL");
   if (!target || !*target) return;
-  self.openedLaunchUrl = YES;
-  NSString* script = [NSString stringWithFormat:@"window.__lioraOpenUrl && window.__lioraOpenUrl(%@);",
-                                                jsonEscape(ns(target))];
-  [self.ui evaluateJavaScript:script completionHandler:nil];
-  NSLog(@"Liora: opening %s", target);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+    NSString* script = [NSString stringWithFormat:@"window.__lioraOpenUrl && window.__lioraOpenUrl(%@);",
+                                                  jsonEscape(ns(target))];
+    [self.ui evaluateJavaScript:script
+              completionHandler:^(id result, NSError* error) {
+                if (error) NSLog(@"Liora: open url script failed: %@", error.localizedDescription);
+              }];
+    NSLog(@"Liora: opening %s", target);
+  });
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender { return YES; }
@@ -360,13 +388,52 @@ NSString* jsonEscape(id object) {
   [self.ui loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
-- (void)buildContent {
-  WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
-  self.content = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0) configuration:configuration];
-  self.content.hidden = YES;
-  self.content.allowsBackForwardNavigationGestures = YES;
-  if (@available(macOS 13.3, *)) self.content.inspectable = YES;
-  [self.container addSubview:self.content];
+- (liora::IKernelView*)viewForTab:(int64_t)tab {
+  auto existing = _views.find(tab);
+  if (existing != _views.end()) return existing->second.get();
+  if (!_core) return nullptr;
+
+  auto kernel = _core->kernels().instance(liora::KernelManager::kSystem);
+  if (!kernel) {
+    NSLog(@"Liora: the system kernel is not registered");
+    return nullptr;
+  }
+
+  liora::ViewOptions options;
+  options.tab = tab;
+
+  liora::ViewEvents events;
+  __weak LioraController* weakSelf = self;
+  events.onUrl = [weakSelf](const std::string& url) {
+    NSString* text = ns(url);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text}];
+    });
+  };
+  events.onTitle = [weakSelf](const std::string& title) {
+    NSString* text = ns(title);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text}];
+    });
+  };
+  // target="_blank" opens in the same view for now; real tabs arrive with the
+  // tab model in the interface.
+  events.onOpenWindow = [](const std::string&, bool) { return false; };
+
+  auto view = kernel->createView(options, std::move(events));
+  if (!view) return nullptr;
+
+  NSView* native = (__bridge NSView*)view->nativeHandle();
+  if (native) [self.container addSubview:native positioned:NSWindowAbove relativeTo:self.ui];
+  _views[tab] = std::move(view);
+  return _views[tab].get();
+}
+
+- (void)notifyInterface:(NSString*)method params:(NSDictionary*)params {
+  NSDictionary* message = @{@"jsonrpc" : @"2.0", @"method" : method, @"params" : params ?: @{}};
+  NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
+  if (!data) return;
+  [self deliver:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];
 }
 
 - (void)reloadInterface:(id)sender {
@@ -407,22 +474,45 @@ NSString* jsonEscape(id object) {
         CGRectMake([rect[@"x"] doubleValue], [rect[@"y"] doubleValue], [rect[@"width"] doubleValue],
                    [rect[@"height"] doubleValue]);
     self.contentVisible = [rect[@"visible"] boolValue];
+    if (rect[@"tab"]) self.activeTab = [rect[@"tab"] longLongValue];
     [self layoutContent];
     return;
   }
 
   if ([method isEqualToString:@"ui.setPage"]) {
-    self.content.hidden = YES;
     self.contentVisible = NO;
+    [self layoutContent];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.showTab"]) {
+    if (params[@"tab"]) self.activeTab = [params[@"tab"] longLongValue];
+    if (params[@"visible"]) self.contentVisible = [params[@"visible"] boolValue];
+    [self layoutContent];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.closeTab"]) {
+    int64_t tab = [params[@"tab"] longLongValue];
+    auto entry = _views.find(tab);
+    if (entry != _views.end()) {
+      NSView* native = (__bridge NSView*)entry->second->nativeHandle();
+      [native removeFromSuperview];
+      _views.erase(entry);
+    }
     return;
   }
 
   if ([method isEqualToString:@"ui.navigate"]) {
     NSString* url = params[@"url"];
     if (!url.length) return;
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    self.activeTab = tab;
     self.contentVisible = YES;
-    self.content.hidden = NO;
-    [self.content loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (!view) return;
+    [self layoutContent];
+    view->load(stdString(url));
     return;
   }
 
@@ -487,13 +577,27 @@ NSString* jsonEscape(id object) {
 // ---- Layout ---------------------------------------------------------------
 
 - (void)layoutContent {
-  if (!self.content) return;
   CGFloat height = self.container.bounds.size.height;
   CGRect rect = self.pendingContentRect;
-  // The interface reports CSS pixels with a top-left origin.
-  self.content.frame = NSMakeRect(rect.origin.x, height - rect.origin.y - rect.size.height, rect.size.width,
-                                  rect.size.height);
-  self.content.hidden = !self.contentVisible;
+  if (getenv("LIORA_DEBUG_LAYOUT")) {
+    NSLog(@"Liora: layout container=%.0fx%.0f rect=(%.0f,%.0f %.0fx%.0f) tab=%lld visible=%d",
+          self.container.bounds.size.width, height, rect.origin.x, rect.origin.y, rect.size.width,
+          rect.size.height, (long long)self.activeTab, (int)self.contentVisible);
+  }
+  for (auto& entry : _views) {
+    liora::IKernelView* view = entry.second.get();
+    bool active = entry.first == self.activeTab && self.contentVisible;
+    if (!active) {
+      view->setVisible(false);
+      continue;
+    }
+    // The interface reports CSS pixels with a top-left origin; the kernel view
+    // lives in this container, which uses a bottom-left origin.
+    view->setBounds(static_cast<int>(rect.origin.x),
+                    static_cast<int>(height - rect.origin.y - rect.size.height),
+                    static_cast<int>(rect.size.width), static_cast<int>(rect.size.height));
+    view->setVisible(true);
+  }
 }
 
 - (void)windowDidResize:(NSNotification*)notification { [self layoutContent]; }
