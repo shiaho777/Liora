@@ -5,6 +5,11 @@
   import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
   import { explainLimit, explainSwitch } from './kernel-explanations';
   import {
+    reportFreshness,
+    type CurrentApplied,
+    type ReportFreshness,
+  } from './report-freshness';
+  import {
     buildKernelSwitches,
     checkDohTemplate,
     checkForcedOrigins,
@@ -30,6 +35,7 @@
   let dohError = $state('');
   let proxyCheck = $state<ProxyCheck | null>(null);
   let proxyError = $state('');
+  let freshness = $state<ReportFreshness | null>(null);
   let restarting = $state(false);
   // After a restart the report's historical switches are replaced by the ones
   // the kernel actually received, while the raw text stays untouched.
@@ -127,6 +133,7 @@
     dohError = '';
     proxyCheck = null;
     proxyError = '';
+    freshness = null;
     restarting = false;
     liveSwitches = null;
     void loadCrossChecks(result.report);
@@ -141,7 +148,7 @@
   ): Promise<void> {
     if (!parsed.switchesKnown) return;
     const kernel = parsed.kernel && parsed.kernel !== 'unknown' ? parsed.kernel : '';
-    const [rules, plan, setup, runtime] = await Promise.allSettled([
+    const [rules, plan, setup, runtime, appliedResult] = await Promise.allSettled([
       call<{
         rules: Array<{ name: string; enabled: boolean; domains: string[]; h3: string }>;
         enabled: boolean;
@@ -153,6 +160,7 @@
       }>('dns.plan'),
       kernel ? call<KernelSetupLike>('kernels.setup', { id: kernel }) : Promise.resolve(null),
       call<ProxyRuntimeLike>('net.runtime'),
+      call<CurrentApplied>('net.lastApplied'),
     ]);
     if (report?.raw !== parsed.raw) return;
 
@@ -183,6 +191,56 @@
     } else {
       proxyError = t('proxyStale.unavailable');
     }
+
+    // The report is a snapshot: compare its applied state and delta with what
+    // is active now, so an old report cannot masquerade as current.
+    const currentApplied =
+      appliedResult.status === 'fulfilled' &&
+      appliedResult.value &&
+      typeof appliedResult.value.at === 'number' &&
+      appliedResult.value.at > 0
+        ? appliedResult.value
+        : null;
+    if (parsed.appliedKnown && plan.status === 'fulfilled') {
+      freshness = reportFreshness(
+        parsed.applied
+          ? {
+              at: parsed.applied.at,
+              provider: parsed.applied.provider,
+              protocol: parsed.applied.protocol,
+              proxy: parsed.applied.proxy,
+            }
+          : null,
+        parsed.delta,
+        currentApplied,
+        {
+          provider: plan.value.endpoint?.name ?? '',
+          protocol: plan.value.endpoint?.protocol ?? '',
+          mode: plan.value.mode,
+          proxy: setupValue?.proxy ?? '',
+        },
+      );
+    } else {
+      freshness = null;
+    }
+  }
+
+  function appliedText(value: { provider?: string; protocol?: string; proxy?: string } | null): string {
+    if (!value) return t('dns.deltaNone');
+    const provider = value.provider || '—';
+    const protocol = value.protocol ? ` (${value.protocol})` : '';
+    const proxy = value.proxy ? ` · ${value.proxy}` : '';
+    return `${provider}${protocol}${proxy}`;
+  }
+
+  function deltaText(items: Array<{ kind: string; from: string; to: string }>): string {
+    if (items.length === 0) return t('dns.deltaNone');
+    return items
+      .map(
+        (item) =>
+          `${deltaLabel(item.kind)} ${item.from || t('dns.deltaNone')} → ${item.to || t('dns.deltaNone')}`,
+      )
+      .join(' · ');
   }
 
   function restartKernel(): void {
@@ -490,6 +548,31 @@
               </span>
             </div>
           {/each}
+        {/if}
+        {#if freshness?.changed}
+          <div class="callout callout--warning" style="margin-top: 8px">
+            <span class="callout__icon"><Icon name="warning" size={14} /></span>
+            <span class="flag__copy">
+              <span class="flag__title">{t('diag.nowDiffTitle')}</span>
+              <span class="flag__detail">{t('diag.nowDiffBody')}</span>
+              {#if freshness.appliedChanged}
+                <span class="flag__detail">
+                  {t('diag.reportApplied')}: {appliedText(freshness.reportApplied)}
+                </span>
+                <span class="flag__detail">
+                  {t('diag.currentApplied')}: {appliedText(freshness.currentApplied)}
+                </span>
+              {/if}
+              {#if freshness.deltaChanged}
+                <span class="flag__detail">
+                  {t('diag.reportDelta')}: {deltaText(freshness.reportDelta)}
+                </span>
+                <span class="flag__detail">
+                  {t('diag.currentDelta')}: {deltaText(freshness.currentDelta)}
+                </span>
+              {/if}
+            </span>
+          </div>
         {/if}
       </section>
     {/if}
