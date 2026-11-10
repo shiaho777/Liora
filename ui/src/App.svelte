@@ -232,13 +232,12 @@
       const path = params.path ?? '';
       const name = path.split('/').pop() ?? '';
       const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-      toast(
-        t('timeline.saved', { name }),
-        'info',
-        directory
-          ? [{ label: t('downloads.reveal'), path: directory, kind: 'folder' }]
-          : undefined,
-      );
+      const actions = [];
+      if (path) actions.push({ label: t('downloads.openFile'), path, kind: 'file' as const });
+      if (directory) {
+        actions.push({ label: t('downloads.reveal'), path: directory, kind: 'folder' as const });
+      }
+      toast(t('timeline.saved', { name }), 'info', actions);
       return;
     }
     if (message.method === 'browser.timelineFailed' && message.params) {
@@ -251,13 +250,12 @@
       const path = params.path ?? '';
       const name = path.split('/').pop() ?? '';
       const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-      toast(
-        t('error.saved', { name }),
-        'info',
-        directory
-          ? [{ label: t('downloads.reveal'), path: directory, kind: 'folder' }]
-          : undefined,
-      );
+      const actions = [];
+      if (path) actions.push({ label: t('downloads.openFile'), path, kind: 'file' as const });
+      if (directory) {
+        actions.push({ label: t('downloads.reveal'), path: directory, kind: 'folder' as const });
+      }
+      toast(t('error.saved', { name }), 'info', actions);
       return;
     }
     if (message.method === 'browser.diagnosticFailed' && message.params) {
