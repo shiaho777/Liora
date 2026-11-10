@@ -132,7 +132,19 @@ HTTPS: alpn=- ech=0B
 当前的差异: 无
 ```
 
-报告里的 `Timeline:` 保存了事件顺序；查看器优先使用它，并在后面追加当前状态。打开报告时展示：
+报告里的 `Timeline:` 保存了事件顺序；查看器优先使用它，并在后面追加当前状态。时间线旁的“复制时间线”会导出如下纯文本（按时间排序，包含历史与当前事件）：
+
+```
+Liora diagnostics timeline
+Exported: 2026-11-10T08:53:48.271Z
+2026-11-10T08:53:35.565Z  resolver  run 2
+2026-11-10T08:53:35.566Z  applied  Cloudflare Standard (doh) · http://127.0.0.1:49704
+2026-11-10T08:53:42.703Z  generated
+2026-11-10T08:53:45.438Z  current-applied  Cloudflare Standard (doh) · http://127.0.0.1:49704
+2026-11-10T08:53:45.438Z  current-resolver  run 3
+```
+
+打开报告时展示：
 
 ```
 时间线

@@ -27,6 +27,7 @@
   import { buildDiagnosticReport, toReportTimeline } from './diagnostic-report-build';
   import {
     buildTimeline,
+    timelineToText,
     type TimelineEvent,
   } from './diagnostics-timeline';
 
@@ -54,6 +55,7 @@
   const timeline = $derived.by(() => {
     if (!report) return [];
     if (!report.appliedKnown && !report.resolverKnown) return [];
+    const reportedApplied = report.applied;
     const reportedEvents =
       report.timelineKnown && report.timeline.length > 0
         ? report.timeline.map((event) => ({
@@ -70,6 +72,9 @@
             at: new Date(event.at).getTime() || 0,
             count: event.count,
             differences: event.differences,
+            provider: event.kind === 'applied' ? reportedApplied?.provider : undefined,
+            protocol: event.kind === 'applied' ? reportedApplied?.protocol : undefined,
+            proxy: event.kind === 'applied' ? reportedApplied?.proxy : undefined,
           }))
         : undefined;
     return buildTimeline({
@@ -85,6 +90,30 @@
       now: Date.now(),
     });
   });
+
+  const timelineText = $derived(timeline.length > 0 ? timelineToText(timeline) : '');
+
+  $effect(() => {
+    (window as unknown as { __lioraTimelineText?: string }).__lioraTimelineText = timelineText;
+  });
+
+  async function copyTimeline(): Promise<void> {
+    if (!timelineText) return;
+    try {
+      await navigator.clipboard.writeText(timelineText);
+      toast(t('timeline.copied'));
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = timelineText;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      toast(copied ? t('timeline.copied') : t('timeline.copyFailed'));
+    }
+  }
 
   const stale = $derived(staleItems(ruleCheck, dohCheck, proxyCheck));
   const errored = $derived(
@@ -877,7 +906,12 @@
 
     {#if timeline.length > 0}
       <section class="diag__section">
-        <div class="diag__label">{t('diag.timeline')}</div>
+        <div class="diag__label diag__label--row">
+          <span>{t('diag.timeline')}</span>
+          <button class="button button--ghost button--sm" onclick={copyTimeline}>
+            {t('timeline.copy')}
+          </button>
+        </div>
         <div class="timeline">
           {#each timeline as event, index (event.kind + index)}
             <div class="timeline__item">
@@ -1144,6 +1178,13 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--text-muted);
+  }
+
+  .diag__label--row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
 
   .timeline {

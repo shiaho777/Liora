@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTimeline } from './diagnostics-timeline';
+import { buildTimeline, timelineToText } from './diagnostics-timeline';
 
 const base = {
   generatedAt: '2026-11-10T08:00:00.000Z',
@@ -96,5 +96,51 @@ describe('buildTimeline', () => {
       currentDeltaChanged: false,
     });
     expect(events.map((event) => event.kind)).not.toContain('current-delta');
+  });
+});
+
+describe('timelineToText', () => {
+  it('exports chronological saved and current events', () => {
+    const text = timelineToText(
+      [
+        { kind: 'current-resolver', at: 1794299300000, count: 4 },
+        { kind: 'generated', at: 1794299200000 },
+        {
+          kind: 'applied',
+          at: 1794299100000,
+          provider: 'Quad9 Secure',
+          protocol: 'doh',
+          proxy: 'http://127.0.0.1:55000',
+        },
+        { kind: 'resolver', at: 1794299000000, count: 2 },
+      ],
+      new Date('2026-11-10T09:00:00.000Z'),
+    );
+    expect(text).toContain('Liora diagnostics timeline');
+    expect(text).toContain('Exported: 2026-11-10T09:00:00.000Z');
+
+    const lines = text.split('\n').slice(2);
+    expect(lines.map((line) => line.split('  ')[1])).toEqual([
+      'resolver',
+      'applied',
+      'generated',
+      'current-resolver',
+    ]);
+    expect(lines[0]).toContain('run 2');
+    expect(lines[1]).toContain('Quad9 Secure (doh)');
+    expect(lines[1]).toContain('http://127.0.0.1:55000');
+    expect(lines[3]).toContain('run 4');
+  });
+
+  it('writes differences and unknown times explicitly', () => {
+    const text = timelineToText(
+      [
+        { kind: 'report-delta', at: 0, differences: 2 },
+        { kind: 'current-delta', at: 0, differences: 1 },
+      ],
+      new Date('2026-11-10T09:00:00.000Z'),
+    );
+    expect(text).toContain('unknown  report-delta  2 difference(s)');
+    expect(text).toContain('unknown  current-delta  1 difference(s)');
   });
 });

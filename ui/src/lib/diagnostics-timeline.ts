@@ -137,3 +137,42 @@ export function buildTimeline(input: TimelineInput): TimelineEvent[] {
     return a.at - b.at;
   });
 }
+
+function timelineDetail(event: TimelineEvent): string {
+  if (event.kind === 'resolver' || event.kind === 'current-resolver') {
+    return `run ${event.count ?? 0}`;
+  }
+  if (event.kind === 'report-delta' || event.kind === 'current-delta') {
+    return `${event.differences ?? 0} difference(s)`;
+  }
+  const parts: string[] = [];
+  if (event.provider) {
+    parts.push(`${event.provider}${event.protocol ? ` (${event.protocol})` : ''}`);
+  }
+  if (event.proxy) parts.push(event.proxy);
+  return parts.join(' · ');
+}
+
+/**
+ * Plain-text chronology suitable for pasting into an issue. Timestamps are ISO
+ * and events are sorted, so the output does not depend on how a report was
+ * rendered in the interface.
+ */
+export function timelineToText(
+  events: TimelineEvent[],
+  exportedAt: Date = new Date(),
+): string {
+  const lines = ['Liora diagnostics timeline', `Exported: ${exportedAt.toISOString()}`];
+  const sorted = [...events].sort((a, b) => {
+    if (a.at === 0 && b.at === 0) return 0;
+    if (a.at === 0) return 1;
+    if (b.at === 0) return -1;
+    return a.at - b.at;
+  });
+  for (const event of sorted) {
+    const at = event.at > 0 ? new Date(event.at).toISOString() : 'unknown';
+    const detail = timelineDetail(event);
+    lines.push(`${at}  ${event.kind}${detail ? `  ${detail}` : ''}`);
+  }
+  return lines.join('\n');
+}

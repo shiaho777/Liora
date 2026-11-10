@@ -331,6 +331,17 @@ NSString* jsonEscape(id object) {
                 }
               }];
   }
+  // Verification hook: print the timeline text the copy action produces.
+  if ([name isEqualToString:@"timelinetext"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraTimelineText || ''"
+              completionHandler:^(id result, NSError* error) {
+                if (error) {
+                  NSLog(@"Liora: timeline unavailable: %@", error.localizedDescription);
+                } else {
+                  NSLog(@"Liora: timeline\n%@", result);
+                }
+              }];
+  }
   // Verification hook: print the failure report the interface generated.
   if ([name isEqualToString:@"reporttext"]) {
     [self.ui evaluateJavaScript:@"window.__lioraReportText || ''"
