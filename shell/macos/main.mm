@@ -459,6 +459,13 @@ NSString* jsonEscape(id object) {
       [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text}];
     });
   };
+  events.onError = [weakSelf, tab](const std::string& url, int code, const std::string& message) {
+    NSString* failedUrl = ns(url);
+    NSString* reason = ns(message);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf handleLoadFailure:failedUrl code:code message:reason tab:tab];
+    });
+  };
   // target="_blank" opens in the same view for now; real tabs arrive with the
   // tab model in the interface.
   events.onOpenWindow = [](const std::string&, bool) { return false; };
@@ -472,8 +479,18 @@ NSString* jsonEscape(id object) {
   return _views[tab].get();
 }
 
-- (void)notifyInterface:(NSString*)method params:(NSDictionary*)params {
-  NSDictionary* message = @{@"jsonrpc" : @"2.0", @"method" : method, @"params" : params ?: @{}};
+// A failed load is shown by the interface, not as a blank page: the browser
+// hides the kernel view and reports the failure so the user can retry or turn
+// on a direct rule for that host.
+- (void)handleLoadFailure:(NSString*)url code:(int)code message:(NSString*)message tab:(int64_t)tab {
+  self.contentVisible = NO;
+  [self layoutContent];
+  NSLog(@"Liora: load failed for %@ (%d)", url, code);
+  [self notifyInterface:@"browser.loadFailed"
+                 params:@{@"url" : url ?: @"", @"code" : @(code), @"message" : message ?: @"", @"tab" : @(tab)}];
+}
+
+- (void)notifyInterface:(NSString*)method params:(NSDictionary*)params {  NSDictionary* message = @{@"jsonrpc" : @"2.0", @"method" : method, @"params" : params ?: @{}};
   NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
   if (!data) return;
   [self deliver:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];

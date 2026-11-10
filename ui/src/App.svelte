@@ -3,8 +3,9 @@
   import NewTab from './lib/NewTab.svelte';
   import Settings from './lib/Settings.svelte';
   import Library from './lib/Library.svelte';
+  import ErrorPanel from './lib/ErrorPanel.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
-  import { call, describeSettings, notify } from './lib/bridge';
+  import { call, describeSettings, notify, onNotification } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
 
   interface Tab {
@@ -12,6 +13,7 @@
     title: string;
     url: string;
     page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'web';
+    error?: { url: string; code: number; message: string };
   }
 
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
@@ -97,8 +99,40 @@
     }
   }
 
-  async function toggleBookmark(): Promise<void> {
-    if (active.page !== 'web') return;
+  // A failed load is reported by the kernel; show the diagnosis panel instead
+  // of a blank page.
+  onNotification((message) => {
+    if (message.method !== 'browser.loadFailed' || !message.params) return;
+    const params = message.params as { tab?: number; url?: string; code?: number; message?: string };
+    const tab = tabs.find((entry) => entry.id === Number(params.tab)) ?? tabs.find((entry) => entry.id === activeId);
+    if (!tab) return;
+
+    // A failure from an earlier navigation can arrive after the user moved on.
+    // Ignoring it keeps the panel and the address bar in agreement.
+    const failed = (params.url || '').replace(/\/$/, '');
+    const current = (tab.url || '').replace(/\/$/, '');
+    if (failed && current && failed !== current) return;
+
+    tab.error = { url: params.url || tab.url, code: params.code ?? 0, message: params.message ?? '' };
+    tab.title = tab.error.url.replace(/^https?:\/\//, '').split('/')[0] || tab.title;
+    tabs = [...tabs];
+  });
+
+  async function enableDirect(url: string): Promise<void> {
+    const host = siteOf(url);
+    if (!host) return;
+    try {
+      await call('rules.add', { name: host, domains: [host], h3: 'prefer', ech: true, dns: '' });
+      toast(t('error.directOn'));
+    } catch (error: any) {
+      // A rule may already exist for the host; retrying is still useful.
+      toast(String(error?.message ?? error), 'error');
+    }
+    updateTab(activeId, { error: undefined });
+    notify('ui.navigate', { url, tab: activeId });
+  }
+
+  async function toggleBookmark(): Promise<void> {    if (active.page !== 'web') return;
     try {
       const existing = await call<Array<{ id: number }>>('bookmarks.forUrl', { url: active.url });
       for (const entry of existing) await call('bookmarks.remove', { id: entry.id });
@@ -138,7 +172,7 @@
         y: Math.round(rect.y),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        visible: active?.page === 'web',
+        visible: active?.page === 'web' && !active?.error,
         tab: active?.id,
       });
     });
@@ -148,7 +182,7 @@
 
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
-    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' });
+    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error });
   });
 
   // Remember the tab set so the next launch can restore it.
@@ -214,7 +248,7 @@
       return;
     }
 
-    updateTab(activeId, { url, page: 'web', title: url.replace(/^https?:\/\//, '').split('/')[0] });
+    updateTab(activeId, { url, page: 'web', title: url.replace(/^https?:\/\//, '').split('/')[0], error: undefined });
     notify('ui.navigate', { url, tab: activeId });
   }
 
@@ -452,7 +486,20 @@
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library kind={active.page} onnavigate={(url) => navigate(url)} />
       {:else if active.page === 'web'}
-        {#if app.transport === 'mock'}
+        {#if active.error}
+          <ErrorPanel
+            url={active.error.url}
+            message={active.error.message}
+            code={active.error.code}
+            onretry={() => {
+              const target = active.error!.url || active.url;
+              updateTab(activeId, { error: undefined });
+              notify('ui.navigate', { url: target, tab: activeId });
+            }}
+            ondirect={() => enableDirect(active.error!.url || active.url)}
+            onsettings={() => openSettings('dns')}
+          />
+        {:else if app.transport === 'mock'}
           <div class="webplaceholder">
             <div class="webplaceholder__bar">
               <Icon name="globe" size={14} />

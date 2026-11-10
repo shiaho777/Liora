@@ -91,6 +91,9 @@ struct ViewEvents {
   std::function<bool(const std::string& url, bool userGesture)> onOpenWindow;
   // A message from a liora:// page to the bridge.
   std::function<void(const std::string& json)> onMessage;
+  // Navigation failed before the page could load. Code uses the platform's
+  // error code (NSURLErrorDomain on macOS) so the interface can explain it.
+  std::function<void(const std::string& url, int code, const std::string& message)> onError;
 };
 
 class IKernelView {

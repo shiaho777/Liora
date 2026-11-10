@@ -794,6 +794,27 @@ export function createMockBackend(): MockBackend {
         return;
       }
       const method = String(request.method ?? '');
+      // Shell-directed notifications: nothing to answer, but a failing URL can
+      // be simulated so the error panel is reviewable in a browser.
+      if (method.startsWith('ui.')) {
+        if (method === 'ui.navigate') {
+          const params = request.params ?? {};
+          const url = String(params.url ?? '');
+          if (url.includes('fail')) {
+            respond({
+              jsonrpc: '2.0',
+              method: 'browser.loadFailed',
+              params: {
+                tab: params.tab,
+                url,
+                code: -1003,
+                message: '演示：无法找到服务器（mock 数据）',
+              },
+            });
+          }
+        }
+        return;
+      }
       const handler = methods[method];
       if (!handler) {
         respond({

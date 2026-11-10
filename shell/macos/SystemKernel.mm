@@ -47,8 +47,24 @@ std::string toStdString(NSString* value) { return value ? std::string([value UTF
 - (void)webView:(WKWebView*)webView
     didFailProvisionalNavigation:(WKNavigation*)navigation
                        withError:(NSError*)error {
-  if (!self.events || !self.events->onLoading) return;
-  self.events->onLoading(false, 0);
+  if (!self.events) return;
+  if (self.events->onLoading) self.events->onLoading(false, 0);
+  if (self.events->onError) {
+    // webView.URL is nil when a provisional load fails, so take the failing
+    // URL from the error itself.
+    NSString* failing = error.userInfo[NSURLErrorFailingURLStringErrorKey];
+    if (!failing.length) failing = webView.URL.absoluteString;
+    self.events->onError(toStdString(failing), static_cast<int>(error.code),
+                         toStdString(error.localizedDescription));
+  }
+}
+
+- (void)webView:(WKWebView*)webView
+    didFailNavigation:(WKNavigation*)navigation
+            withError:(NSError*)error {
+  if (!self.events || !self.events->onError) return;
+  self.events->onError(toStdString(webView.URL.absoluteString), static_cast<int>(error.code),
+                       toStdString(error.localizedDescription));
 }
 
 - (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation {
