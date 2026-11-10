@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import { call, notify } from './bridge';
   import { app, toast } from './state.svelte';
+  import { buildKernelSwitches } from './kernel-switch-check';
   import { t } from './i18n.svelte';
 
   interface Props {
@@ -176,15 +177,9 @@
       call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
     ]);
     if (setup.status === 'fulfilled' && setup.value) {
-      // Switches plus the effective network flags, so the report records what
-      // the kernel actually received rather than only the QUIC/SPKI subset.
-      const flags = [...(setup.value.switches ?? [])];
-      if (setup.value.dohTemplates) {
-        flags.push(`--dns-over-https-mode=${setup.value.dnsMode || 'secure'}`);
-        flags.push(`--dns-over-https-templates=${setup.value.dohTemplates}`);
-      }
-      if (setup.value.proxy) flags.push(`--proxy-server=${setup.value.proxy}`);
-      kernelSwitches = flags;
+      // The effective flags, so the report records what the kernel actually
+      // received rather than only the QUIC/SPKI subset.
+      kernelSwitches = buildKernelSwitches(setup.value);
       kernelLimits = setup.value.unsupported ?? [];
     }
     if (installed.status === 'fulfilled') {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildKernelSwitches,
   checkDohTemplate,
   checkForcedOrigins,
   checkProxy,
@@ -322,5 +323,36 @@ describe('staleItems', () => {
       { running: true, proxyPort: 5300 },
     );
     expect(staleItems(null, dns, proxy)).toEqual([]);
+  });
+});
+
+describe('buildKernelSwitches', () => {
+  it('keeps base switches and adds the effective network flags', () => {
+    expect(
+      buildKernelSwitches({
+        switches: ['--enable-quic', '--origin-to-force-quic-on=x.com:443'],
+        dohTemplates: 'https://cloudflare-dns.com/dns-query',
+        dnsMode: 'secure',
+        proxy: 'http://127.0.0.1:5300',
+      }),
+    ).toEqual([
+      '--enable-quic',
+      '--origin-to-force-quic-on=x.com:443',
+      '--dns-over-https-mode=secure',
+      '--dns-over-https-templates=https://cloudflare-dns.com/dns-query',
+      '--proxy-server=http://127.0.0.1:5300',
+    ]);
+  });
+
+  it('omits DoH and proxy flags when they are not used', () => {
+    expect(buildKernelSwitches({ switches: ['--enable-quic'] })).toEqual(['--enable-quic']);
+    expect(buildKernelSwitches({})).toEqual([]);
+  });
+
+  it('defaults the DoH mode when only a template is present', () => {
+    expect(buildKernelSwitches({ dohTemplates: 'https://dns.example/q', dnsMode: '' })).toEqual([
+      '--dns-over-https-mode=secure',
+      '--dns-over-https-templates=https://dns.example/q',
+    ]);
   });
 });

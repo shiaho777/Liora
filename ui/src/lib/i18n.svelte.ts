@@ -161,6 +161,10 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'restart.none': '无',
     'restart.match': '启动参数与当前配置一致。',
     'restart.partial': '部分检查未能完成：{items}。',
+    'restart.action': '重启内核',
+    'restart.working': '正在重启…',
+    'restart.done': '内核已重启，启动参数已刷新',
+    'restart.refreshed': '以下启动参数已刷新为当前值。',
     'nav.about': '关于',
 
     'appearance.title': '外观',
@@ -473,6 +477,10 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'restart.none': 'None',
     'restart.match': 'Start-up parameters match the current configuration.',
     'restart.partial': 'Some checks could not be completed: {items}.',
+    'restart.action': 'Restart kernel',
+    'restart.working': 'Restarting…',
+    'restart.done': 'Kernel restarted; start-up parameters refreshed',
+    'restart.refreshed': 'The start-up parameters below were refreshed to their current values.',
     'nav.about': 'About',
 
     'appearance.title': 'Appearance',

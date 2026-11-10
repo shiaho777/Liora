@@ -5,6 +5,7 @@
   import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
   import { explainLimit, explainSwitch } from './kernel-explanations';
   import {
+    buildKernelSwitches,
     checkDohTemplate,
     checkForcedOrigins,
     checkProxy,
@@ -29,7 +30,12 @@
   let dohError = $state('');
   let proxyCheck = $state<ProxyCheck | null>(null);
   let proxyError = $state('');
+  let restarting = $state(false);
+  // After a restart the report's historical switches are replaced by the ones
+  // the kernel actually received, while the raw text stays untouched.
+  let liveSwitches = $state<string[] | null>(null);
 
+  const displaySwitches = $derived(liveSwitches ?? report?.switches ?? []);
   const stale = $derived(staleItems(ruleCheck, dohCheck, proxyCheck));
   const errored = $derived(
     [
@@ -65,6 +71,21 @@
   // pasted text block. All of them go through the same parser.
   $effect(() => {
     return onNotification((message) => {
+      if (message.method === 'browser.kernelRestarted') {
+        const params = (message.params ?? {}) as {
+          switches?: string[];
+          dohMode?: string;
+          dnsMode?: string;
+          dohTemplates?: string;
+          proxy?: string;
+        };
+        if (!report) return;
+        liveSwitches = buildKernelSwitches(params);
+        restarting = false;
+        toast(t('restart.done'));
+        void loadCrossChecks(report, liveSwitches);
+        return;
+      }
       if (message.method !== 'ui.filePicked') return;
       const params = (message.params ?? {}) as {
         purpose?: string;
@@ -98,13 +119,18 @@
     dohError = '';
     proxyCheck = null;
     proxyError = '';
+    restarting = false;
+    liveSwitches = null;
     void loadCrossChecks(result.report);
   }
 
   // A running kernel keeps the switches it started with, so both the forced
   // origins and the DoH endpoint can be stale. Compare against what the
   // current rules and DNS settings would produce now.
-  async function loadCrossChecks(parsed: DiagnosticReport): Promise<void> {
+  async function loadCrossChecks(
+    parsed: DiagnosticReport,
+    switchList: string[] = parsed.switches,
+  ): Promise<void> {
     if (!parsed.switchesKnown) return;
     const kernel = parsed.kernel && parsed.kernel !== 'unknown' ? parsed.kernel : '';
     const [rules, plan, setup, runtime] = await Promise.allSettled([
@@ -123,7 +149,7 @@
     if (report?.raw !== parsed.raw) return;
 
     if (rules.status === 'fulfilled') {
-      ruleCheck = checkForcedOrigins(parsed.switches, rules.value.rules, rules.value.enabled !== false);
+      ruleCheck = checkForcedOrigins(switchList, rules.value.rules, rules.value.enabled !== false);
     } else {
       rulesError = t('stale.unavailable');
     }
@@ -131,10 +157,10 @@
     const setupValue =
       setup.status === 'fulfilled' && setup.value ? (setup.value as KernelSetupLike) : null;
     if (plan.status === 'fulfilled') {
-      dohCheck = checkDohTemplate(parsed.switches, plan.value, setupValue);
+      dohCheck = checkDohTemplate(switchList, plan.value, setupValue);
     } else if (setupValue) {
       dohCheck = checkDohTemplate(
-        parsed.switches,
+        switchList,
         { mode: setupValue.dnsMode, dohTemplates: setupValue.dohTemplates, endpoint: null },
         setupValue,
       );
@@ -143,13 +169,29 @@
     }
 
     if (runtime.status === 'fulfilled') {
-      proxyCheck = checkProxy(parsed.switches, setupValue, runtime.value);
+      proxyCheck = checkProxy(switchList, setupValue, runtime.value);
     } else if (setupValue) {
-      proxyCheck = checkProxy(parsed.switches, setupValue, null);
+      proxyCheck = checkProxy(switchList, setupValue, null);
     } else {
       proxyError = t('proxyStale.unavailable');
     }
   }
+
+  function restartKernel(): void {
+    if (!report || restarting) return;
+    restarting = true;
+    notify('ui.restartKernel', { kernel: report.kernel ?? '' });
+    // Re-enable the button if the shell never answers, rather than leaving the
+    // viewer stuck on "restarting".
+    setTimeout(() => {
+      restarting = false;
+    }, 15000);
+  }
+
+  $effect(() => {
+    (window as unknown as { __lioraRestartKernel?: () => void }).__lioraRestartKernel = () =>
+      restartKernel();
+  });
 
   function pickFile(): void {
     if (app.transport === 'mock') {
@@ -306,8 +348,8 @@
       <div class="diag__row">
         <span class="diag__key">{t('diag.switches')}</span>
         <span class="diag__value diag__value--stack">
-          {#if report.switches.length > 0}
-            {#each report.switches as item (item)}
+          {#if displaySwitches.length > 0}
+            {#each displaySwitches as item (item)}
               {@const explanation = explainSwitch(item, i18n.locale, context)}
               <span class="flag">
                 <span class="badge mono">{item}</span>
@@ -352,6 +394,16 @@
                   </span>
                 {/if}
               {/each}
+              <span class="cluster" style="margin-top: 4px">
+                <button
+                  class="button button--primary button--sm"
+                  disabled={restarting}
+                  onclick={restartKernel}
+                >
+                  <Icon name="refresh" size={12} />
+                  {restarting ? t('restart.working') : t('restart.action')}
+                </button>
+              </span>
             </span>
           </div>
         {:else if configured && errored.length === 0}
@@ -382,6 +434,9 @@
           {/if}
         </span>
       </div>
+      {#if liveSwitches}
+        <div class="diag__note diag__note--ok">{t('restart.refreshed')}</div>
+      {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.components')}</span>
         <span class="diag__value">

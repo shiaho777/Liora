@@ -292,6 +292,9 @@
         case 'savereport':
           (window as unknown as { __lioraSaveReport?: () => void }).__lioraSaveReport?.();
           break;
+        case 'restartkernel':
+          (window as unknown as { __lioraRestartKernel?: () => void }).__lioraRestartKernel?.();
+          break;
         case 'pagedump': {
           const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
           const content = document.querySelector('.content');

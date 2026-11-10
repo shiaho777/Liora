@@ -182,41 +182,32 @@ NSString* jsonEscape(id object) {
                    }];
   }
 
-  // Verification hook for the command bridge that the menu uses.
+  // Verification hooks for the command bridge that the menu uses. A second
+  // command allows checking UI state after an action (e.g. restart -> dump).
   const char* command = getenv("LIORA_TEST_COMMAND");
   if (command && *command) {
     NSString* name = ns(command);
-    // A URL opened in the same launch needs a moment to become the active tab.
     double delay = 0.3;
     if (const char* ms = getenv("LIORA_TEST_COMMAND_DELAY_MS")) {
       delay = atof(ms) / 1000.0;
     }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-      [self sendUICommand:name];
-      NSLog(@"Liora: command %@", name);
-      // Verification hook: print the visible text of the current interface.
-      if ([name isEqualToString:@"pagedump"]) {
-        [self.ui evaluateJavaScript:@"window.__lioraPageText || ''"
-                  completionHandler:^(id result, NSError* error) {
-                    if (error) {
-                      NSLog(@"Liora: page dump unavailable: %@", error.localizedDescription);
-                    } else {
-                      NSLog(@"Liora: page\n%@", result);
-                    }
-                  }];
-      }
-      // Verification hook: print the failure report the interface generated.
-      if ([name isEqualToString:@"reporttext"]) {
-        [self.ui evaluateJavaScript:@"window.__lioraReportText || ''"
-                  completionHandler:^(id result, NSError* error) {
-                    if (error) {
-                      NSLog(@"Liora: report unavailable: %@", error.localizedDescription);
-                    } else {
-                      NSLog(@"Liora: report\n%@", result);
-                    }
-                  }];
-      }
-    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                     [self runTestCommand:name];
+                   });
+  }
+
+  const char* command2 = getenv("LIORA_TEST_COMMAND2");
+  if (command2 && *command2) {
+    NSString* name = ns(command2);
+    double delay = 2.0;
+    if (const char* ms = getenv("LIORA_TEST_COMMAND2_DELAY_MS")) {
+      delay = atof(ms) / 1000.0;
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+                     [self runTestCommand:name];
+                   });
   }
 
   // Verification hook: deliver a saved diagnostic report after the interface
@@ -327,6 +318,34 @@ NSString* jsonEscape(id object) {
   NSString* script = [NSString stringWithFormat:@"window.__lioraCommand && window.__lioraCommand(%@);",
                                                 jsonEscape(name)];
   [self.ui evaluateJavaScript:script completionHandler:nil];
+}
+
+- (void)runTestCommand:(NSString*)name {
+  [self sendUICommand:name];
+  NSLog(@"Liora: command %@", name);
+
+  // Verification hook: print the visible text of the current interface.
+  if ([name isEqualToString:@"pagedump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraPageText || ''"
+              completionHandler:^(id result, NSError* error) {
+                if (error) {
+                  NSLog(@"Liora: page dump unavailable: %@", error.localizedDescription);
+                } else {
+                  NSLog(@"Liora: page\n%@", result);
+                }
+              }];
+  }
+  // Verification hook: print the failure report the interface generated.
+  if ([name isEqualToString:@"reporttext"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraReportText || ''"
+              completionHandler:^(id result, NSError* error) {
+                if (error) {
+                  NSLog(@"Liora: report unavailable: %@", error.localizedDescription);
+                } else {
+                  NSLog(@"Liora: report\n%@", result);
+                }
+              }];
+  }
 }
 
 - (void)newTabCommand:(id)sender { [self sendUICommand:@"newTab"]; }
@@ -742,7 +761,43 @@ NSString* jsonEscape(id object) {
   [self.ui evaluateJavaScript:script completionHandler:nil];
 }
 
+// Restarts the local resolver and reloads kernel views so new network switches
+// and the new ephemeral proxy port take effect. Chromium reads these at start-up.
+- (void)restartKernel:(NSString*)kernelId {
+  if (!_core) return;
+  NSString* kernel = kernelId.length ? kernelId : ns(liora::KernelManager::kSystem);
+
+  [self.netService stop];
+  _core->setNetRuntime(liora::NetRuntime{});
+  [self refreshNetworkNow];
+
+  liora::KernelNetSetup setup = _core->applyNetwork(stdString(kernel));
+
+  for (auto& entry : _views) {
+    entry.second->reload(true);
+  }
+
+  NSMutableArray* switches = [NSMutableArray array];
+  for (const auto& item : setup.switches) [switches addObject:ns(item)];
+
+  [self notifyInterface:@"browser.kernelRestarted"
+                 params:@{
+                   @"kernel" : ns(setup.kernel),
+                   @"switches" : switches,
+                   @"dnsMode" : ns(setup.dnsMode),
+                   @"dohTemplates" : ns(setup.dohTemplates),
+                   @"proxy" : ns(setup.proxy),
+                 }];
+  NSLog(@"Liora: kernel restarted kernel=%@ proxy=%@ switches=%lu", ns(setup.kernel),
+        ns(setup.proxy), (unsigned long)setup.switches.size());
+}
+
 - (void)handleShellMessage:(NSString*)method params:(id)params {
+  if ([method isEqualToString:@"ui.restartKernel"]) {
+    [self restartKernel:params[@"kernel"]];
+    return;
+  }
+
   if ([method isEqualToString:@"ui.contentRect"]) {
     NSDictionary* rect = params;
     self.pendingContentRect =

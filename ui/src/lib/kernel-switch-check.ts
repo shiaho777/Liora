@@ -206,6 +206,28 @@ export function checkForcedOrigins(
   };
 }
 
+export interface KernelSwitchSource {
+  switches?: string[];
+  dohTemplates?: string;
+  dnsMode?: string;
+  proxy?: string;
+}
+
+/**
+ * Builds the effective start-up flags from a KernelNetSetup. Kept next to the
+ * staleness checks so the report, the viewer refresh and the tests agree on
+ * what "the kernel received" means.
+ */
+export function buildKernelSwitches(source: KernelSwitchSource): string[] {
+  const out = [...(source.switches ?? [])];
+  if (source.dohTemplates) {
+    out.push(`--dns-over-https-mode=${source.dnsMode || 'secure'}`);
+    out.push(`--dns-over-https-templates=${source.dohTemplates}`);
+  }
+  if (source.proxy) out.push(`--proxy-server=${source.proxy}`);
+  return out;
+}
+
 export type StaleKind = 'rules' | 'dns' | 'proxy';
 
 export interface StaleItem {
