@@ -28,6 +28,21 @@ interface CustomDns {
   protocol: string;
 }
 
+const SAMPLE_REPORT = `report: 1
+Liora diagnostic report
+Generated: 2026-11-10T07:35:44.966Z
+Version: 0.1.0 (mock arm64)
+URL: https://this-host-does-not-exist.invalid/
+Host: this-host-does-not-exist.invalid
+Error: -1005 - 连接在加载过程中中断。
+Kernel: system
+TLS: not established
+Rule: none
+Upstream: doh cloudflare https://cloudflare-dns.com/dns-query 339ms
+Addresses: none
+HTTPS: alpn=- ech=0B
+`;
+
 const PRESETS = [
   {
     id: 'x',
@@ -825,6 +840,20 @@ export function createMockBackend(): MockBackend {
       // Shell-directed notifications: nothing to answer, but a failing URL can
       // be simulated so the error panel is reviewable in a browser.
       if (method.startsWith('ui.')) {
+        if (method === 'ui.pickFile' && request.params?.purpose === 'diagnosticReport') {
+          // The native shell reads the file; the mock answers with a sample so
+          // the viewer can be reviewed in a plain browser.
+          respond({
+            jsonrpc: '2.0',
+            method: 'ui.filePicked',
+            params: {
+              purpose: 'diagnosticReport',
+              path: '/Users/you/Downloads/liora-diagnostic-20261110-153546.txt',
+              content: SAMPLE_REPORT,
+            },
+          });
+          return;
+        }
         if (method === 'ui.navigate') {
           const params = request.params ?? {};
           const url = String(params.url ?? '');

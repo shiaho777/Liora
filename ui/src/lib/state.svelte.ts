@@ -7,7 +7,7 @@ export interface Toast {
   kind: 'info' | 'error';
 }
 
-export type PageKind = 'browser' | 'newtab' | 'settings' | 'bookmarks' | 'history';
+export type PageKind = 'browser' | 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics';
 
 export const app = $state({
   ready: false,
@@ -121,6 +121,7 @@ export function internalPageFor(url: string): PageKind | null {
   if (name === 'settings') return 'settings';
   if (name === 'bookmarks') return 'bookmarks';
   if (name === 'history') return 'history';
+  if (name === 'diagnostics') return 'diagnostics';
   if (name === 'newtab' || name === '') return 'newtab';
   return null;
 }

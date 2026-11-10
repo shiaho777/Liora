@@ -1,0 +1,410 @@
+<script lang="ts">
+  import Icon from './Icon.svelte';
+  import { app, toast } from './state.svelte';
+  import { notify, onNotification } from './bridge';
+  import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
+  import { t } from './i18n.svelte';
+
+  let report = $state<DiagnosticReport | null>(null);
+  let error = $state('');
+  let fileName = $state('');
+  let pasted = $state('');
+  let pasteOpen = $state(false);
+
+  // A report can arrive from the file panel, from the test hook, or from a
+  // pasted text block. All of them go through the same parser.
+  $effect(() => {
+    return onNotification((message) => {
+      if (message.method !== 'ui.filePicked') return;
+      const params = (message.params ?? {}) as {
+        purpose?: string;
+        path?: string;
+        content?: string;
+        error?: string;
+      };
+      if (params.purpose !== 'diagnosticReport') return;
+      fileName = (params.path ?? '').split('/').pop() ?? '';
+      if (params.error) {
+        report = null;
+        error = params.error;
+        return;
+      }
+      accept(params.content ?? '');
+    });
+  });
+
+  function accept(text: string): void {
+    const result = parseDiagnosticReport(text);
+    if (!result.ok) {
+      report = null;
+      error = result.error;
+      return;
+    }
+    report = result.report;
+    error = '';
+  }
+
+  function pickFile(): void {
+    if (app.transport === 'mock') {
+      // The mock backend answers ui.pickFile with a sample report.
+      notify('ui.pickFile', { purpose: 'diagnosticReport' });
+      return;
+    }
+    notify('ui.pickFile', { purpose: 'diagnosticReport' });
+  }
+
+  function parsePasted(): void {
+    if (!pasted.trim()) return;
+    fileName = '';
+    accept(pasted);
+    if (report) {
+      pasteOpen = false;
+      toast(t('diag.loaded'));
+    }
+  }
+
+  function errorText(): string {
+    if (error === 'missing-version') return t('diag.missingVersion');
+    if (error === 'unsupported-version') return t('diag.unsupportedVersion');
+    if (error === 'empty') return t('diag.empty');
+    return error;
+  }
+
+  function tlsLabel(status: DiagnosticReport['tls']['status']): string {
+    if (status === 'valid') return t('site.valid');
+    if (status === 'invalid') return t('site.invalid');
+    if (status === 'failed') return t('error.tlsFailed');
+    if (status === 'absent') return t('error.noTls');
+    return t('diag.unknown');
+  }
+
+  function tlsClass(status: DiagnosticReport['tls']['status']): string {
+    if (status === 'valid') return 'badge--success';
+    if (status === 'invalid' || status === 'failed') return 'badge--danger';
+    if (status === 'absent') return 'badge--warning';
+    return '';
+  }
+
+  function when(value: string | undefined): string {
+    if (!value) return '';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  }
+</script>
+
+<div class="diag">
+  {#if !report}
+    <div class="diag__empty">
+      <div class="diag__empty-icon"><Icon name="info" size={22} stroke={1.4} /></div>
+      <div class="diag__empty-title">{t('diag.title')}</div>
+      <p class="diag__empty-text">{t('diag.lede')}</p>
+
+      <div class="cluster" style="justify-content: center">
+        <button class="button button--primary" onclick={pickFile}>
+          <Icon name="folder" size={13} />
+          {t('diag.open')}
+        </button>
+        <button class="button button--ghost" onclick={() => (pasteOpen = !pasteOpen)}>
+          {t('diag.paste')}
+        </button>
+      </div>
+
+      {#if error}
+        <div class="callout callout--danger" style:max-width="520px; margin-top:14px">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span>{errorText()}</span>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <header class="diag__header">
+      <div>
+        <div class="diag__title">{report.host || report.url || fileName || t('diag.title')}</div>
+        <div class="diag__subtitle mono">
+          {#if fileName}{fileName}{/if}
+          {#if report.generated} · {when(report.generated)}{/if}
+        </div>
+      </div>
+      <div class="cluster">
+        <span class="badge">{t('diag.version')} {report.version}</span>
+        {#if report.errorCode !== undefined}
+          <span class="badge badge--danger mono">{report.errorCode}</span>
+        {/if}
+        <button class="button button--ghost button--sm" onclick={pickFile}>
+          <Icon name="folder" size={12} />
+          {t('diag.openAnother')}
+        </button>
+      </div>
+    </header>
+
+    {#if report.errorReason}
+      <div class="callout callout--warning">
+        <span class="callout__icon"><Icon name="warning" size={14} /></span>
+        <span>{report.errorReason}</span>
+      </div>
+    {/if}
+
+    <section class="diag__section">
+      <div class="diag__label">{t('diag.page')}</div>
+      <div class="diag__row">
+        <span class="diag__key">URL</span>
+        <span class="diag__value mono">{report.url ?? '—'}</span>
+      </div>
+      <div class="diag__row">
+        <span class="diag__key">{t('site.kernel')}</span>
+        <span class="diag__value mono">{report.kernel ?? '—'}</span>
+      </div>
+      {#if report.appVersion}
+        <div class="diag__row">
+          <span class="diag__key">{t('about.version')}</span>
+          <span class="diag__value mono">{report.appVersion}</span>
+        </div>
+      {/if}
+    </section>
+
+    <section class="diag__section">
+      <div class="diag__label">{t('error.connection')}</div>
+      <div class="diag__row">
+        <span class="diag__key">TLS</span>
+        <span class="diag__value">
+          <span class="badge {tlsClass(report.tls.status)}">{tlsLabel(report.tls.status)}</span>
+          {#if report.tls.subject}
+            <span class="mono muted">{report.tls.subject}</span>
+          {/if}
+          {#if report.tls.expires}
+            <span class="muted">{t('site.expires')}: {report.tls.expires}</span>
+          {/if}
+        </span>
+      </div>
+    </section>
+
+    <section class="diag__section">
+      <div class="diag__label">{t('error.resolution')}</div>
+      <div class="diag__row">
+        <span class="diag__key">{t('site.network')}</span>
+        <span class="diag__value">
+          {#if report.rule.matched}
+            <span class="badge badge--accent">{t('site.ruleMatched')}</span>
+            <span>{report.rule.name}</span>
+            <span class="badge">H3 {report.rule.h3 ?? '—'}</span>
+            {#if report.rule.ech}<span class="badge">ECH</span>{/if}
+          {:else}
+            <span class="badge">{t('error.noRule')}</span>
+          {/if}
+        </span>
+      </div>
+      {#if report.upstream}
+        <div class="diag__row">
+          <span class="diag__key">{t('error.upstream')}</span>
+          <span class="diag__value">
+            <span class="badge mono">{report.upstream.protocol.toUpperCase()}</span>
+            <span class="mono">{report.upstream.id} · {report.upstream.address}</span>
+            {#if report.upstream.elapsedMs !== undefined}
+              <span class="muted">{report.upstream.elapsedMs} ms</span>
+            {/if}
+          </span>
+        </div>
+      {/if}
+      <div class="diag__row">
+        <span class="diag__key">{t('error.addresses')}</span>
+        <span class="diag__value mono">
+          {report.addresses.length > 0 ? report.addresses.join(', ') : t('site.noAddress')}
+        </span>
+      </div>
+      {#if report.https}
+        <div class="diag__row">
+          <span class="diag__key">HTTPS</span>
+          <span class="diag__value">
+            <span class="badge">ALPN {report.https.alpn.join('/') || '—'}</span>
+            <span class="badge" class:badge--accent={report.https.echBytes > 0}>
+              ECH {report.https.echBytes}B
+            </span>
+          </span>
+        </div>
+      {/if}
+    </section>
+
+    {#if report.notes}
+      <section class="diag__section">
+        <div class="diag__label">{t('diag.notes')}</div>
+        <div class="diag__row">
+          <span class="diag__value">{report.notes}</span>
+        </div>
+      </section>
+    {/if}
+
+    {#if Object.keys(report.extra).length > 0}
+      <section class="diag__section">
+        <div class="diag__label">{t('diag.extra')}</div>
+        {#each Object.entries(report.extra) as [key, value] (key)}
+          <div class="diag__row">
+            <span class="diag__key mono">{key}</span>
+            <span class="diag__value mono">{value}</span>
+          </div>
+        {/each}
+      </section>
+    {/if}
+
+    <details class="diag__raw">
+      <summary>{t('diag.raw')}</summary>
+      <pre>{report.raw}</pre>
+    </details>
+  {/if}
+
+  {#if pasteOpen}
+    <div class="diag__paste">
+      <textarea
+        class="input input--mono"
+        bind:value={pasted}
+        placeholder={t('diag.pasteHint')}
+        rows="8"
+        spellcheck="false"
+      ></textarea>
+      <div class="cluster" style:margin-top="8px">
+        <button class="button button--primary button--sm" onclick={parsePasted}>{t('diag.parse')}</button>
+        <button class="button button--ghost button--sm" onclick={() => (pasteOpen = false)}>✕</button>
+      </div>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .diag {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 760px;
+  }
+
+  .diag__empty {
+    padding: 40px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .diag__empty-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: var(--bg-sunken);
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .diag__empty-title {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .diag__empty-text {
+    margin: 0 0 8px;
+    max-width: 46ch;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+
+  .diag__header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .diag__title {
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .diag__subtitle {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    word-break: break-all;
+  }
+
+  .diag__section {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .diag__label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .diag__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12px;
+  }
+
+  .diag__key {
+    width: 72px;
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .diag__value {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    word-break: break-all;
+  }
+
+  .diag__raw {
+    font-size: 11.5px;
+  }
+
+  .diag__raw summary {
+    cursor: pointer;
+    color: var(--text-muted);
+  }
+
+  .diag__raw pre {
+    margin: 8px 0 0;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 320px;
+    overflow: auto;
+    user-select: text;
+  }
+
+  .diag__paste {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .diag__paste textarea {
+    height: auto;
+    padding: 10px;
+    resize: vertical;
+  }
+</style>

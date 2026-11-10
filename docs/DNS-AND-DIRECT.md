@@ -94,6 +94,8 @@ ECH 的**外层 SNI 由服务端下发的 ECHConfig 里的 `public_name` 决定*
 
 失败页还能复制或保存一份纯文本报告。首行 `report: 1` 是格式版本，便于以后解析；保存时写入下载目录（`liora-diagnostic-<时间戳>.txt`）。
 
+保存下来的报告可以在应用内重新打开：访问 `liora://diagnostics`，或 设置 → 诊断报告。界面用同一套字段定义解析文件并分区还原（页面 / 连接 / 解析 / 备注 / 未知字段 + 原始文本），解析器有 7 个单元测试覆盖版本校验、TLS、规则、上游与地址格式。
+
 ```
 report: 1
 Liora diagnostic report

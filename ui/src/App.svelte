@@ -5,6 +5,7 @@
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
   import SiteCard from './lib/SiteCard.svelte';
+  import DiagnosticsPage from './lib/DiagnosticsPage.svelte';
   import DownloadsPanel from './lib/DownloadsPanel.svelte';
   import DownloadPage from './lib/DownloadPage.svelte';
   import {
@@ -23,7 +24,7 @@
     id: number;
     title: string;
     url: string;
-    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'web';
+    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'web';
     error?: { url: string; code: number; message: string };
     download?: DownloadItem;
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
@@ -635,6 +636,8 @@
         <NewTab onnavigate={(url) => navigate(url)} onopen={(page) => navigate(`liora://${page}`)} />
       {:else if active.page === 'settings'}
         <Settings />
+      {:else if active.page === 'diagnostics'}
+        <DiagnosticsPage />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library kind={active.page} onnavigate={(url) => navigate(url)} />
       {:else if active.download}

@@ -10,6 +10,7 @@
   import Kernels from './panels/Kernels.svelte';
   import Data from './panels/Data.svelte';
   import Migration from './panels/Migration.svelte';
+  import Diagnostics from './panels/Diagnostics.svelte';
   import About from './panels/About.svelte';
 
   interface NavEntry {
@@ -25,6 +26,7 @@
     { id: 'dns', label: 'nav.dns', icon: 'shield' },
     { id: 'kernels', label: 'nav.kernels', icon: 'puzzle', advanced: true },
     { id: 'data', label: 'nav.data', icon: 'download' },
+    { id: 'diagnostics', label: 'nav.diagnostics', icon: 'info' },
     { id: 'migration', label: 'nav.migration', icon: 'external' },
     { id: 'about', label: 'nav.about', icon: 'info' },
   ];
@@ -114,6 +116,8 @@
       <Kernels />
     {:else if activeSection === 'data'}
       <Data />
+    {:else if activeSection === 'diagnostics'}
+      <Diagnostics />
     {:else if activeSection === 'migration'}
       <Migration />
     {:else}

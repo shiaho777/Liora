@@ -193,8 +193,27 @@ NSString* jsonEscape(id object) {
     });
   }
 
-  const char* tabs = getenv("LIORA_OPEN_TABS");
-  if (tabs && *tabs) {
+  // Verification hook: deliver a saved diagnostic report after the interface
+  // has mounted, without opening a file panel.
+  const char* reportPath = getenv("LIORA_TEST_REPORT");
+  if (reportPath && *reportPath) {
+    NSString* path = ns(reportPath);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      NSError* readError = nil;
+      NSString* content = [NSString stringWithContentsOfFile:path
+                                                    encoding:NSUTF8StringEncoding
+                                                       error:&readError];
+      NSDictionary* payload = content
+                                  ? @{@"purpose" : @"diagnosticReport", @"path" : path, @"content" : content}
+                                  : @{@"purpose" : @"diagnosticReport",
+                                      @"path" : path,
+                                      @"error" : readError.localizedDescription ?: @"cannot read the file"};
+      [self notifyInterface:@"ui.filePicked" params:payload];
+      NSLog(@"Liora: test report delivered from %@", path);
+    });
+  }
+
+  const char* tabs = getenv("LIORA_OPEN_TABS");  if (tabs && *tabs) {
     NSString* list = ns(tabs);
     // Let the interface finish mounting before calling into it.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
@@ -777,9 +796,34 @@ NSString* jsonEscape(id object) {
                   completionHandler:^(NSModalResponse response) {
                     if (response != NSModalResponseOK) return;
                     NSString* path = panel.URL.path;
-                    [self deliver:[NSString stringWithFormat:@"{\"jsonrpc\":\"2.0\",\"method\":\"ui.filePicked\","
-                                                              @"\"params\":{\"purpose\":%@,\"path\":%@}}",
-                                                     jsonEscape(params[@"purpose"] ?: @""), jsonEscape(path)]];
+                    NSString* purpose = params[@"purpose"] ?: @"";
+                    NSMutableDictionary* payload = [NSMutableDictionary dictionary];
+                    payload[@"purpose"] = purpose;
+                    payload[@"path"] = path;
+
+                    // Diagnostic reports are small text files that the interface
+                    // renders directly, so read them here instead of asking the
+                    // interface to fetch a file:// URL it cannot access.
+                    if ([purpose isEqualToString:@"diagnosticReport"]) {
+                      NSError* readError = nil;
+                      NSString* content = [NSString stringWithContentsOfFile:path
+                                                                   encoding:NSUTF8StringEncoding
+                                                                      error:&readError];
+                      if (content) {
+                        payload[@"content"] = content;
+                      } else {
+                        payload[@"error"] = readError.localizedDescription ?: @"cannot read the file";
+                      }
+                    }
+
+                    NSDictionary* message = @{
+                      @"jsonrpc" : @"2.0",
+                      @"method" : @"ui.filePicked",
+                      @"params" : payload,
+                    };
+                    NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
+                    if (!data) return;
+                    [self deliver:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];
                   }];
     return;
   }
