@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
-  import { call } from '../bridge';
+  import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
   import { cefNeedsConfirmation, cefReadiness } from '../kernel-signing';
@@ -28,6 +28,7 @@
   let components = $state<Component[]>([]);
   let loading = $state(true);
   let busy = $state('');
+  let installing = $state('');
   // CEF actions on an ad-hoc build need an explicit acknowledgement first.
   let pending = $state<{ kind: 'download' | 'select'; kernelId: string } | null>(null);
 
@@ -70,10 +71,37 @@
   }
 
   function downloadKernel(kernel: Kernel): void {
-    // Component downloads are shell-side and not wired yet; say so instead of
-    // implying that a 135 MB install just started.
-    toast(t('kernels.downloadUnavailable', { name: kernel.name }));
+    if (!kernel.component) {
+      toast(t('kernels.noComponent'), 'error');
+      return;
+    }
+    installing = kernel.id;
+    // The shell plans, downloads, unpacks and commits; Core verifies hashes.
+    notify('ui.installComponent', { id: kernel.component, version: '' });
   }
+
+  $effect(() => {
+    return onNotification((message) => {
+      if (message.method === 'browser.componentInstalled') {
+        const params = (message.params ?? {}) as { id?: string; version?: string };
+        const kernel = kernels.find((item) => item.component === params.id);
+        installing = '';
+        toast(t('kernels.installDone', { name: kernel?.name ?? params.id ?? '' }));
+        void load();
+        return;
+      }
+      if (message.method === 'browser.componentFailed') {
+        const params = (message.params ?? {}) as { message?: string };
+        installing = '';
+        toast(params.message || t('kernels.installFailed'), 'error');
+        void load();
+        return;
+      }
+      if (message.method === 'components.changed') {
+        void load();
+      }
+    });
+  });
 
   function confirmPending(): void {
     const entry = pending;
@@ -102,6 +130,11 @@
 
   function capLabel(cap: string): string {
     return t(`kernels.cap.${cap}`);
+  }
+
+  function installedComponentVersion(kernel: Kernel): string {
+    if (!kernel.component) return '';
+    return components.find((item) => item.id === kernel.component)?.installedVersion ?? '';
   }
 </script>
 
@@ -142,6 +175,13 @@
                 {#if kernel.version}v{kernel.version}{/if}
                 {#if kernel.component} · {kernel.component}{/if}
               </div>
+              {#if !kernel.available && installedComponentVersion(kernel)}
+                <div class="row__desc kernel-note">
+                  {t('kernels.componentInstalledUnavailable', {
+                    version: installedComponentVersion(kernel),
+                  })}
+                </div>
+              {/if}
               <div class="rule__meta">
                 {#each kernel.caps as cap (cap)}
                   <span class="badge">{capLabel(cap)}</span>
@@ -159,9 +199,13 @@
                   {selected === kernel.id ? t('kernels.installed') : t('kernels.default')}
                 </button>
               {:else}
-                <button class="button button--ghost" onclick={() => requestDownload(kernel)}>
+                <button
+                  class="button button--ghost"
+                  disabled={installing === kernel.id}
+                  onclick={() => requestDownload(kernel)}
+                >
                   <Icon name="download" size={13} />
-                  {t('kernels.download')}
+                  {installing === kernel.id ? t('kernels.installing') : t('kernels.download')}
                 </button>
               {/if}
             </div>

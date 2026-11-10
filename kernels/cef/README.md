@@ -52,6 +52,12 @@ cmake --build build-cef --target liora_cef_kernel
 5. **生命周期**：`CefInitialize`/`CefShutdown` 必须成对且在主线程；退出时先关闭全部 browser。
 6. **壳接入**：已完成，`kernel.default = cef` 时初始化并 attach；未就绪时回退系统内核。
 
+## 组件安装
+
+`设置 → 内核 → 下载` 使用通用安装器：`components.plan` → 壳下载归档 → `tar` 解包到 staging → Core 逐文件校验大小与 SHA-256 → `components.commit`。任一哈希不一致都会失败并清理 staging，不会留下半安装状态。
+
+安装成功只代表组件文件就位。CEF 适配层仍需 `LIORA_WITH_CEF` 构建，ad-hoc 签名仍会导致 `-67030`；界面会在内核卡片上注明“组件已安装，但当前构建未启用该内核”。
+
 ## 接口位置
 
 | 职责 | 位置 |

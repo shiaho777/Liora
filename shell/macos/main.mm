@@ -977,6 +977,201 @@ NSString* jsonEscape(id object) {
   return NO;
 }
 
+// ---- Component install -----------------------------------------------------
+
+// Components are fetched by the shell because Core deliberately has no network
+// code. Core still verifies every staged file against the catalog before the
+// component becomes active.
+- (void)notifyComponent:(NSString*)componentId state:(NSString*)state message:(NSString*)message {
+  NSMutableDictionary* payload = [NSMutableDictionary dictionary];
+  payload[@"id"] = componentId ?: @"";
+  payload[@"state"] = state ?: @"";
+  if (message.length) payload[@"message"] = message;
+  [self notifyInterface:@"browser.componentProgress" params:payload];
+}
+
+- (void)failComponent:(NSString*)componentId message:(NSString*)message {
+  NSLog(@"Liora: component %@ failed: %@", componentId, message);
+  [self notifyComponent:componentId state:@"failed" message:message];
+  [self notifyInterface:@"browser.componentFailed"
+                 params:@{@"id" : componentId ?: @"", @"message" : message ?: @""}];
+}
+
+- (void)installComponent:(NSString*)componentId version:(NSString*)version {
+  if (!_core || !componentId.length) return;
+
+  liora::Json response = _core->handleJson(liora::Json{
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "components.plan"},
+      {"params", {{"id", stdString(componentId)}, {"version", stdString(version ?: @"")}}}});
+  auto result = response.find("result");
+  if (result == response.end() || !result->is_object()) {
+    std::string message = "cannot plan the component";
+    auto failure = response.find("error");
+    if (failure != response.end() && failure->is_object()) {
+      message = failure->value("message", message);
+    }
+    [self failComponent:componentId message:ns(message)];
+    return;
+  }
+
+  liora::Json plan = *result;
+  NSString* planJSON = ns(plan.dump());
+  NSString* urlText = ns(plan.value("url", std::string()));
+  NSURL* url = [NSURL URLWithString:urlText];
+  if (!url || !url.scheme.length) {
+    [self failComponent:componentId message:@"this component has no download URL"];
+    return;
+  }
+
+  NSLog(@"Liora: component %@ downloading %@", componentId, urlText);
+  [self notifyComponent:componentId state:@"downloading" message:nil];
+  __weak LioraController* weakSelf = self;
+  NSURLSessionDownloadTask* task = [[NSURLSession sharedSession]
+      downloadTaskWithURL:url
+        completionHandler:^(NSURL* location, NSURLResponse* response, NSError* error) {
+          LioraController* strongSelf = weakSelf;
+          if (!strongSelf) return;
+          if (error || !location) {
+            NSString* message = error.localizedDescription ?: @"the download failed";
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf failComponent:componentId message:message];
+            });
+            return;
+          }
+          if ([response isKindOfClass:[NSHTTPURLResponse class]] &&
+              ((NSHTTPURLResponse*)response).statusCode != 200) {
+            NSInteger status = ((NSHTTPURLResponse*)response).statusCode;
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf failComponent:componentId
+                                message:[NSString stringWithFormat:@"the server returned %ld", (long)status]];
+            });
+            return;
+          }
+
+          NSString* extension = url.pathExtension.length ? url.pathExtension : @"pkg";
+          NSString* archive = [NSTemporaryDirectory()
+              stringByAppendingPathComponent:[NSString stringWithFormat:@"liora-component-%@.%@",
+                                                                         NSUUID.UUID.UUIDString, extension]];
+          NSFileManager* manager = [NSFileManager defaultManager];
+          [manager removeItemAtPath:archive error:nil];
+          NSError* moveError = nil;
+          if (![manager moveItemAtURL:location
+                                toURL:[NSURL fileURLWithPath:archive]
+                                error:&moveError]) {
+            NSString* message = moveError.localizedDescription ?: @"cannot keep the download";
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf failComponent:componentId message:message];
+            });
+            return;
+          }
+
+          liora::Json downloaded = liora::Json::parse(stdString(planJSON), nullptr, false);
+          int64_t expected = downloaded.value("size", int64_t{0});
+          NSDictionary* attributes = [manager attributesOfItemAtPath:archive error:nil];
+          int64_t actual = attributes ? [attributes[NSFileSize] longLongValue] : 0;
+          if (expected > 0 && actual != expected) {
+            [manager removeItemAtPath:archive error:nil];
+            NSString* message = [NSString
+                stringWithFormat:@"size mismatch: expected %lld bytes, got %lld",
+                                 (long long)expected, (long long)actual];
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf failComponent:componentId message:message];
+            });
+            return;
+          }
+
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf notifyComponent:componentId state:@"unpacking" message:nil];
+          });
+
+          NSString* staging = ns(downloaded.value("stagingDir", std::string()));
+          NSString* unpackError = nil;
+          BOOL unpacked = [strongSelf unpackArchive:archive into:staging error:&unpackError];
+          [manager removeItemAtPath:archive error:nil];
+          if (!unpacked) {
+            [manager removeItemAtPath:staging error:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf failComponent:componentId message:unpackError ?: @"cannot unpack the component"];
+            });
+            return;
+          }
+
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf commitComponent:componentId plan:downloaded];
+          });
+        }];
+  [task resume];
+}
+
+- (void)commitComponent:(NSString*)componentId plan:(const liora::Json&)plan {
+  if (!_core) return;
+  [self notifyComponent:componentId state:@"verifying" message:nil];
+  liora::Json response = _core->handleJson(liora::Json{
+      {"jsonrpc", "2.0"}, {"id", 1}, {"method", "components.commit"}, {"params", plan}});
+  auto result = response.find("result");
+  if (result == response.end() || !result->is_object()) {
+    std::string message = "cannot install the component";
+    auto failure = response.find("error");
+    if (failure != response.end() && failure->is_object()) {
+      message = failure->value("message", message);
+    }
+    // Never leave a half-verified package behind for the next install.
+    std::string staging = plan.value("stagingDir", std::string());
+    if (!staging.empty()) {
+      [[NSFileManager defaultManager] removeItemAtPath:ns(staging) error:nil];
+    }
+    [self failComponent:componentId message:ns(message)];
+    return;
+  }
+
+  NSString* version = ns(result->value("version", std::string()));
+  NSLog(@"Liora: component %@ installed version=%@", componentId, version);
+  [self notifyComponent:componentId state:@"installed" message:nil];
+  [self notifyInterface:@"browser.componentInstalled"
+                 params:@{@"id" : componentId, @"version" : version}];
+}
+
+// bsdtar handles zip and tar archives, which covers the package formats the
+// catalog currently uses. Extraction happens into a fresh staging directory;
+// Core then verifies every catalogued file's size and SHA-256 before commit.
+- (BOOL)unpackArchive:(NSString*)archive into:(NSString*)directory error:(NSString**)error {
+  if (!directory.length) {
+    if (error) *error = @"the component has no staging directory";
+    return NO;
+  }
+  NSFileManager* manager = [NSFileManager defaultManager];
+  [manager removeItemAtPath:directory error:nil];
+  NSError* createError = nil;
+  if (![manager createDirectoryAtPath:directory
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:&createError]) {
+    if (error) *error = createError.localizedDescription ?: @"cannot create the staging directory";
+    return NO;
+  }
+
+  NSTask* task = [[NSTask alloc] init];
+  task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/tar"];
+  task.arguments = @[ @"-xf", archive, @"-C", directory ];
+  NSPipe* stderrPipe = [NSPipe pipe];
+  task.standardError = stderrPipe;
+  task.standardOutput = [NSPipe pipe];
+  NSError* launchError = nil;
+  if (![task launchAndReturnError:&launchError]) {
+    if (error) *error = launchError.localizedDescription ?: @"cannot run the unpacker";
+    return NO;
+  }
+  [task waitUntilExit];
+  if (task.terminationStatus == 0) return YES;
+
+  NSData* data = [stderrPipe.fileHandleForReading readDataToEndOfFile];
+  NSString* text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+  if (error) *error = text.length ? text : @"the component archive is invalid";
+  return NO;
+}
+
 - (void)handleShellMessage:(NSString*)method params:(id)params {
   if ([method isEqualToString:@"ui.trashDiagnostic"]) {
     NSString* path = params[@"path"];
@@ -1017,6 +1212,11 @@ NSString* jsonEscape(id object) {
     NSLog(@"Liora: trashed %d diagnostics (%d failed)", deleted, failed);
     [self notifyInterface:@"browser.diagnosticsTrashed"
                    params:@{@"deleted" : @(deleted), @"failed" : @(failed)}];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.installComponent"]) {
+    [self installComponent:params[@"id"] version:params[@"version"]];
     return;
   }
 
