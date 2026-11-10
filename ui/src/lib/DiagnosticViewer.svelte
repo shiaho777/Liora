@@ -3,7 +3,8 @@
   import { app, toast } from './state.svelte';
   import { notify, onNotification } from './bridge';
   import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
-  import { t } from './i18n.svelte';
+  import { explainLimit, explainSwitch } from './kernel-explanations';
+  import { i18n, t } from './i18n.svelte';
 
   let report = $state<DiagnosticReport | null>(null);
   let error = $state('');
@@ -198,10 +199,17 @@
       </div>
       <div class="diag__row">
         <span class="diag__key">{t('diag.switches')}</span>
-        <span class="diag__value">
+        <span class="diag__value diag__value--stack">
           {#if report.switches.length > 0}
             {#each report.switches as item (item)}
-              <span class="badge mono">{item}</span>
+              {@const explanation = explainSwitch(item, i18n.locale)}
+              <span class="flag">
+                <span class="badge mono">{item}</span>
+                <span class="flag__copy">
+                  <span class="flag__title">{explanation.title}</span>
+                  <span class="flag__detail">{explanation.detail}</span>
+                </span>
+              </span>
             {/each}
           {:else}
             <span class="muted">{t('diag.none')}</span>
@@ -210,10 +218,17 @@
       </div>
       <div class="diag__row">
         <span class="diag__key">{t('diag.limits')}</span>
-        <span class="diag__value">
+        <span class="diag__value diag__value--stack">
           {#if report.limits.length > 0}
             {#each report.limits as item (item)}
-              <span class="badge badge--warning">{item}</span>
+              {@const explanation = explainLimit(item, i18n.locale)}
+              <span class="flag">
+                <span class="badge badge--warning mono">{item}</span>
+                <span class="flag__copy">
+                  <span class="flag__title">{explanation.title}</span>
+                  <span class="flag__detail">{explanation.detail}</span>
+                </span>
+              </span>
             {/each}
           {:else}
             <span class="muted">{t('diag.none')}</span>
@@ -441,6 +456,48 @@
     gap: 6px;
     flex-wrap: wrap;
     word-break: break-all;
+  }
+
+  .diag__value--stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .flag {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+  }
+
+  .flag > .badge {
+    align-self: flex-start;
+    max-width: 100%;
+    height: auto;
+    padding: 2px 7px;
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  .flag__copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .flag__title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .flag__detail {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
   }
 
   .diag__raw {

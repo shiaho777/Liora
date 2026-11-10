@@ -120,6 +120,21 @@ HTTPS: alpn=- ech=0B
 
 `Switches` / `Limits` / `Components` / `Signature` / `CEF` 让报告也能解释渲染与签名问题：Chromium 的进程校验失败（`-67030`）在报告里直接可见，不必再靠猜。`Switches` 以空格分隔，单个开关值里的逗号（如 `--origin-to-force-quic-on=x.com:443,y.com:443`）不会被拆开。
 
+查看器会为每个开关和每个 `Limits` 项显示一句作用与后果说明：
+
+| 条目 | 说明要点 |
+|---|---|
+| `--enable-quic` | 允许 HTTP/3；缺失时 h3 不会被协商 |
+| `--origin-to-force-quic-on` | 只尝试 QUIC、不回退 TCP；失败即页面失败 |
+| `--ignore-certificate-errors-spki-list` | 仅按公钥信任本地 DoH 证书，不是全局关闭校验 |
+| `--dns-over-https-mode` | secure 只走加密 DNS；与空模板组合会让解析全失败 |
+| `--dns-over-https-templates` | 内核实际查询的 DoH 地址 |
+| `--proxy-server` | 经 liora-net 转发；代理不可用则页面失败 |
+| `ech` | 无法读取/注入 ECHConfig，规则的 ECH 被忽略 |
+| `forceQuic` | 无法禁止 TCP 回退，退化为“优先 h3” |
+| `httpsRecords` | 不使用 HTTPS/SVCB 记录，alpn 与 ECH 提示无法传递 |
+| `dns` | 既无原生 DoH 也无代理，加密 DNS 与规则均不生效 |
+
 ```bash
 curl "http://127.0.0.1:<diagPort>/diagnose?host=x.com"
 ```
