@@ -935,6 +935,45 @@ NSString* jsonEscape(id object) {
 }
 
 - (void)handleShellMessage:(NSString*)method params:(id)params {
+  if ([method isEqualToString:@"ui.trashDiagnostic"]) {
+    NSString* path = params[@"path"];
+    if (!path.length || !_core) return;
+
+    liora::Json response = _core->handleJson(
+        liora::Json{{"jsonrpc", "2.0"},
+                    {"id", 1},
+                    {"method", "diagnostics.validateDelete"},
+                    {"params", {{"path", stdString(path)}}}});
+    auto result = response.find("result");
+    if (result == response.end() || !result->is_object()) {
+      NSString* message = @"cannot move the file to the trash";
+      if (response.contains("error") && response["error"].is_object()) {
+        message = ns(response["error"].value("message", std::string()));
+      }
+      [self notifyInterface:@"browser.diagnosticDeleteFailed" params:@{@"message" : message}];
+      return;
+    }
+
+    std::string safePath = result->value("path", std::string());
+    std::string name = result->value("name", std::string());
+    NSError* trashError = nil;
+    NSURL* resultingURL = nil;
+    BOOL moved = [[NSFileManager defaultManager]
+        trashItemAtURL:[NSURL fileURLWithPath:ns(safePath)]
+      resultingItemURL:&resultingURL
+                 error:&trashError];
+    if (moved) {
+      NSString* trashPath = resultingURL.path ?: ns(safePath);
+      NSLog(@"Liora: moved diagnostic to trash %@", trashPath);
+      [self notifyInterface:@"browser.diagnosticDeleted"
+                     params:@{@"path" : ns(safePath), @"name" : ns(name)}];
+    } else {
+      [self notifyInterface:@"browser.diagnosticDeleteFailed"
+                     params:@{@"message" : trashError.localizedDescription ?: @""}];
+    }
+    return;
+  }
+
   if ([method isEqualToString:@"ui.openDiagnostic"]) {
     NSString* path = params[@"path"];
     if (path.length) [self deliverDiagnosticFile:path purpose:params[@"purpose"]];

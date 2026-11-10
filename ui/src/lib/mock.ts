@@ -935,6 +935,20 @@ export function createMockBackend(): MockBackend {
           }, 400);
           return;
         }
+        if (method === 'ui.trashDiagnostic') {
+          const path = String(request.params?.path ?? '');
+          const name =
+            String(request.params?.name ?? '') || path.split('/').pop() || 'diagnostic.txt';
+          mockRecent = mockRecent.filter((entry) => entry.path !== path);
+          setTimeout(() => {
+            respond({
+              jsonrpc: '2.0',
+              method: 'browser.diagnosticDeleted',
+              params: { path, name },
+            });
+          }, 200);
+          return;
+        }
         if (method === 'ui.openDiagnostic') {
           const timeline = request.params?.purpose === 'timeline';
           respond({

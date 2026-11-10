@@ -193,14 +193,10 @@
     });
   }
 
-  async function deleteRecent(entry: { path: string; name: string }): Promise<void> {
-    try {
-      await call('diagnostics.delete', { path: entry.path });
-      toast(t('diag.deleted', { name: entry.name }));
-      await loadRecent();
-    } catch (error: any) {
-      toast(String(error?.message ?? error), 'error');
-    }
+  function deleteRecent(entry: { path: string; name: string }): void {
+    // The shell validates with Core and moves the file to the macOS trash, so
+    // deleting a report stays recoverable.
+    notify('ui.trashDiagnostic', { path: entry.path, name: entry.name });
   }
 
   async function clearOldRecent(): Promise<void> {
@@ -217,6 +213,18 @@
     return onNotification((message) => {
       if (message.method === 'browser.diagnosticSaved') {
         void loadRecent();
+        return;
+      }
+      if (message.method === 'browser.diagnosticDeleted') {
+        const deleted = (message.params ?? {}) as { name?: string; path?: string };
+        const name = deleted.name ?? (deleted.path ?? '').split('/').pop() ?? '';
+        toast(t('diag.deleted', { name }));
+        void loadRecent();
+        return;
+      }
+      if (message.method === 'browser.diagnosticDeleteFailed') {
+        const failure = (message.params ?? {}) as { message?: string };
+        toast(failure.message || t('diag.deleteFailed'), 'error');
         return;
       }
       if (message.method === 'settings.changed' || message.method === 'net.rulesChanged') {

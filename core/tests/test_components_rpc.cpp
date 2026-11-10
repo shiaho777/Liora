@@ -527,6 +527,19 @@ LIORA_TEST(core_deletes_only_diagnostic_files) {
                                 {"params", {{"path", pathToUtf8(path)}}}});
   };
 
+  auto validate = [&](const fs::path& path) {
+    return core.handleJson(Json{{"jsonrpc", "2.0"},
+                                {"id", 9},
+                                {"method", "diagnostics.validateDelete"},
+                                {"params", {{"path", pathToUtf8(path)}}}});
+  };
+  Json accepted = validate(second);
+  CHECK_EQ(accepted["result"]["ok"], true);
+  CHECK_EQ(accepted["result"]["name"].get<std::string>(),
+           std::string("liora-diagnostic-20260102-000000.txt"));
+  CHECK(validate(notes)["error"].is_object());
+  CHECK(validate(outside)["error"].is_object());
+
   Json removed = remove(second);
   CHECK_EQ(removed["result"]["ok"], true);
   CHECK(!fs::exists(second));

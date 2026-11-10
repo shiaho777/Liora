@@ -19,6 +19,26 @@ bool isDiagnosticName(const std::string& name) {
   return startsWith(name, "liora-diagnostic-") || startsWith(name, "liora-timeline-");
 }
 
+std::optional<fs::path> resolveDiagnosticFile(const fs::path& downloads, const std::string& raw,
+                                              std::string* error) {
+  std::error_code ec;
+  fs::path dir = fs::weakly_canonical(downloads, ec);
+  if (ec) {
+    if (error) *error = "invalid downloads directory";
+    return std::nullopt;
+  }
+  fs::path target = fs::weakly_canonical(utf8ToPath(raw), ec);
+  if (ec) {
+    if (error) *error = "invalid path";
+    return std::nullopt;
+  }
+  if (target.parent_path() != dir || !isDiagnosticName(pathToUtf8(target.filename()))) {
+    if (error) *error = "only diagnostic files in the downloads folder can be deleted";
+    return std::nullopt;
+  }
+  return target;
+}
+
 Json customDnsEntry(const DnsEndpoint& endpoint, const Json& name) {
   return {{"id", endpoint.id},
           {"name", name.is_string() ? name.get<std::string>() : endpoint.name},
@@ -234,17 +254,21 @@ void Core::registerCoreMethods() {
     return out;
   });
 
+  rpc_.add("diagnostics.validateDelete", [this](const Json& params) {
+    std::string error;
+    auto target = resolveDiagnosticFile(downloadsDirectory(settings_), params::string(params, "path"), &error);
+    if (!target) rpcFail(kRpcPermission, error);
+    return Json{{"ok", true},
+                {"path", pathToUtf8(*target)},
+                {"name", pathToUtf8(target->filename())}};
+  });
+
   rpc_.add("diagnostics.delete", [this](const Json& params) {
-    std::string raw = params::string(params, "path");
-    std::error_code ec;
-    fs::path dir = fs::weakly_canonical(downloadsDirectory(settings_), ec);
-    fs::path target = fs::weakly_canonical(utf8ToPath(raw), ec);
-    if (ec) rpcFail(kRpcInvalidParams, "invalid path");
-    if (target.parent_path() != dir || !isDiagnosticName(pathToUtf8(target.filename()))) {
-      rpcFail(kRpcPermission, "only diagnostic files in the downloads folder can be deleted");
-    }
+    std::string error;
+    auto target = resolveDiagnosticFile(downloadsDirectory(settings_), params::string(params, "path"), &error);
+    if (!target) rpcFail(kRpcPermission, error);
     std::error_code removeError;
-    if (!fs::remove(target, removeError) || removeError) {
+    if (!fs::remove(*target, removeError) || removeError) {
       rpcFail(kRpcInternalError, "cannot delete the file");
     }
     return Json{{"ok", true}};
