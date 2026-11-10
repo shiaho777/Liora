@@ -37,6 +37,7 @@
   // Chromium validates helpers against the app's Team ID, so an ad-hoc build
   // cannot run the CEF kernel even when the component is installed.
   const cefState = $derived(cefReadiness(app.runtime.codeSigning, app.runtime.cefStatus));
+  const compat = $derived(value('kernel.cef.singleProcess') === true);
 
   async function load(): Promise<void> {
     loading = true;
@@ -121,6 +122,18 @@
       await set('kernel.default', kernel.id);
       toast(t('settings.changed'));
       if (result.restartRequired) toast(t('kernels.restart'));
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    } finally {
+      busy = '';
+    }
+  }
+
+  async function toggleCompat(): Promise<void> {
+    busy = 'compat';
+    try {
+      await set('kernel.cef.singleProcess', !compat);
+      toast(t('kernels.compatSaved'));
     } catch (error: any) {
       toast(String(error?.message ?? error), 'error');
     } finally {
@@ -225,6 +238,22 @@
                 {t('kernels.adHocWarning')}
                 <span class="mono">{app.runtime.codeSigning}</span>
               </span>
+            </div>
+          {/if}
+
+          {#if kernel.id === 'cef'}
+            <div class="compat">
+              <div class="compat__main">
+                <div class="row__title">{t('kernels.compatTitle')}</div>
+                <div class="row__desc">{t('kernels.compatBody')}</div>
+              </div>
+              <button
+                class="button button--ghost button--sm"
+                disabled={busy === 'compat'}
+                onclick={toggleCompat}
+              >
+                {compat ? t('kernels.compatOn') : t('kernels.compatOff')}
+              </button>
             </div>
           {/if}
 

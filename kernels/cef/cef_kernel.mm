@@ -44,6 +44,7 @@ class KernelClient : public CefClient, public CefLifeSpanHandler, public CefLoad
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
     browser_ = browser;
+    if (onCreated) onCreated();
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -71,10 +72,16 @@ class KernelClient : public CefClient, public CefLifeSpanHandler, public CefLoad
                    ErrorCode errorCode, const CefString& errorText,
                    const CefString& failedUrl) override {
     if (!frame || !frame->IsMain()) return;
+    NSLog(@"Liora: CEF load error %d %s", static_cast<int>(errorCode),
+          failedUrl.ToString().c_str());
     fireLoading(bridge_, false, 0.0);
   }
 
   CefRefPtr<CefBrowser> browser() const { return browser_; }
+
+  // Called once the browser exists; the shell may already have requested a URL
+  // before CreateBrowser finished, so the view flushes it here.
+  std::function<void()> onCreated;
 
  private:
   std::shared_ptr<Bridge> bridge_;
@@ -89,6 +96,10 @@ class CefView final : public IKernelView {
     bridge_ = std::make_shared<Bridge>();
     bridge_->events = std::move(events);
     client_ = new KernelClient(bridge_);
+    client_->onCreated = [this]() {
+      flushPendingState();
+      flushPendingUrl();
+    };
 
     CefWindowInfo info;
     NSView* parent = (__bridge NSView*)options.parent;
@@ -100,6 +111,7 @@ class CefView final : public IKernelView {
   }
 
   ~CefView() override {
+    if (client_) client_->onCreated = nullptr;
     if (bridge_) bridge_->alive = false;
     if (auto browser = client_ ? client_->browser() : nullptr) {
       browser->GetHost()->CloseBrowser(true);
@@ -107,7 +119,8 @@ class CefView final : public IKernelView {
   }
 
   void load(const std::string& url) override {
-    if (auto frame = mainFrame()) frame->LoadURL(CefString(url.c_str()));
+    pendingUrl_ = url;
+    flushPendingUrl();
   }
   void back() override {
     if (auto b = this->browser()) b->GoBack();
@@ -129,21 +142,18 @@ class CefView final : public IKernelView {
   }
 
   void setBounds(int x, int y, int width, int height) override {
-    if (auto b = this->browser()) {
-      if (auto handle = b->GetHost()->GetWindowHandle()) {
-        NSView* view = (__bridge NSView*)handle;
-        [view setFrame:NSMakeRect(x, y, width, height)];
-      }
-    }
+    boundsX_ = x;
+    boundsY_ = y;
+    boundsWidth_ = width;
+    boundsHeight_ = height;
+    hasBounds_ = true;
+    applyBounds();
   }
 
   void setVisible(bool visible) override {
-    if (auto b = this->browser()) {
-      if (auto handle = b->GetHost()->GetWindowHandle()) {
-        NSView* view = (__bridge NSView*)handle;
-        view.hidden = !visible;
-      }
-    }
+    visible_ = visible;
+    hasVisible_ = true;
+    applyVisible();
   }
 
   void setZoom(double percent) override {
@@ -176,6 +186,47 @@ class CefView final : public IKernelView {
     return nullptr;
   }
 
+  void applyBounds() {
+    if (!hasBounds_) return;
+    if (auto b = this->browser()) {
+      if (auto handle = b->GetHost()->GetWindowHandle()) {
+        NSView* view = (__bridge NSView*)handle;
+        [view setFrame:NSMakeRect(boundsX_, boundsY_, boundsWidth_, boundsHeight_)];
+      }
+    }
+  }
+
+  void applyVisible() {
+    if (!hasVisible_) return;
+    if (auto b = this->browser()) {
+      if (auto handle = b->GetHost()->GetWindowHandle()) {
+        NSView* view = (__bridge NSView*)handle;
+        view.hidden = !visible_;
+      }
+    }
+  }
+
+  void flushPendingState() {
+    applyBounds();
+    applyVisible();
+  }
+
+  void flushPendingUrl() {
+    if (pendingUrl_.empty()) return;
+    if (auto frame = mainFrame()) {
+      frame->LoadURL(CefString(pendingUrl_.c_str()));
+      pendingUrl_.clear();
+    }
+  }
+
+  std::string pendingUrl_;
+  bool hasBounds_ = false;
+  int boundsX_ = 0;
+  int boundsY_ = 0;
+  int boundsWidth_ = 800;
+  int boundsHeight_ = 600;
+  bool hasVisible_ = false;
+  bool visible_ = true;
   std::shared_ptr<Bridge> bridge_;
   CefRefPtr<KernelClient> client_;
 };

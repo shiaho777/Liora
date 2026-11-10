@@ -2,7 +2,33 @@
 
 ## 现状
 
-**适配层能用真实 CEF 156 编译、链接并初始化；Chromium 的渲染进程目前无法启动。**
+**适配层能用真实 CEF 156 编译、链接并渲染页面。**
+
+- 有 Apple 签名（Developer ID / Apple Development）时使用正常的多进程模式。
+- 没有签名时，Chromium 会拒绝 helper 进程（`-67030`）。内核页提供“单进程兼容模式”，把渲染与 GPU 放进主进程，可在本地运行。
+
+## 单进程兼容模式
+
+在 设置 → 内核（高级模式）中开启，或设置环境变量 `LIORA_CEF_SINGLE_PROCESS=1`。启动参数：
+
+```
+--single-process
+--in-process-gpu
+--disable-gpu
+--enable-features=NetworkServiceInProcess
+```
+
+权衡：
+
+- 渲染进程与浏览器进程合并，隔离性明显弱于多进程；
+- 无 GPU 加速；
+- 单进程无法使用 V8 代理解析器，因此兼容模式跳过 liora-net 的 DoH/代理，改用系统 DNS；`ECH`、强制 H3 等依赖本地解析器的能力在此模式下不生效。
+
+兼容模式仅用于本地开发/验证。正式分发应使用 Apple 签名并关闭该选项。
+
+## 启动顺序修复
+
+`ui.navigate` 可能在 `OnAfterCreated` 之前请求 URL。视图现在会缓存待加载 URL、尺寸与可见性，并在浏览器创建后一次性应用；否则 CEF 首次导航会被丢弃，表现为空白页。
 
 已验证：
 
@@ -56,7 +82,7 @@ cmake --build build-cef --target liora_cef_kernel
 
 `设置 → 内核 → 下载` 使用通用安装器：`components.plan` → 壳下载归档 → `tar` 解包到 staging → Core 逐文件校验大小与 SHA-256 → `components.commit`。任一哈希不一致都会失败并清理 staging，不会留下半安装状态。
 
-安装成功只代表组件文件就位。CEF 适配层仍需 `LIORA_WITH_CEF` 构建，ad-hoc 签名仍会导致 `-67030`；界面会在内核卡片上注明“组件已安装，但当前构建未启用该内核”。
+安装成功只代表组件文件就位。CEF 适配层仍需 `LIORA_WITH_CEF` 构建；ad-hoc 签名在多进程模式下会触发 `-67030`，可改用上面的单进程兼容模式。界面会在内核卡片上注明“组件已安装，但当前构建未启用该内核”。
 
 目录可带 Ed25519 签名；配置更新公钥后，签名不匹配的目录会被拒绝，`kernel-cef` 不会出现在可安装列表，也不会触发下载。
 

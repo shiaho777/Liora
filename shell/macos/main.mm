@@ -419,7 +419,35 @@ NSString* jsonEscape(id object) {
 
   liora::cef::Startup startup;
   startup.cachePath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF");
-  startup.switches = _core->applyNetwork(liora::KernelManager::kCef).switches;
+  liora::KernelNetSetup setup = _core->applyNetwork(liora::KernelManager::kCef);
+  startup.switches = setup.switches;
+
+  // Chromium validates helper processes against an Apple-issued signing
+  // identity. Without one, single-process mode keeps rendering local and
+  // usable for development, at the cost of isolation and GPU acceleration.
+  bool singleProcess = getenv("LIORA_CEF_SINGLE_PROCESS") != nullptr;
+  liora::Json compat = _core->settings().get("kernel.cef.singleProcess");
+  if (compat.is_boolean() && compat.get<bool>()) singleProcess = true;
+
+  // KernelNetSetup carries DoH/proxy outside the switch list; Chromium only
+  // reads them as start-up arguments. Single-process mode cannot use the V8
+  // proxy resolver, so it falls back to system DNS instead of hanging.
+  if (!singleProcess && !setup.dohTemplates.empty()) {
+    startup.switches.push_back("--dns-over-https-mode=" +
+                               (setup.dnsMode.empty() ? std::string("secure") : setup.dnsMode));
+    startup.switches.push_back("--dns-over-https-templates=" + setup.dohTemplates);
+  }
+  if (!singleProcess && !setup.proxy.empty()) {
+    startup.switches.push_back("--proxy-server=" + setup.proxy);
+  }
+
+  if (singleProcess) {
+    startup.switches.push_back("--single-process");
+    startup.switches.push_back("--in-process-gpu");
+    startup.switches.push_back("--disable-gpu");
+    startup.switches.push_back("--enable-features=NetworkServiceInProcess");
+  }
+  if (getenv("LIORA_CEF_NO_SANDBOX")) startup.switches.push_back("--no-sandbox");
 
   std::string error;
   if (!liora::cef::initialize(startup, &error)) {
@@ -429,7 +457,10 @@ NSString* jsonEscape(id object) {
   }
   _core->attachKernel(liora::cef::createKernel());
   self.cefStatus = @"ready";
-  NSLog(@"Liora: CEF kernel ready (%zu switches)", startup.switches.size());
+  NSMutableArray* switchList = [NSMutableArray array];
+  for (const auto& item : startup.switches) [switchList addObject:ns(item)];
+  NSLog(@"Liora: CEF kernel ready (%zu switches: %@)", startup.switches.size(),
+        [switchList componentsJoinedByString:@" "]);
 }
 #endif
 

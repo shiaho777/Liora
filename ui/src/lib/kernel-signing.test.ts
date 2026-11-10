@@ -14,6 +14,13 @@ describe('cefReadiness', () => {
     expect(state.reason).toBe('signed');
   });
 
+  it('treats a running CEF process as proof that the build works', () => {
+    const state = cefReadiness('ad-hoc (no Team ID, liora)', 'ready');
+    expect(state.level).toBe('ok');
+    expect(state.reason).toBe('ready');
+    expect(cefNeedsConfirmation('cef', state)).toBe(false);
+  });
+
   it('prefers a concrete CEF failure over the signature summary', () => {
     const state = cefReadiness(
       'Developer ID (TEAM123456 / io.liora.browser)',

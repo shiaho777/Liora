@@ -31,6 +31,7 @@ std::vector<SettingDef> buildSchema() {
   add("startup.restore", true);
 
   add("kernel.default", "system", kAll);
+  add("kernel.cef.singleProcess", false, kScopeGlobal, {}, true);
 
   add("dns.mode", "auto", kScopeGlobal, {"auto", "off", "provider", "custom"});
   add("dns.provider", "cloudflare");
