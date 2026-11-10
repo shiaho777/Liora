@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { call } from './bridge';
+  import { call, notify } from './bridge';
   import { app, toast } from './state.svelte';
   import { t } from './i18n.svelte';
 
@@ -63,6 +63,7 @@
   // place so the visible preview and the clipboard cannot drift apart.
   const report = $derived.by(() => {
     const lines = [
+      'report: 1',
       'Liora diagnostic report',
       `Generated: ${new Date().toISOString()}`,
       `Version: ${app.version} (${app.platform} ${app.arch})`,
@@ -99,8 +100,7 @@
     return lines.join('\n');
   });
 
-  async function copyReport(): Promise<void> {
-    try {
+  async function copyReport(): Promise<void> {    try {
       await navigator.clipboard.writeText(report);
       toast(t('error.copied'));
     } catch {
@@ -118,15 +118,23 @@
     }
   }
 
+  // The shell writes the file into the downloads folder and answers with
+  // browser.diagnosticSaved, so no modal panel interrupts the user.
+  function saveReport(): void {
+    notify('ui.saveDiagnostic', { content: report });
+  }
+
   // The shell's menu command path uses this for the verification hook.
   $effect(() => {
     const hooks = window as unknown as {
       __lioraCopyReport?: () => void;
+      __lioraSaveReport?: () => void;
       __lioraReportText?: string;
     };
     hooks.__lioraCopyReport = () => {
       void copyReport();
     };
+    hooks.__lioraSaveReport = () => saveReport();
     hooks.__lioraReportText = report;
   });
 
@@ -252,6 +260,11 @@
     <button class="button button--ghost button--sm" onclick={copyReport}>
       <Icon name="download" size={12} />
       {t('error.copy')}
+    </button>
+
+    <button class="button button--ghost button--sm" onclick={saveReport}>
+      <Icon name="folder" size={12} />
+      {t('error.save')}
     </button>
 
     <div class="errorpage__footer">

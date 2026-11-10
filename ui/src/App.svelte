@@ -129,6 +129,17 @@
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
   onNotification((message) => {
+    if (message.method === 'browser.diagnosticSaved' && message.params) {
+      const params = message.params as { path?: string };
+      const name = (params.path ?? '').split('/').pop() ?? '';
+      toast(t('error.saved', { name }));
+      return;
+    }
+    if (message.method === 'browser.diagnosticFailed' && message.params) {
+      const params = message.params as { message?: string };
+      toast(params.message || t('error.saveFailed'), 'error');
+      return;
+    }
     if (message.method === 'browser.security' && message.params) {
       const params = message.params as {
         tab?: number;
@@ -266,6 +277,9 @@
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
         case 'copyreport':
           (window as unknown as { __lioraCopyReport?: () => void }).__lioraCopyReport?.();
+          break;
+        case 'savereport':
+          (window as unknown as { __lioraSaveReport?: () => void }).__lioraSaveReport?.();
           break;
       }
     };

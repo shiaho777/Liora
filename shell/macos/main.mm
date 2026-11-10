@@ -725,6 +725,37 @@ NSString* jsonEscape(id object) {
     return;
   }
 
+  if ([method isEqualToString:@"ui.saveDiagnostic"]) {
+    NSString* content = params[@"content"];
+    if (!content.length) return;
+
+    NSString* directory = nil;
+    if (_core) {
+      std::string configured = _core->settings().get("downloads.dir").get<std::string>();
+      if (!configured.empty()) directory = ns(configured);
+    }
+    if (!directory.length) {
+      directory = [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES) firstObject];
+    }
+    if (!directory.length) directory = NSTemporaryDirectory();
+
+    NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+    formatter.dateFormat = @"yyyyMMdd-HHmmss";
+    NSString* stamp = [formatter stringFromDate:[NSDate date]];
+    NSString* path =
+        [directory stringByAppendingPathComponent:[NSString stringWithFormat:@"liora-diagnostic-%@.txt", stamp]];
+
+    NSError* writeError = nil;
+    if ([content writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&writeError]) {
+      NSLog(@"Liora: diagnostic saved %@", path);
+      [self notifyInterface:@"browser.diagnosticSaved" params:@{@"path" : path}];
+    } else {
+      [self notifyInterface:@"browser.diagnosticFailed"
+                     params:@{@"message" : writeError.localizedDescription ?: @""}];
+    }
+    return;
+  }
+
   if ([method isEqualToString:@"ui.openPath"]) {
     NSString* path = params[@"path"];
     if (path.length) [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:path]];
