@@ -408,6 +408,19 @@
           document.querySelector<HTMLElement>('.network-pending')?.click();
           break;
         }
+        case 'dnschangeback': {
+          const mode = [...document.querySelectorAll('button')].find(
+            (button) => button.textContent.trim() === '选择提供商',
+          );
+          mode?.click();
+          setTimeout(() => {
+            const cloudflare = [...document.querySelectorAll<HTMLElement>('.provider')].find(
+              (card) => card.textContent?.includes('Cloudflare'),
+            );
+            cloudflare?.click();
+          }, 600);
+          break;
+        }
         case 'opendns': {
           const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
             item.textContent?.includes('DNS 与直连'),

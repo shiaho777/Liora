@@ -7,6 +7,7 @@
   import { value, set } from '../settings-store.svelte';
   import { localized, t } from '../i18n.svelte';
   import { configFingerprint, hasUnappliedChanges } from '../kernel-switch-check';
+  import { networkDelta } from '../network-delta';
 
   interface Category {
     id: string;
@@ -177,10 +178,19 @@
 
   $effect(() => {
     return onNotification((message) => {
-      if (message.method !== 'browser.kernelRestarted') return;
-      restarting = false;
-      toast(t('restart.done'));
-      void refreshPlan();
+      if (message.method === 'browser.kernelRestarted') {
+        restarting = false;
+        toast(t('restart.done'));
+        void refreshPlan();
+        return;
+      }
+      // The shell restarts the resolver shortly after a settings change, so
+      // re-read the plan and ports once it has settled.
+      if (message.method === 'settings.changed' || message.method === 'net.rulesChanged') {
+        setTimeout(() => {
+          void refreshPlan();
+        }, 700);
+      }
     });
   });
 
@@ -214,6 +224,40 @@
   const hasPendingChanges = $derived(
     hasUnappliedChanges(currentConfig, runtime?.appliedConfig ?? ''),
   );
+
+  const delta = $derived.by(() => {
+    if (!lastApplied) return [];
+    return networkDelta(
+      {
+        provider: lastApplied.provider,
+        protocol: lastApplied.protocol,
+        mode: lastApplied.mode,
+        proxy: lastApplied.proxy,
+      },
+      {
+        provider: active?.endpoint?.name ?? '',
+        protocol: active?.endpoint?.protocol ?? '',
+        mode: active?.mode ?? '',
+        proxy: runtime?.proxyPort ? `http://127.0.0.1:${runtime.proxyPort}` : '',
+      },
+    );
+  });
+
+  function deltaLabel(kind: 'provider' | 'protocol' | 'mode' | 'proxy'): string {
+    if (kind === 'provider') return t('dns.deltaProvider');
+    if (kind === 'protocol') return t('dns.deltaProtocol');
+    if (kind === 'mode') return t('dns.deltaMode');
+    return t('dns.deltaProxy');
+  }
+
+  function deltaValue(kind: 'provider' | 'protocol' | 'mode' | 'proxy', value: string): string {
+    if (!value) return t('dns.deltaNone');
+    if (kind === 'proxy') {
+      const port = proxyPort(value);
+      return port ? `:${port}` : value;
+    }
+    return value;
+  }
   const needsResolver = $derived(Boolean(active?.needsNet || setup?.usesNet || setup?.netMissing));
   const resolverMissing = $derived(needsResolver && runtime?.running === false);
 
@@ -339,6 +383,16 @@
             · {t('dns.runtime.proxy')} :{proxyPort(lastApplied.proxy)}
           {/if}
         </div>
+        {#if delta.length > 0}
+          <div class="applied-line applied-line--delta">
+            {t('dns.delta')}:
+            {#each delta as item, index (item.kind)}
+              {#if index > 0}{' · '}{/if}
+              {deltaLabel(item.kind)}
+              {deltaValue(item.kind, item.from)} → {deltaValue(item.kind, item.to)}
+            {/each}
+          </div>
+        {/if}
       {/if}
 
       {#if runtime?.running}
@@ -527,6 +581,10 @@
     margin-top: 8px;
     font-size: 11.5px;
     color: var(--text-muted);
+  }
+
+  .applied-line--delta {
+    color: var(--warning);
   }
 
   .status {
