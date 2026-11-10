@@ -727,16 +727,16 @@ NSString* jsonEscape(id object) {
 
   liora::ViewEvents events;
   __weak LioraController* weakSelf = self;
-  events.onUrl = [weakSelf](const std::string& url) {
+  events.onUrl = [weakSelf, tab](const std::string& url) {
     NSString* text = ns(url);
     dispatch_async(dispatch_get_main_queue(), ^{
-      [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text}];
+      [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
     });
   };
-  events.onTitle = [weakSelf](const std::string& title) {
+  events.onTitle = [weakSelf, tab](const std::string& title) {
     NSString* text = ns(title);
     dispatch_async(dispatch_get_main_queue(), ^{
-      [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text}];
+      [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text, @"tab" : @(tab)}];
     });
   };
   events.onError = [weakSelf, tab](const std::string& url, int code, const std::string& message) {

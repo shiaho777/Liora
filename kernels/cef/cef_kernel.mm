@@ -9,6 +9,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_display_handler.h"
 #include "include/cef_download_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
@@ -87,6 +88,10 @@ void fireLoading(const std::shared_ptr<Bridge>& bridge, bool loading, double pro
   if (bridge && bridge->alive && bridge->events.onLoading) bridge->events.onLoading(loading, progress);
 }
 
+void fireTitle(const std::shared_ptr<Bridge>& bridge, const std::string& title) {
+  if (bridge && bridge->alive && bridge->events.onTitle) bridge->events.onTitle(title);
+}
+
 void fireUrl(const std::shared_ptr<Bridge>& bridge, const std::string& url) {
   if (bridge && bridge->alive && bridge->events.onUrl) bridge->events.onUrl(url);
 }
@@ -94,6 +99,7 @@ void fireUrl(const std::shared_ptr<Bridge>& bridge, const std::string& url) {
 class KernelClient : public CefClient,
                      public CefLifeSpanHandler,
                      public CefLoadHandler,
+                     public CefDisplayHandler,
                      public CefDownloadHandler {
  public:
   KernelClient(std::shared_ptr<Bridge> bridge, const ViewOptions& options)
@@ -101,7 +107,20 @@ class KernelClient : public CefClient,
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+
+  void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override {
+    if (!bridge_ || !bridge_->alive) return;
+    fireTitle(bridge_, title.ToString());
+  }
+
+  void OnAddressChange(CefRefPtr<CefBrowser> browser,
+                       CefRefPtr<CefFrame> frame,
+                       const CefString& url) override {
+    if (!bridge_ || !bridge_->alive || !frame || !frame->IsMain()) return;
+    fireUrl(bridge_, url.ToString());
+  }
   // target="_blank": keep the popup in the same view until the shell owns a
   // full tab model for kernel-created windows.
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,

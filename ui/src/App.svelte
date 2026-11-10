@@ -265,6 +265,30 @@
       toast(params.message || t('error.saveFailed'), 'error');
       return;
     }
+    if (message.method === 'browser.urlChanged' && message.params) {
+      const params = message.params as { tab?: number; url?: string };
+      const url = (params.url ?? '').trim();
+      if (!url || url === 'about:blank') return;
+      const tab = tabs.find((entry) => entry.id === Number(params.tab));
+      if (tab && tab.page === 'web' && !tab.download && !tab.error) {
+        tab.url = url;
+        tabs = [...tabs];
+      }
+      return;
+    }
+    if (message.method === 'browser.titleChanged' && message.params) {
+      const params = message.params as { tab?: number; title?: string };
+      const title = (params.title ?? '').trim();
+      if (!title) return;
+      const tab =
+        tabs.find((entry) => entry.id === Number(params.tab)) ??
+        tabs.find((entry) => entry.id === activeId);
+      if (tab && tab.page === 'web' && !tab.download && !tab.error) {
+        tab.title = title;
+        tabs = [...tabs];
+      }
+      return;
+    }
     if (message.method === 'browser.security' && message.params) {
       const params = message.params as {
         tab?: number;
@@ -363,6 +387,7 @@
   }
 
   $effect(() => {
+    if (addressFocused) return;
     if (active) addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
   });
 
