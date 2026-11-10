@@ -884,6 +884,25 @@ NSString* jsonEscape(id object) {
         ns(setup.proxy), (unsigned long)setup.switches.size());
 }
 
+// Reads a diagnostic report and hands its contents to the interface, which
+// cannot fetch file:// URLs itself.
+- (void)deliverDiagnosticFile:(NSString*)path {
+  if (!path.length) return;
+  NSMutableDictionary* payload = [NSMutableDictionary dictionary];
+  payload[@"purpose"] = @"diagnosticReport";
+  payload[@"path"] = path;
+  NSError* readError = nil;
+  NSString* content = [NSString stringWithContentsOfFile:path
+                                                encoding:NSUTF8StringEncoding
+                                                   error:&readError];
+  if (content) {
+    payload[@"content"] = content;
+  } else {
+    payload[@"error"] = readError.localizedDescription ?: @"cannot read the file";
+  }
+  [self notifyInterface:@"ui.filePicked" params:payload];
+}
+
 // Writes text into the configured downloads folder with a timestamped name.
 - (BOOL)saveTextFile:(NSString*)content
               prefix:(NSString*)prefix
@@ -916,6 +935,12 @@ NSString* jsonEscape(id object) {
 }
 
 - (void)handleShellMessage:(NSString*)method params:(id)params {
+  if ([method isEqualToString:@"ui.openDiagnostic"]) {
+    NSString* path = params[@"path"];
+    if (path.length) [self deliverDiagnosticFile:path];
+    return;
+  }
+
   if ([method isEqualToString:@"ui.restartKernel"]) {
     [self restartKernel:params[@"kernel"]];
     return;
@@ -1027,29 +1052,16 @@ NSString* jsonEscape(id object) {
                     if (response != NSModalResponseOK) return;
                     NSString* path = panel.URL.path;
                     NSString* purpose = params[@"purpose"] ?: @"";
-                    NSMutableDictionary* payload = [NSMutableDictionary dictionary];
-                    payload[@"purpose"] = purpose;
-                    payload[@"path"] = path;
 
-                    // Diagnostic reports are small text files that the interface
-                    // renders directly, so read them here instead of asking the
-                    // interface to fetch a file:// URL it cannot access.
                     if ([purpose isEqualToString:@"diagnosticReport"]) {
-                      NSError* readError = nil;
-                      NSString* content = [NSString stringWithContentsOfFile:path
-                                                                   encoding:NSUTF8StringEncoding
-                                                                      error:&readError];
-                      if (content) {
-                        payload[@"content"] = content;
-                      } else {
-                        payload[@"error"] = readError.localizedDescription ?: @"cannot read the file";
-                      }
+                      [self deliverDiagnosticFile:path];
+                      return;
                     }
 
                     NSDictionary* message = @{
                       @"jsonrpc" : @"2.0",
                       @"method" : @"ui.filePicked",
-                      @"params" : payload,
+                      @"params" : @{@"purpose" : purpose, @"path" : path},
                     };
                     NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
                     if (!data) return;

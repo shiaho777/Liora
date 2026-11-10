@@ -46,6 +46,7 @@
   let savingRefresh = $state(false);
   let currentAppliedInfo = $state<CurrentApplied | null>(null);
   let currentResolverInfo = $state<{ at: number; count: number } | null>(null);
+  let recent = $state<Array<{ name: string; path: string; size: number; modified: number; kind: string }>>([]);
   let restarting = $state(false);
   // After a restart the report's historical switches are replaced by the ones
   // the kernel actually received, while the raw text stays untouched.
@@ -166,8 +167,32 @@
 
   // A report can arrive from the file panel, from the test hook, or from a
   // pasted text block. All of them go through the same parser.
+  async function loadRecent(): Promise<void> {
+    try {
+      const list = await call<Array<{ name: string; path: string; size: number; modified: number; kind: string }>>(
+        'diagnostics.recent',
+        { limit: 12 },
+      );
+      recent = Array.isArray(list) ? list : [];
+    } catch {
+      recent = [];
+    }
+  }
+
+  $effect(() => {
+    void loadRecent();
+  });
+
+  function openRecent(entry: { path: string }): void {
+    notify('ui.openDiagnostic', { path: entry.path });
+  }
+
   $effect(() => {
     return onNotification((message) => {
+      if (message.method === 'browser.diagnosticSaved') {
+        void loadRecent();
+        return;
+      }
       if (message.method === 'settings.changed' || message.method === 'net.rulesChanged') {
         setTimeout(() => {
           if (report) void loadCrossChecks(report, liveSwitches ?? report.switches);
@@ -621,6 +646,20 @@
           {t('diag.paste')}
         </button>
       </div>
+
+      {#if recent.length > 0}
+        <div class="recent">
+          <div class="recent__title">{t('diag.recent')}</div>
+          {#each recent as entry (entry.path)}
+            <button class="recent__item" onclick={() => openRecent(entry)}>
+              <span class="recent__name mono">{entry.name}</span>
+              <span class="recent__meta">
+                {formatEpoch(entry.modified)} · {entry.size} B
+              </span>
+            </button>
+          {/each}
+        </div>
+      {/if}
 
       {#if error}
         <div class="callout callout--danger" style:max-width="520px; margin-top:14px">
@@ -1084,6 +1123,50 @@
   .diag__empty-title {
     font-size: 14px;
     font-weight: 600;
+  }
+
+  .recent {
+    width: min(560px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .recent__title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+  }
+
+  .recent__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+
+  .recent__item:hover {
+    background: var(--bg-hover);
+  }
+
+  .recent__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+  }
+
+  .recent__meta {
+    flex: none;
+    font-size: 11px;
+    color: var(--text-muted);
   }
 
   .diag__empty-text {

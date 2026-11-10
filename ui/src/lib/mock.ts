@@ -797,6 +797,15 @@ export function createMockBackend(): MockBackend {
     'backup.now': () => ({ path: 'mock/backups/manual.liora' }),
     'backup.sections': () => ['settings', 'bookmarks', 'history', 'permissions'],
 
+    'diagnostics.recent': () => [
+      {
+        name: 'liora-diagnostic-sample.txt',
+        path: '/mock/liora-diagnostic-sample.txt',
+        size: 640,
+        modified: Date.now() - 3600000,
+        kind: 'report',
+      },
+    ],
     'migrate.detect': () => [
       {
         id: 'chrome/Default',
@@ -897,6 +906,18 @@ export function createMockBackend(): MockBackend {
               },
             });
           }, 400);
+          return;
+        }
+        if (method === 'ui.openDiagnostic') {
+          respond({
+            jsonrpc: '2.0',
+            method: 'ui.filePicked',
+            params: {
+              purpose: 'diagnosticReport',
+              path: String(request.params?.path ?? ''),
+              content: SAMPLE_REPORT,
+            },
+          });
           return;
         }
         if (method === 'ui.pickFile' && request.params?.purpose === 'diagnosticReport') {

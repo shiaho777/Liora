@@ -1,5 +1,6 @@
 #include "harness.hpp"
 
+#include <chrono>
 #include <filesystem>
 
 #include "liora/components.hpp"
@@ -455,6 +456,37 @@ LIORA_TEST(core_resolver_restart_counter_survives_restart) {
   CHECK_EQ(status["result"]["count"].get<int64_t>(), int64_t{2});
   CHECK_EQ(status["result"]["at"].get<int64_t>(), int64_t{1700000001000LL});
   reopened.stop();
+}
+
+LIORA_TEST(core_lists_recent_diagnostic_reports) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  fs::path downloads = dir.path / "downloads";
+  fs::create_directories(downloads);
+  fs::path older = downloads / "liora-diagnostic-20260101-000000.txt";
+  fs::path newer = downloads / "liora-diagnostic-20260102-000000.txt";
+  CHECK(writeFileAtomic(older, "report: 1\nold\n"));
+  CHECK(writeFileAtomic(newer, "report: 1\nnew\n"));
+  CHECK(writeFileAtomic(downloads / "liora-timeline-20260103-000000.txt", "timeline\n"));
+  CHECK(writeFileAtomic(downloads / "notes.txt", "notes\n"));
+  std::error_code ec;
+  fs::last_write_time(older, fs::file_time_type::clock::now() - std::chrono::seconds(10), ec);
+
+  CHECK(!core.settings().set("downloads.dir", pathToUtf8(downloads)));
+
+  Json recent = core.handleJson(
+      Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "diagnostics.recent"}, {"params", Json::object()}});
+  CHECK_EQ(recent["result"].size(), size_t{2});
+  CHECK_EQ(recent["result"][0]["name"].get<std::string>(), std::string("liora-diagnostic-20260102-000000.txt"));
+  CHECK_EQ(recent["result"][0]["kind"].get<std::string>(), std::string("report"));
+  CHECK(recent["result"][0]["modified"].get<int64_t>() > 0);
+  CHECK_EQ(recent["result"][1]["name"].get<std::string>(), std::string("liora-diagnostic-20260101-000000.txt"));
+  core.stop();
 }
 
 LIORA_TEST(core_reports_bad_requests_as_json) {

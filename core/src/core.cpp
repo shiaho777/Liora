@@ -169,6 +169,7 @@ void Core::registerCoreMethods() {
   rpc_.setNamespaceDescription("backup", "Backups");
   rpc_.setNamespaceDescription("migrate", "Importing data from other browsers");
   rpc_.setNamespaceDescription("session", "Tabs restored on the next start");
+  rpc_.setNamespaceDescription("diagnostics", "Saved diagnostic reports");
   rpc_.setNamespaceDescription("kernels", "Browser kernels");
   rpc_.setNamespaceDescription("components", "Downloadable components");
   rpc_.setNamespaceDescription("permissions", "Remembered site permissions");
@@ -185,6 +186,43 @@ void Core::registerCoreMethods() {
   });
 
   rpc_.add("core.ping", [](const Json&) { return Json{{"ok", true}, {"time", nowMs()}}; });
+
+  rpc_.add("diagnostics.recent", [this](const Json& params) {
+    std::string configured = settings_.get("downloads.dir").get<std::string>();
+    fs::path dir = configured.empty() ? paths::homeDir() / "Downloads" : utf8ToPath(configured);
+    int limit = static_cast<int>(params::optionalInteger(params, "limit").value_or(20));
+    if (limit <= 0) limit = 20;
+
+    std::vector<std::pair<fs::file_time_type, Json>> found;
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+      if (!it->is_regular_file(ec)) continue;
+      std::string name = pathToUtf8(it->path().filename());
+      if (!startsWith(name, "liora-diagnostic-") || !endsWith(name, ".txt")) continue;
+      auto modified = it->last_write_time(ec);
+      if (ec) continue;
+      // file_clock has no portable epoch conversion we rely on; derive the
+      // wall-clock time from its age instead.
+      auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+          fs::file_time_type::clock::now() - modified);
+      Json entry = {{"name", name},
+                    {"path", pathToUtf8(it->path())},
+                    {"size", static_cast<int64_t>(it->file_size(ec))},
+                    {"modified", nowMs() - age.count()},
+                    {"kind", "report"}};
+      found.emplace_back(modified, std::move(entry));
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
+      if (a.first != b.first) return a.first > b.first;
+      return a.second.value("name", std::string()) > b.second.value("name", std::string());
+    });
+    Json out = Json::array();
+    for (const auto& item : found) {
+      if (static_cast<int>(out.size()) >= limit) break;
+      out.push_back(item.second);
+    }
+    return out;
+  });
 
   rpc_.add("rpc.discover", [this](const Json&) { return rpc_.describe(); });
 
