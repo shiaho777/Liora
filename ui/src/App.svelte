@@ -134,12 +134,33 @@
   let networkTimer: ReturnType<typeof setTimeout> | undefined;
   let applyTimer: ReturnType<typeof setTimeout> | undefined;
   let applyState = $state<'idle' | 'applying' | 'applied' | 'error'>('idle');
+  let appliedProxyPort = $state('');
+  let appliedAt = $state('');
+
+  function proxyPortOf(proxy: string | undefined): string {
+    if (!proxy) return '';
+    try {
+      return new URL(proxy).port;
+    } catch {
+      return /:(\d+)\/?$/.exec(proxy)?.[1] ?? '';
+    }
+  }
+
+  const applyTitle = $derived(
+    applyState === 'applied'
+      ? appliedProxyPort
+        ? t('network.appliedHintPort', { port: appliedProxyPort, time: appliedAt })
+        : t('network.appliedHint', { time: appliedAt })
+      : t('network.applyHint'),
+  );
 
   // The toolbar badge applies changes directly: restart the resolver, re-apply
   // the proxy and reload pages, then confirm or report failure.
   function applyNetworkChanges(): void {
     if (applyState === 'applying' || applyState === 'applied') return;
     applyState = 'applying';
+    appliedProxyPort = '';
+    appliedAt = '';
     notify('ui.restartKernel', {});
     clearTimeout(applyTimer);
     applyTimer = setTimeout(() => {
@@ -152,17 +173,21 @@
     }, 15000);
   }
 
-  async function finishNetworkApply(): Promise<void> {
+  async function finishNetworkApply(proxy?: string): Promise<void> {
     await refreshNetworkStatus();
     clearTimeout(applyTimer);
     if (networkPending()) {
       applyState = 'error';
+      appliedProxyPort = '';
+      appliedAt = '';
       toast(t('network.applyFailed'), 'error');
       applyTimer = setTimeout(() => {
         applyState = 'idle';
       }, 3000);
     } else {
       applyState = 'applied';
+      appliedProxyPort = proxyPortOf(proxy);
+      appliedAt = new Date().toLocaleTimeString();
       applyTimer = setTimeout(() => {
         applyState = 'idle';
       }, 2500);
@@ -189,7 +214,8 @@
       scheduleNetworkStatus();
     }
     if (message.method === 'browser.kernelRestarted' && applyState === 'applying') {
-      void finishNetworkApply();
+      const params = (message.params ?? {}) as { proxy?: string };
+      void finishNetworkApply(params.proxy);
     }
     if (message.method === 'browser.runtime' && message.params) {
       const params = message.params as { codeSigning?: string; cefStatus?: string };
@@ -403,8 +429,13 @@
         case 'pagedump': {
           const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
           const content = document.querySelector('.content');
+          const badge = document.querySelector<HTMLElement>('.network-pending');
           (window as unknown as { __lioraPageText?: string }).__lioraPageText = [
             document.body.innerText,
+            '-- badge --',
+            badge
+              ? JSON.stringify({ text: badge.textContent?.trim(), title: badge.title })
+              : 'none',
             '-- content --',
             content?.innerHTML.slice(0, 700) ?? 'no content element',
             '-- errors --',
@@ -716,7 +747,7 @@
             class="network-pending"
             class:network-pending--applied={applyState === 'applied'}
             class:network-pending--error={applyState === 'error'}
-            title={t('network.applyHint')}
+            title={applyTitle}
             disabled={applyState === 'applying' || applyState === 'applied'}
             onclick={applyNetworkChanges}
           >
@@ -724,7 +755,9 @@
             {applyState === 'applying'
               ? t('network.applying')
               : applyState === 'applied'
-                ? t('network.applied')
+                ? appliedProxyPort
+                  ? t('network.appliedWithPort', { port: appliedProxyPort })
+                  : t('network.applied')
                 : applyState === 'error'
                   ? t('network.applyFailed')
                   : t('network.pending')}
