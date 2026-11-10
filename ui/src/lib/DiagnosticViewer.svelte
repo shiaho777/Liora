@@ -12,6 +12,12 @@
   let pasted = $state('');
   let pasteOpen = $state(false);
 
+  // Turns generic switch/limit copy into statements about this report.
+  const context = $derived({
+    ruleName: report?.rule.matched ? report.rule.name : undefined,
+    upstream: report?.upstream?.id,
+  });
+
   // A report can arrive from the file panel, from the test hook, or from a
   // pasted text block. All of them go through the same parser.
   $effect(() => {
@@ -202,7 +208,7 @@
         <span class="diag__value diag__value--stack">
           {#if report.switches.length > 0}
             {#each report.switches as item (item)}
-              {@const explanation = explainSwitch(item, i18n.locale)}
+              {@const explanation = explainSwitch(item, i18n.locale, context)}
               <span class="flag">
                 <span class="badge mono">{item}</span>
                 <span class="flag__copy">
@@ -221,7 +227,7 @@
         <span class="diag__value diag__value--stack">
           {#if report.limits.length > 0}
             {#each report.limits as item (item)}
-              {@const explanation = explainLimit(item, i18n.locale)}
+              {@const explanation = explainLimit(item, i18n.locale, context)}
               <span class="flag">
                 <span class="badge badge--warning mono">{item}</span>
                 <span class="flag__copy">

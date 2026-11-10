@@ -9,6 +9,12 @@ export interface Explanation {
   detail: string;
 }
 
+/** Facts from the report that turn a generic description into a concrete one. */
+export interface ExplanationContext {
+  ruleName?: string;
+  upstream?: string;
+}
+
 type Copy = Record<Locale, Explanation>;
 
 const SWITCHES: Record<string, Copy> = {
@@ -176,12 +182,147 @@ export function switchName(raw: string): string {
   return eq >= 0 ? withoutDashes.slice(0, eq) : withoutDashes;
 }
 
-export function explainSwitch(raw: string, locale: Locale): Explanation {
-  return (SWITCHES[switchName(raw)] ?? UNKNOWN)[locale];
+/** The `=value` part of a switch, or an empty string. */
+export function switchValue(raw: string): string {
+  const trimmed = raw.trim();
+  const withoutDashes = trimmed.startsWith('--') ? trimmed.slice(2) : trimmed;
+  const eq = withoutDashes.indexOf('=');
+  return eq >= 0 ? withoutDashes.slice(eq + 1) : '';
 }
 
-export function explainLimit(name: string, locale: Locale): Explanation {
-  return (LIMITS[name] ?? UNKNOWN)[locale];
+function ruleLabel(context: ExplanationContext, locale: Locale): string {
+  if (!context.ruleName) return locale === 'zh' ? '该规则' : 'the rule';
+  return locale === 'zh' ? `规则“${context.ruleName}”` : `rule “${context.ruleName}”`;
+}
+
+function explainOriginSwitch(value: string, locale: Locale): Explanation {
+  const hosts = value
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+  if (hosts.length === 0) return SWITCHES['origin-to-force-quic-on'][locale];
+  if (locale === 'zh') {
+    return {
+      title: '强制这些源站走 QUIC',
+      detail: `本报告强制以下主机只走 QUIC：${hosts.join('、')}。失败不会回退 TCP，因此这些站点会直接报错；通配符不受支持。`,
+    };
+  }
+  return {
+    title: 'Force QUIC for these origins',
+    detail: `This report forces QUIC for: ${hosts.join(', ')}. These hosts do not fall back to TCP, so a QUIC failure fails the page; wildcards are not supported.`,
+  };
+}
+
+function explainTemplatesSwitch(value: string, locale: Locale): Explanation {
+  if (!value) return SWITCHES['dns-over-https-templates'][locale];
+  const port = /:(\d+)(?:\/|$)/.exec(value)?.[1];
+  if (locale === 'zh') {
+    return {
+      title: 'DoH 服务器',
+      detail: `本报告使用 ${value}${port ? `（本地端口 ${port}）` : ' '}作为唯一的加密 DNS 地址。它不可用时所有解析都会失败。`,
+    };
+  }
+  return {
+    title: 'DoH server',
+    detail: `This report uses ${value}${port ? ` (local port ${port})` : ''} as the only encrypted DNS endpoint. If it is unreachable, every lookup fails.`,
+  };
+}
+
+function explainSpkiSwitch(value: string, locale: Locale): Explanation {
+  if (!value) return SWITCHES['ignore-certificate-errors-spki-list'][locale];
+  const prefix = value.length > 10 ? `${value.slice(0, 8)}…` : value;
+  if (locale === 'zh') {
+    return {
+      title: '只信任本地解析器的证书',
+      detail: `本报告只信任一个本地解析器公钥（${prefix}）。这是按公钥放行单个证书，其他站点的证书仍正常校验。`,
+    };
+  }
+  return {
+    title: 'Trust the local resolver certificate',
+    detail: `This report trusts one local resolver key (${prefix}). It allows a single certificate by public key; certificates for other sites are still verified.`,
+  };
+}
+
+export function explainSwitch(
+  raw: string,
+  locale: Locale,
+  context: ExplanationContext = {},
+): Explanation {
+  const name = switchName(raw);
+  const value = switchValue(raw);
+  if (name === 'origin-to-force-quic-on') return explainOriginSwitch(value, locale);
+  if (name === 'dns-over-https-templates') return explainTemplatesSwitch(value, locale);
+  if (name === 'ignore-certificate-errors-spki-list') return explainSpkiSwitch(value, locale);
+  if (name === 'enable-quic' && context.ruleName && locale === 'zh') {
+    return {
+      title: '启用 QUIC',
+      detail: `本报告为${ruleLabel(context, locale)}启用了 QUIC，因此 HTTPS 记录里的 h3 可以被协商；但只有被强制列出的主机保证不走 TCP。`,
+    };
+  }
+  return (SWITCHES[name] ?? UNKNOWN)[locale];
+}
+
+function explainLimitWithRule(
+  name: string,
+  locale: Locale,
+  context: ExplanationContext,
+): Explanation {
+  // DNS is about the upstream, not a rule, so it must not depend on ruleName.
+  if (name === 'dns' && context.upstream) {
+    return locale === 'zh'
+      ? {
+          title: '加密 DNS',
+          detail: `本报告的上游是 ${context.upstream}，但当前内核既不能原生设置 DoH，也不能走本地代理，因此加密 DNS 不会生效。`,
+        }
+      : {
+          title: 'Encrypted DNS',
+          detail: `This report uses ${context.upstream} upstream, but this kernel supports neither native DoH nor the local proxy, so encrypted DNS has no effect.`,
+        };
+  }
+  if (!context.ruleName) return LIMITS[name][locale];
+  const rule = ruleLabel(context, locale);
+  if (name === 'ech') {
+    return locale === 'zh'
+      ? {
+          title: 'ECH',
+          detail: `${rule}启用了 ECH，但当前内核无法读取或注入 ECHConfig，所以这条规则的 ECH 不会生效。`,
+        }
+      : {
+          title: 'ECH',
+          detail: `${rule} enables ECH, but this kernel cannot read or inject ECHConfig, so ECH for this rule has no effect.`,
+        };
+  }
+  if (name === 'forceQuic') {
+    return locale === 'zh'
+      ? {
+          title: '强制 QUIC',
+          detail: `${rule}要求强制 QUIC，但当前内核不允许禁止 TCP 回退，实际只会“优先 h3”。`,
+        }
+      : {
+          title: 'Forced QUIC',
+          detail: `${rule} asks for forced QUIC, but this kernel cannot forbid TCP fallback, so it only prefers h3 in practice.`,
+        };
+  }
+  if (name === 'httpsRecords') {
+    return locale === 'zh'
+      ? {
+          title: 'HTTPS 记录',
+          detail: `${rule}依赖 alpn 与 ECH 提示，但当前内核不使用 HTTPS/SVCB 记录，这些提示传不过去。`,
+        }
+      : {
+          title: 'HTTPS records',
+          detail: `${rule} relies on alpn and ECH hints, but this kernel does not use HTTPS/SVCB records, so those hints never reach it.`,
+        };
+  }
+  return LIMITS[name][locale];
+}
+
+export function explainLimit(
+  name: string,
+  locale: Locale,
+  context: ExplanationContext = {},
+): Explanation {
+  return explainLimitWithRule(name, locale, context);
 }
 
 /** Names with a known explanation; used by tests and future UI affordances. */

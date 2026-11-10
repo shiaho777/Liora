@@ -120,7 +120,21 @@ HTTPS: alpn=- ech=0B
 
 `Switches` / `Limits` / `Components` / `Signature` / `CEF` 让报告也能解释渲染与签名问题：Chromium 的进程校验失败（`-67030`）在报告里直接可见，不必再靠猜。`Switches` 以空格分隔，单个开关值里的逗号（如 `--origin-to-force-quic-on=x.com:443,y.com:443`）不会被拆开。
 
-查看器会为每个开关和每个 `Limits` 项显示一句作用与后果说明：
+查看器会为每个开关和每个 `Limits` 项显示一句作用与后果说明，并把报告里的具体值带进去（例如实际被强制的主机、本地 DoH 端口、受影响的规则名）：
+
+```
+--origin-to-force-quic-on=x.com:443,twitter.com:443,api.x.com:443
+  本报告强制以下主机只走 QUIC：x.com:443、twitter.com:443、api.x.com:443。
+  失败不会回退 TCP，因此这些站点会直接报错；通配符不受支持。
+
+--dns-over-https-templates=https://127.0.0.1:5300/dns-query
+  本报告使用 https://127.0.0.1:5300/dns-query（本地端口 5300）作为唯一的加密 DNS 地址。
+
+ech
+  规则“x.com”启用了 ECH，但当前内核无法读取或注入 ECHConfig…
+```
+
+条目与通用含义：
 
 | 条目 | 说明要点 |
 |---|---|
