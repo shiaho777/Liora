@@ -16,7 +16,15 @@
     count?: number;
   }
 
+  interface Permission {
+    origin: string;
+    name: string;
+    value: string;
+    modified: number;
+  }
+
   let backups = $state<BackupFile[]>([]);
+  let permissions = $state<Permission[]>([]);
   let loading = $state(true);
   let sections = $state<string[]>(['settings', 'bookmarks', 'history', 'permissions']);
   let merge = $state(true);
@@ -28,11 +36,17 @@
     loading = true;
     try {
       backups = await call<BackupFile[]>('backup.list');
+      permissions = await call<Permission[]>('permissions.list', {});
     } catch (error: any) {
       toast(String(error?.message ?? error), 'error');
     } finally {
       loading = false;
     }
+  }
+
+  async function resetPermission(entry: Permission): Promise<void> {
+    await call('permissions.set', { origin: entry.origin, name: entry.name, value: '' });
+    await refresh();
   }
 
   $effect(() => {
@@ -187,6 +201,35 @@
             </div>
           </div>
         </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <div>
+        <div class="card__title">{t('permissions.title')}</div>
+        <div class="card__subtitle">{t('permissions.lede')}</div>
+      </div>
+    </div>
+    <div class="card__body">
+      {#if permissions.length === 0}
+        <div class="empty">{t('permissions.empty')}</div>
+      {:else}
+        {#each permissions as entry (`${entry.origin}/${entry.name}`)}
+          <div class="row">
+            <div class="row__main">
+              <div class="row__title mono">{entry.origin}</div>
+              <div class="row__desc">{entry.name}</div>
+            </div>
+            <div class="row__control">
+              <span class="badge" class:badge--success={entry.value === 'allow'} class:badge--danger={entry.value !== 'allow'}>
+                {entry.value === 'allow' ? t('permissions.allow') : t('permissions.block')}
+              </span>
+              <button class="button button--sm" onclick={() => resetPermission(entry)}>{t('permissions.reset')}</button>
+            </div>
+          </div>
+        {/each}
       {/if}
     </div>
   </div>

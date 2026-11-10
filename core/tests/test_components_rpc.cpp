@@ -305,6 +305,35 @@ LIORA_TEST(core_end_to_end_over_rpc) {
   reopened.stop();
 }
 
+LIORA_TEST(core_permissions_over_rpc) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  core.storage().setPermission("https://meet.example", "camera", "allow");
+
+  Json listed = core.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "permissions.list"},
+                                     {"params", Json::object()}});
+  CHECK_EQ(listed["result"].size(), size_t{1});
+  CHECK_EQ(listed["result"][0]["origin"], std::string("https://meet.example"));
+  CHECK_EQ(listed["result"][0]["name"], std::string("camera"));
+  CHECK_EQ(listed["result"][0]["value"], std::string("allow"));
+
+  // An empty value is how the interface revokes a remembered decision.
+  core.handleJson(Json{{"jsonrpc", "2.0"},
+                       {"id", 2},
+                       {"method", "permissions.set"},
+                       {"params", {{"origin", "https://meet.example"}, {"name", "camera"}, {"value", ""}}}});
+
+  Json cleared = core.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 3}, {"method", "permissions.list"},
+                                      {"params", Json::object()}});
+  CHECK_EQ(cleared["result"].size(), size_t{0});
+  core.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

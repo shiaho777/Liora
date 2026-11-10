@@ -73,6 +73,16 @@ async fn handle(mut client: TcpStream, state: SharedState) -> std::io::Result<()
 }
 
 async fn connect_upstream(host: &str, port: u16, state: &SharedState) -> Option<TcpStream> {
+    // IP literals never need the resolver; a page may legitimately point at a
+    // local server, and querying DoH for an address would fail.
+    let literal = host.trim_matches(|c| c == '[' || c == ']');
+    if let Ok(ip) = literal.parse::<std::net::IpAddr>() {
+        if let Ok(stream) = TcpStream::connect((ip, port)).await {
+            stream.set_nodelay(true).ok();
+            return Some(stream);
+        }
+        return None;
+    }
     for address in resolve_addresses(state, host).await {
         match TcpStream::connect((address, port)).await {
             Ok(stream) => {

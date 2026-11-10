@@ -167,6 +167,16 @@ NSString* jsonEscape(id object) {
   if (webView != self.ui || self.openedLaunchUrl) return;
   self.openedLaunchUrl = YES;
 
+  // Verification hook for the command bridge that the menu uses.
+  const char* command = getenv("LIORA_TEST_COMMAND");
+  if (command && *command) {
+    NSString* name = ns(command);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      [self sendUICommand:name];
+      NSLog(@"Liora: command %@", name);
+    });
+  }
+
   const char* tabs = getenv("LIORA_OPEN_TABS");
   if (tabs && *tabs) {
     NSString* list = ns(tabs);
@@ -233,12 +243,37 @@ NSString* jsonEscape(id object) {
 
   NSMenuItem* viewItem = [[NSMenuItem alloc] init];
   NSMenu* view = [[NSMenu alloc] initWithTitle:@"显示"];
-  [view addItemWithTitle:@"重新加载" action:@selector(reloadInterface:) keyEquivalent:@"r"];
+  [view addItemWithTitle:@"新建标签页" action:@selector(newTabCommand:) keyEquivalent:@"t"];
+  [view addItemWithTitle:@"关闭标签页" action:@selector(closeTabCommand:) keyEquivalent:@"w"];
+  [view addItemWithTitle:@"重新加载" action:@selector(reloadCommand:) keyEquivalent:@"r"];
+  [view addItem:[NSMenuItem separatorItem]];
+  [view addItemWithTitle:@"聚焦地址栏" action:@selector(focusAddressCommand:) keyEquivalent:@"l"];
+  [view addItemWithTitle:@"下载" action:@selector(showDownloadsCommand:) keyEquivalent:@"J"];
+  [view addItemWithTitle:@"设置…" action:@selector(openSettingsCommand:) keyEquivalent:@","];
   viewItem.submenu = view;
   [main addItem:viewItem];
 
+  // Menu key equivalents fire even when the page view has focus, which page
+  // level listeners cannot do.
+  for (NSMenuItem* item in view.itemArray) {
+    item.target = self;
+  }
+
   NSApp.mainMenu = main;
 }
+
+- (void)sendUICommand:(NSString*)name {
+  NSString* script = [NSString stringWithFormat:@"window.__lioraCommand && window.__lioraCommand(%@);",
+                                                jsonEscape(name)];
+  [self.ui evaluateJavaScript:script completionHandler:nil];
+}
+
+- (void)newTabCommand:(id)sender { [self sendUICommand:@"newTab"]; }
+- (void)closeTabCommand:(id)sender { [self sendUICommand:@"closeTab"]; }
+- (void)reloadCommand:(id)sender { [self sendUICommand:@"reload"]; }
+- (void)focusAddressCommand:(id)sender { [self sendUICommand:@"focusAddress"]; }
+- (void)openSettingsCommand:(id)sender { [self sendUICommand:@"settings"]; }
+- (void)showDownloadsCommand:(id)sender { [self sendUICommand:@"downloads"]; }
 
 - (void)startCore {
   using namespace liora;
@@ -444,6 +479,42 @@ NSString* jsonEscape(id object) {
   liora::ViewOptions options;
   options.tab = tab;
   options.parent = (__bridge void*)self.container;
+  options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
+  options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
+  options.askPermission = [core = _core.get()](const std::string& origin, const std::string& kind) -> bool {
+    if (!core) return false;
+    if (auto stored = core->storage().permission(origin, kind)) return *stored == "allow";
+
+    NSString* kindLabel = @"摄像头";
+    if (kind == "microphone") kindLabel = @"麦克风";
+    else if (kind == "camera+microphone") kindLabel = @"摄像头与麦克风";
+
+    __block bool allow = false;
+    void (^ask)(void) = ^{
+      NSAlert* alert = [[NSAlert alloc] init];
+      alert.messageText = [NSString stringWithFormat:@"允许 %@ 使用%@？", ns(origin), kindLabel];
+      alert.informativeText = @"只有你允许后，这个站点才能使用该设备。";
+      [alert addButtonWithTitle:@"允许"];
+      [alert addButtonWithTitle:@"拒绝"];
+
+      NSButton* remember = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 240, 22)];
+      [remember setButtonType:NSButtonTypeSwitch];
+      remember.title = @"记住这个决定";
+      alert.accessoryView = remember;
+
+      allow = [alert runModal] == NSAlertFirstButtonReturn;
+      if (remember.state == NSControlStateValueOn) {
+        core->storage().setPermission(origin, kind, allow ? "allow" : "block");
+      }
+    };
+
+    if ([NSThread isMainThread]) {
+      ask();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), ask);
+    }
+    return allow;
+  };
 
   liora::ViewEvents events;
   __weak LioraController* weakSelf = self;
@@ -464,6 +535,34 @@ NSString* jsonEscape(id object) {
     NSString* reason = ns(message);
     dispatch_async(dispatch_get_main_queue(), ^{
       [weakSelf handleLoadFailure:failedUrl code:code message:reason tab:tab];
+    });
+  };
+  events.onDownload = [weakSelf](const liora::DownloadEvent& event) {
+    NSString* state = @"started";
+    switch (event.state) {
+      case liora::DownloadState::kStarted: state = @"started"; break;
+      case liora::DownloadState::kProgress: state = @"progress"; break;
+      case liora::DownloadState::kFinished: state = @"finished"; break;
+      case liora::DownloadState::kFailed: state = @"failed"; break;
+    }
+    NSDictionary* params = @{
+      @"id" : ns(event.id),
+      @"filename" : ns(event.filename),
+      @"path" : ns(event.path),
+      @"received" : @(event.received),
+      @"total" : @(event.total),
+      @"tab" : @(event.tab),
+      @"state" : state,
+      @"error" : ns(event.error),
+    };
+    dispatch_async(dispatch_get_main_queue(), ^{
+      // A download replaces the page WebKit was about to render, so hide the
+      // blank kernel view and let the interface show the download state.
+      if (event.state == liora::DownloadState::kStarted && weakSelf) {
+        weakSelf.contentVisible = NO;
+        [weakSelf layoutContent];
+      }
+      [weakSelf notifyInterface:@"browser.download" params:params];
     });
   };
   // target="_blank" opens in the same view for now; real tabs arrive with the

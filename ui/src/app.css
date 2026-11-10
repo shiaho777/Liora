@@ -354,6 +354,27 @@ a {
   padding: 0 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.icon-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+.toolbar .icon-button {
+  position: relative;
 }
 
 .toolbar__group {

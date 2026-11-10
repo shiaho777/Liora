@@ -314,6 +314,7 @@ export function createMockBackend(): MockBackend {
     installed: Array<{ id: string; version: string; path: string; installedAt: number; current: boolean }>;
     bookmarks: Array<{ id: number; title: string; url: string }>;
     history: Array<{ url: string; title: string; visitCount: number; lastVisit: number }>;
+    permissions: Array<{ origin: string; name: string; value: string; modified: number }>;
   } = stored
     ? JSON.parse(stored)
     : {
@@ -325,6 +326,10 @@ export function createMockBackend(): MockBackend {
           { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
           { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
         ],
+        permissions: [
+          { origin: 'https://meet.example', name: 'camera', value: 'allow', modified: Date.now() },
+          { origin: 'https://record.example', name: 'microphone', value: 'block', modified: Date.now() },
+        ],
         history: [
           { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
           { url: 'https://developer.mozilla.org', title: 'MDN Web Docs', visitCount: 9, lastVisit: Date.now() - 86400000 },
@@ -335,6 +340,10 @@ export function createMockBackend(): MockBackend {
   state.bookmarks ??= [
     { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
     { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
+  ];
+  state.permissions ??= [
+    { origin: 'https://meet.example', name: 'camera', value: 'allow', modified: Date.now() },
+    { origin: 'https://record.example', name: 'microphone', value: 'block', modified: Date.now() },
   ];
   state.history ??= [
     { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
@@ -373,6 +382,7 @@ export function createMockBackend(): MockBackend {
         installed: state.installed,
         bookmarks: state.bookmarks,
         history: state.history,
+        permissions: state.permissions,
       }),
     );
   };
@@ -775,8 +785,18 @@ export function createMockBackend(): MockBackend {
     'migrate.run': () => ({ ok: true, bookmarks: 42, history: 1200, warnings: [] }),
     'migrate.file': () => ({ ok: true, bookmarks: 10, history: 0, warnings: [] }),
 
-    'permissions.list': () => [],
-    'permissions.set': () => ({ ok: true }),
+    'permissions.list': (p) =>
+      state.permissions.filter((entry) => !p.origin || entry.origin === p.origin),
+    'permissions.set': (p) => {
+      state.permissions = state.permissions.filter(
+        (entry) => !(entry.origin === p.origin && entry.name === p.name),
+      );
+      if (p.value) {
+        state.permissions.push({ origin: p.origin, name: p.name, value: p.value, modified: Date.now() });
+      }
+      persist();
+      return { ok: true };
+    },
   };
 
   const respond = (payload: Record<string, unknown>) => {
@@ -811,6 +831,19 @@ export function createMockBackend(): MockBackend {
                 message: '演示：无法找到服务器（mock 数据）',
               },
             });
+          }
+        }
+        if (method === 'ui.navigate') {
+          const params = request.params ?? {};
+          const url = String(params.url ?? '');
+          // A fake download so the panel can be reviewed without a native shell.
+          if (url.endsWith('.bin') || url.includes('/download')) {
+            const id = 'mock-download';
+            const emit = (payload: Record<string, unknown>) =>
+              respond({ jsonrpc: '2.0', method: 'browser.download', params: { id, path: '/Users/you/Downloads/sample.bin', filename: 'sample.bin', ...payload } });
+            emit({ state: 'started', received: 0, total: 4_000_000 });
+            setTimeout(() => emit({ state: 'progress', received: 1_600_000, total: 4_000_000 }), 400);
+            setTimeout(() => emit({ state: 'finished', received: 4_000_000, total: 4_000_000 }), 1200);
           }
         }
         return;

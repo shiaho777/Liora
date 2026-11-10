@@ -75,11 +75,30 @@ struct KernelNetSetup {
   Json toJson() const;
 };
 
+enum class DownloadState { kStarted, kProgress, kFinished, kFailed };
+
+struct DownloadEvent {
+  std::string id;
+  std::string filename;
+  std::string path;
+  int64_t tab = 0;
+  int64_t received = 0;
+  int64_t total = 0;
+  DownloadState state = DownloadState::kStarted;
+  std::string error;
+};
+
 struct ViewOptions {
   void* parent = nullptr;  // native parent window or view
   int64_t tab = 0;
   std::string url;
   bool incognito = false;
+  // Empty means the platform default (the user's Downloads folder).
+  std::string downloadDir;
+  bool askWhereToSave = false;
+  // Asked before granting camera or microphone. Called on the main thread;
+  // returning true grants the request for this navigation.
+  std::function<bool(const std::string& origin, const std::string& kind)> askPermission;
 };
 
 struct ViewEvents {
@@ -94,6 +113,9 @@ struct ViewEvents {
   // Navigation failed before the page could load. Code uses the platform's
   // error code (NSURLErrorDomain on macOS) so the interface can explain it.
   std::function<void(const std::string& url, int code, const std::string& message)> onError;
+  // Download progress. The kernel reports started, periodic progress, then
+  // finished or failed.
+  std::function<void(const DownloadEvent& event)> onDownload;
 };
 
 class IKernelView {

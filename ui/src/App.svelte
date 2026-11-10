@@ -4,6 +4,14 @@
   import Settings from './lib/Settings.svelte';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
+  import DownloadsPanel from './lib/DownloadsPanel.svelte';
+  import DownloadPage from './lib/DownloadPage.svelte';
+  import {
+    activeDownloadCount,
+    downloads,
+    handleDownloadEvent,
+    type DownloadItem,
+  } from './lib/downloads.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { call, describeSettings, notify, onNotification } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
@@ -14,6 +22,7 @@
     url: string;
     page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'web';
     error?: { url: string; code: number; message: string };
+    download?: DownloadItem;
   }
 
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
@@ -67,7 +76,11 @@
         active?: number;
       }>('session.load');
       if (!session.tabs?.length) return;
-      const restored: Tab[] = session.tabs.map((item, index) => ({
+      // A tab that turned into a download is transient; restoring it would
+      // download the file again.
+      const restorable = session.tabs.filter((item) => item.page !== 'download');
+      if (restorable.length === 0) return;
+      const restored: Tab[] = restorable.map((item, index) => ({
         id: index + 1,
         title: item.title || item.url,
         url: item.url,
@@ -102,6 +115,18 @@
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
   onNotification((message) => {
+    if (message.method === 'browser.download' && message.params) {
+      const params = message.params as { id: string; tab?: number };
+      handleDownloadEvent(params as never);
+      const tab = tabs.find((entry) => entry.id === Number(params.tab));
+      const item = downloads.items.find((entry) => entry.id === params.id);
+      if (tab && item) {
+        tab.download = { ...item };
+        tab.title = item.filename;
+        tabs = [...tabs];
+      }
+      return;
+    }
     if (message.method !== 'browser.loadFailed' || !message.params) return;
     const params = message.params as { tab?: number; url?: string; code?: number; message?: string };
     const tab = tabs.find((entry) => entry.id === Number(params.tab)) ?? tabs.find((entry) => entry.id === activeId);
@@ -172,7 +197,7 @@
         y: Math.round(rect.y),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        visible: active?.page === 'web' && !active?.error,
+        visible: active?.page === 'web' && !active?.error && !active?.download,
         tab: active?.id,
       });
     });
@@ -182,12 +207,36 @@
 
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
-    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error });
+    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error && !active?.download });
+  });
+
+  // Used by the shell's menu shortcuts, which work regardless of which view
+  // has keyboard focus.
+  $effect(() => {
+    const hooks = window as unknown as { __lioraCommand?: (name: string) => void };
+    hooks.__lioraCommand = (name: string) => {
+      if (name.startsWith('settings:')) {
+        openSettings(name.slice('settings:'.length));
+        return;
+      }
+      switch (name) {
+        case 'newTab': newTab(); break;
+        case 'closeTab': closeTab(activeId); break;
+        case 'reload': navigate(active.url); break;
+        case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
+        case 'settings': openSettings(); break;
+        case 'downloads': downloads.open = !downloads.open; break;
+      }
+    };
   });
 
   // Remember the tab set so the next launch can restore it.
   $effect(() => {
-    const snapshot = tabs.map((tab) => ({ url: tab.url, title: tab.title, page: tab.page }));
+    const snapshot = tabs.map((tab) => ({
+      url: tab.url,
+      title: tab.title,
+      page: tab.download ? 'download' : tab.page,
+    }));
     const selected = activeId;
     if (!sessionReady) return;
     clearTimeout(saveTimer);
@@ -248,7 +297,13 @@
       return;
     }
 
-    updateTab(activeId, { url, page: 'web', title: url.replace(/^https?:\/\//, '').split('/')[0], error: undefined });
+    updateTab(activeId, {
+      url,
+      page: 'web',
+      title: url.replace(/^https?:\/\//, '').split('/')[0],
+      error: undefined,
+      download: undefined,
+    });
     notify('ui.navigate', { url, tab: activeId });
   }
 
@@ -319,6 +374,11 @@
     if (key === 'r') {
       event.preventDefault();
       navigate(active.url);
+      return;
+    }
+    if (key === ',') {
+      event.preventDefault();
+      openSettings();
       return;
     }
     if (key === 'd') {
@@ -456,10 +516,25 @@
       </form>
 
       <div class="toolbar__group">
+        <button
+          class="icon-button"
+          class:icon-button--active={downloads.open}
+          title={t('downloads.title')}
+          onclick={() => (downloads.open = !downloads.open)}
+        >
+          <Icon name="download" />
+          {#if activeDownloadCount() > 0}
+            <span class="icon-badge">{activeDownloadCount()}</span>
+          {/if}
+        </button>
         <button class="icon-button" title={t('nav.settings')} onclick={() => openSettings()}>
           <Icon name="settings" />
         </button>
       </div>
+
+      {#if downloads.open}
+        <DownloadsPanel />
+      {/if}
     </div>
 
     <div class="bookmarksbar">
@@ -485,6 +560,8 @@
         <Settings />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library kind={active.page} onnavigate={(url) => navigate(url)} />
+      {:else if active.download}
+        <DownloadPage item={active.download} />
       {:else if active.page === 'web'}
         {#if active.error}
           <ErrorPanel
