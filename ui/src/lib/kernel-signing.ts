@@ -15,6 +15,11 @@ export interface CefReadiness {
  * or "failed: ...". A failure is the most specific signal, so it wins over the
  * signature heuristics.
  */
+/** True when an action on this kernel should ask for confirmation first. */
+export function cefNeedsConfirmation(kernelId: string, readiness: CefReadiness): boolean {
+  return kernelId === 'cef' && readiness.level !== 'ok';
+}
+
 export function cefReadiness(codeSigning: string, cefStatus: string): CefReadiness {
   const status = (cefStatus ?? '').trim();
   if (/^failed/i.test(status)) return { level: 'danger', reason: 'failed' };

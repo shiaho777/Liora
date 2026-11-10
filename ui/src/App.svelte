@@ -524,6 +524,27 @@
           document.querySelector<HTMLElement>('.recent__item[data-kind="timeline"]')?.click();
           break;
         }
+        case 'cefdownload': {
+          const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
+            item.textContent?.includes('Chromium (CEF)'),
+          );
+          [...(card?.querySelectorAll<HTMLElement>('button') ?? [])]
+            .find((button) => button.textContent?.includes('下载'))
+            ?.click();
+          break;
+        }
+        case 'cefconfirm': {
+          [...document.querySelectorAll<HTMLElement>('.confirm button')]
+            .find((button) => button.textContent?.includes('仍要下载'))
+            ?.click();
+          break;
+        }
+        case 'cefcancel': {
+          [...document.querySelectorAll<HTMLElement>('.confirm button')]
+            .find((button) => button.textContent?.includes('取消'))
+            ?.click();
+          break;
+        }
         case 'opendns': {
           const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
             item.textContent?.includes('DNS 与直连'),

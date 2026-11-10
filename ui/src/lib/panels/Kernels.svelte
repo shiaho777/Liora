@@ -3,7 +3,7 @@
   import { call } from '../bridge';
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
-  import { cefReadiness } from '../kernel-signing';
+  import { cefNeedsConfirmation, cefReadiness } from '../kernel-signing';
   import { t } from '../i18n.svelte';
 
   interface Kernel {
@@ -28,6 +28,8 @@
   let components = $state<Component[]>([]);
   let loading = $state(true);
   let busy = $state('');
+  // CEF actions on an ad-hoc build need an explicit acknowledgement first.
+  let pending = $state<{ kind: 'download' | 'select'; kernelId: string } | null>(null);
 
   const selected = $derived(String(value('kernel.default') ?? 'system'));
   const rows = $derived(kernels.filter((kernel) => app.mode === 'advanced' || kernel.id === 'system' || kernel.available));
@@ -50,6 +52,38 @@
   $effect(() => {
     void load();
   });
+
+  function requestDownload(kernel: Kernel): void {
+    if (cefNeedsConfirmation(kernel.id, cefState)) {
+      pending = { kind: 'download', kernelId: kernel.id };
+      return;
+    }
+    downloadKernel(kernel);
+  }
+
+  function requestSelect(kernel: Kernel): void {
+    if (cefNeedsConfirmation(kernel.id, cefState)) {
+      pending = { kind: 'select', kernelId: kernel.id };
+      return;
+    }
+    void choose(kernel);
+  }
+
+  function downloadKernel(kernel: Kernel): void {
+    // Component downloads are shell-side and not wired yet; say so instead of
+    // implying that a 135 MB install just started.
+    toast(t('kernels.downloadUnavailable', { name: kernel.name }));
+  }
+
+  function confirmPending(): void {
+    const entry = pending;
+    pending = null;
+    if (!entry) return;
+    const kernel = kernels.find((item) => item.id === entry.kernelId);
+    if (!kernel) return;
+    if (entry.kind === 'download') downloadKernel(kernel);
+    else void choose(kernel);
+  }
 
   async function choose(kernel: Kernel): Promise<void> {
     if (!kernel.available) return;
@@ -120,12 +154,12 @@
                   class="button"
                   class:button--primary={selected !== kernel.id}
                   disabled={selected === kernel.id || busy === kernel.id}
-                  onclick={() => choose(kernel)}
+                  onclick={() => requestSelect(kernel)}
                 >
                   {selected === kernel.id ? t('kernels.installed') : t('kernels.default')}
                 </button>
               {:else}
-                <button class="button button--ghost" onclick={() => toast(t('kernels.notInstalled'))}>
+                <button class="button button--ghost" onclick={() => requestDownload(kernel)}>
                   <Icon name="download" size={13} />
                   {t('kernels.download')}
                 </button>
@@ -147,6 +181,31 @@
                 {t('kernels.adHocWarning')}
                 <span class="mono">{app.runtime.codeSigning}</span>
               </span>
+            </div>
+          {/if}
+
+          {#if pending?.kernelId === kernel.id}
+            <div class="confirm">
+              <div class="confirm__title">
+                {pending.kind === 'download'
+                  ? t('kernels.confirmDownloadTitle')
+                  : t('kernels.confirmSelectTitle')}
+              </div>
+              <p class="confirm__body">
+                {pending.kind === 'download'
+                  ? t('kernels.confirmDownloadBody')
+                  : t('kernels.confirmSelectBody')}
+              </p>
+              <div class="cluster">
+                <button class="button button--ghost button--sm" onclick={() => (pending = null)}>
+                  {pending.kind === 'select' ? t('kernels.keepSystem') : t('kernels.cancel')}
+                </button>
+                <button class="button button--primary button--sm" onclick={confirmPending}>
+                  {pending.kind === 'download'
+                    ? t('kernels.confirmDownloadAction')
+                    : t('kernels.confirmSelectAction')}
+                </button>
+              </div>
             </div>
           {/if}
         </div>

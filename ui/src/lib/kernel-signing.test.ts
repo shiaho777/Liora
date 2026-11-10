@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cefReadiness } from './kernel-signing';
+import { cefNeedsConfirmation, cefReadiness } from './kernel-signing';
 
 describe('cefReadiness', () => {
   it('flags an ad-hoc build even when CEF has not been started yet', () => {
@@ -33,5 +33,18 @@ describe('cefReadiness', () => {
 
   it('treats unsigned variants as ad-hoc', () => {
     expect(cefReadiness('unsigned (no Team ID)', 'not selected').reason).toBe('ad-hoc');
+  });
+});
+
+describe('cefNeedsConfirmation', () => {
+  it('asks before acting on CEF unless the build is signed', () => {
+    expect(cefNeedsConfirmation('cef', { level: 'warning', reason: 'ad-hoc' })).toBe(true);
+    expect(cefNeedsConfirmation('cef', { level: 'danger', reason: 'failed' })).toBe(true);
+    expect(cefNeedsConfirmation('cef', { level: 'unknown', reason: 'unknown' })).toBe(true);
+    expect(cefNeedsConfirmation('cef', { level: 'ok', reason: 'signed' })).toBe(false);
+  });
+
+  it('never gates kernels other than CEF', () => {
+    expect(cefNeedsConfirmation('system', { level: 'warning', reason: 'ad-hoc' })).toBe(false);
   });
 });
