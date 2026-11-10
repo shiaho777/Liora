@@ -15,6 +15,7 @@ endfunction()
 liora_embed(${PROJECT_SOURCE_DIR}/data/dns-providers.json dns_providers EMBED_DNS)
 liora_embed(${PROJECT_SOURCE_DIR}/data/rule-presets.json rule_presets EMBED_PRESETS)
 liora_embed(${PROJECT_SOURCE_DIR}/data/search-engines.json search_engines EMBED_SEARCH)
+liora_embed(${PROJECT_SOURCE_DIR}/data/update-key.pub update_key EMBED_UPDATE_KEY)
 
 add_library(liora_core STATIC
   src/util.cpp
@@ -43,6 +44,7 @@ add_library(liora_core STATIC
   ${EMBED_DNS}
   ${EMBED_PRESETS}
   ${EMBED_SEARCH}
+  ${EMBED_UPDATE_KEY}
 )
 
 if(MSVC)

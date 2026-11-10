@@ -78,8 +78,9 @@ example.com  → 原样转发，未做任何改写
 ### 组件安装
 
 - 设置 → 内核（高级模式）的“下载”会走真实安装：`components.plan` 给出 URL、归档大小与每个文件的大小/SHA-256，壳下载归档、解包到 staging，Core 逐文件校验后才提交。归档大小或任一文件哈希不匹配都会拒绝安装并清理 staging。
-- 目录由 `components.json` 驱动，URL 与哈希都在目录里。配置更新公钥后，Core 用 Ed25519 校验目录签名：签名覆盖去掉 `signature` 字段后的规范 JSON（键排序、紧凑格式、UTF-8），不匹配的目录在启动时即被拒绝，不会进入下载流程。公钥可用 `LIORA_UPDATE_KEY`（hex 或 base64）或 `Core::Options::updateKey` 提供；未配置时仍接受未签名目录（开发构建）。
-- Ed25519 实现使用公有领域的 TweetNaCl（`third_party/tweetnacl`），签名格式与安装流程见 `docs/COMPONENTS.md`。
+- 目录由 `components.json` 驱动，URL 与哈希都在目录里。Core 用 Ed25519 校验目录签名：签名覆盖去掉 `signature` 字段后的规范 JSON（键排序、紧凑格式、UTF-8），不匹配的目录在启动时即被拒绝，不会进入下载流程。
+- 构建内置 `data/update-key.pub` 作为默认更新公钥；私钥保存在仓库外（默认 `~/.config/liora/update-key.ed25519`，权限 0600）。`scripts/generate-update-key.py` 生成密钥，`scripts/sign-components.py` 签名目录；覆盖公钥用 `LIORA_UPDATE_KEY`，本地无签名目录可用 `LIORA_DISABLE_COMPONENT_SIGNATURES=1` 临时放行（仅开发）。
+- Ed25519 实现使用公有领域的 TweetNaCl（`third_party/tweetnacl`），签名格式、密钥保管与轮换见 `docs/COMPONENTS.md`。
 - 安装成功后组件出现在“可下载”列表并显示版本；当前构建若没有对应的内核适配层，会明确标注“组件已安装，但当前构建未启用该内核”。
 
 ### 数据与迁移

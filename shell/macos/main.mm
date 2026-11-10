@@ -377,6 +377,11 @@ NSString* jsonEscape(id object) {
   self.cefStatus = @"not selected";
 
   shell::registerSystemKernel(_core->kernels());
+  // Test hook: make CEF selectable without a CEF build so the confirmation
+  // path can be exercised. It is never set in normal launches.
+  if (getenv("LIORA_TEST_CEF_AVAILABLE")) {
+    _core->kernels().setAvailable(liora::KernelManager::kCef, true, "test");
+  }
   // Start liora-net and point WebKit at it before any page loads.
   [self refreshNetworkNowMarkingApplied:YES];
 #ifdef LIORA_WITH_CEF

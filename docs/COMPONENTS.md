@@ -34,12 +34,35 @@ Liora 的内核、迁移器等大组件按需下载。Core 不联网：它只负
 - 无多余空白（紧凑分隔符 `,` 与 `:`）；
 - 整数不加引号。
 
-公钥为 32 字节，可用 hex 或 base64。配置方式：
+公钥为 32 字节，可用 hex 或 base64。默认公钥在 `data/update-key.pub`，构建时嵌入 Core。私钥默认保存在仓库外：
 
-- 环境变量 `LIORA_UPDATE_KEY`；
-- 或 `Core::Options::updateKey`（测试/嵌入方使用）。
+```
+~/.config/liora/update-key.ed25519   (32 字节 seed，权限 0600)
+```
 
-未配置公钥时，Core 接受未签名目录（开发构建）。一旦配置，缺少签名、签名错误或被修改过的目录都会被拒绝；已加载的旧目录保持不变，组件不会出现在下载列表，`components.plan` 也不会返回计划。
+**请备份私钥；丢失后将无法再为现有公钥签发目录，只能轮换公钥并重新签名。** 私钥不要提交到仓库或 CI 日志。
+
+### 生成与签名
+
+```bash
+# 只在首次或轮换时执行；--force 会覆盖现有密钥
+python3 scripts/generate-update-key.py
+
+# 签名目录（默认使用上面的私钥）
+python3 scripts/sign-components.py components.json --in-place
+```
+
+生成脚本会把公钥写入 `data/update-key.pub`，重新构建后生效。轮换时应同时更新目录签名并重新发布客户端。
+
+### 覆盖与开发
+
+- `LIORA_UPDATE_KEY`（hex/base64）覆盖内置公钥；
+- `Core::Options::updateKey` 供测试/嵌入方使用；
+- `LIORA_DISABLE_COMPONENT_SIGNATURES=1` 临时接受未签名目录，仅用于本地开发。
+
+一旦配置公钥（默认构建即是），缺少签名、签名错误或被修改过的目录都会被拒绝；已加载的旧目录保持不变，组件不会出现在下载列表，`components.plan` 也不会返回计划。
+
+当前内置公钥指纹：`ec0370237e5ff5ad`（SHA-256 前 16 位）。
 
 ## 当前状态
 

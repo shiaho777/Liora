@@ -89,13 +89,18 @@ std::optional<std::string> Core::start() {
   reloadRules();
   if (!storage_.open(&error)) return "database: " + error;
 
-  // A configured update key turns on catalog signature enforcement. Without
-  // one, unsigned catalogs are still accepted (development builds).
+  // Catalog signature enforcement. Priority: explicit option, environment,
+  // then the public key embedded at build time. A developer can disable it for
+  // unsigned local catalogs with LIORA_DISABLE_COMPONENT_SIGNATURES=1.
   std::string updateKey = trim(options_.updateKey);
   if (updateKey.empty()) {
     if (const char* env = std::getenv("LIORA_UPDATE_KEY"); env && *env) updateKey = trim(env);
   }
-  if (!updateKey.empty()) {
+  if (updateKey.empty()) updateKey = trim(std::string(embedded::updateKey()));
+
+  const char* disabled = std::getenv("LIORA_DISABLE_COMPONENT_SIGNATURES");
+  bool signaturesDisabled = disabled && *disabled && std::string(disabled) != "0";
+  if (!updateKey.empty() && !signaturesDisabled) {
     components_.setVerifier(ed25519Verify);
     components_.setPublicKey(updateKey);
   }

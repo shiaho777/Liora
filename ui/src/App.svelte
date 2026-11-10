@@ -533,6 +533,27 @@
             ?.click();
           break;
         }
+        case 'cefselect': {
+          const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
+            item.textContent?.includes('Chromium (CEF)'),
+          );
+          [...(card?.querySelectorAll<HTMLElement>('button') ?? [])]
+            .find((button) => button.textContent?.trim() === '默认内核')
+            ?.click();
+          break;
+        }
+        case 'cefkeep': {
+          [...document.querySelectorAll<HTMLElement>('.confirm button')]
+            .find((button) => button.textContent?.includes('保持系统 WebView'))
+            ?.click();
+          break;
+        }
+        case 'cefconfirmselect': {
+          [...document.querySelectorAll<HTMLElement>('.confirm button')]
+            .find((button) => button.textContent?.includes('仍要选择'))
+            ?.click();
+          break;
+        }
         case 'cefconfirm': {
           [...document.querySelectorAll<HTMLElement>('.confirm button')]
             .find((button) => button.textContent?.includes('仍要下载'))
