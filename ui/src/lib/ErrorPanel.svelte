@@ -165,12 +165,26 @@
     // failures, which the DNS endpoint cannot see.
     const [setup, installed] = await Promise.allSettled([
       kernelId
-        ? call<{ switches?: string[]; unsupported?: string[] }>('kernels.setup', { id: kernelId })
+        ? call<{
+            switches?: string[];
+            unsupported?: string[];
+            dohTemplates?: string;
+            dnsMode?: string;
+            proxy?: string;
+          }>('kernels.setup', { id: kernelId })
         : Promise.resolve(null),
       call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
     ]);
     if (setup.status === 'fulfilled' && setup.value) {
-      kernelSwitches = setup.value.switches ?? [];
+      // Switches plus the effective network flags, so the report records what
+      // the kernel actually received rather than only the QUIC/SPKI subset.
+      const flags = [...(setup.value.switches ?? [])];
+      if (setup.value.dohTemplates) {
+        flags.push(`--dns-over-https-mode=${setup.value.dnsMode || 'secure'}`);
+        flags.push(`--dns-over-https-templates=${setup.value.dohTemplates}`);
+      }
+      if (setup.value.proxy) flags.push(`--proxy-server=${setup.value.proxy}`);
+      kernelSwitches = flags;
       kernelLimits = setup.value.unsupported ?? [];
     }
     if (installed.status === 'fulfilled') {

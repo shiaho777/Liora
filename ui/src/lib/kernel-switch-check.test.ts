@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkDohTemplate,
   checkForcedOrigins,
+  checkProxy,
   expectedForcedOrigins,
   parseForcedOrigins,
 } from './kernel-switch-check';
@@ -174,6 +175,86 @@ describe('checkDohTemplate', () => {
     const check = checkDohTemplate(
       ['--dns-over-https-templates=https://cloudflare-dns.com/dns-query/'],
       plan,
+      null,
+    );
+    expect(check.stale).toBe(false);
+  });
+});
+
+describe('checkProxy', () => {
+  const setup = (proxy: string) => ({
+    dohTemplates: '',
+    dnsMode: 'system',
+    proxy,
+    usesNet: true,
+    netMissing: false,
+  });
+
+  it('is clean when the ports match', () => {
+    const check = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300'],
+      setup('http://127.0.0.1:5300'),
+      { running: true, proxyPort: 5300 },
+    );
+    expect(check.stale).toBe(false);
+    expect(check.portChanged).toBe(false);
+  });
+
+  it('flags the ephemeral port changing after liora-net restarts', () => {
+    const check = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300'],
+      setup('http://127.0.0.1:62411'),
+      { running: true, proxyPort: 62411 },
+    );
+    expect(check.stale).toBe(true);
+    expect(check.portChanged).toBe(true);
+    expect(check.hostChanged).toBe(false);
+    expect(check.reported).toBe('http://127.0.0.1:5300');
+    expect(check.expected).toBe('http://127.0.0.1:62411');
+  });
+
+  it('flags a host change even when the port matches', () => {
+    const check = checkProxy(
+      ['--proxy-server=http://localhost:5300'],
+      setup('http://127.0.0.1:5300'),
+      null,
+    );
+    expect(check.stale).toBe(true);
+    expect(check.hostChanged).toBe(true);
+  });
+
+  it('flags the proxy being removed or newly required', () => {
+    const removed = checkProxy(['--proxy-server=http://127.0.0.1:5300'], setup(''), null);
+    expect(removed.stale).toBe(true);
+    expect(removed.expected).toBe('');
+
+    const added = checkProxy([], setup('http://127.0.0.1:5300'), null);
+    expect(added.stale).toBe(true);
+    expect(added.reported).toBe('');
+  });
+
+  it('falls back to the running resolver when setup is unavailable', () => {
+    const check = checkProxy(['--proxy-server=http://127.0.0.1:5300'], null, {
+      running: true,
+      proxyPort: 62411,
+    });
+    expect(check.expected).toBe('http://127.0.0.1:62411');
+    expect(check.stale).toBe(true);
+  });
+
+  it('does not use a stale port when the resolver is not running', () => {
+    const check = checkProxy(['--proxy-server=http://127.0.0.1:5300'], null, {
+      running: false,
+      proxyPort: 62411,
+    });
+    expect(check.expected).toBe('');
+    expect(check.stale).toBe(true);
+  });
+
+  it('ignores a trailing slash', () => {
+    const check = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300/'],
+      setup('http://127.0.0.1:5300'),
       null,
     );
     expect(check.stale).toBe(false);

@@ -148,6 +148,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'dnsStale.config': '当前配置',
     'dnsStale.match': 'DoH 地址与当前 DNS 配置一致。',
     'dnsStale.unavailable': '无法读取当前 DNS 配置，未做比对。',
+    'proxyStale.title': '代理启动参数已过期',
+    'proxyStale.body': '报告里的代理地址与当前本地解析器不一致。liora-net 每次启动都会选择新的端口，因此重启解析器或修改 DNS 后需要重启内核。',
+    'proxyStale.none': '无（不使用代理）',
+    'proxyStale.match': '代理地址与当前本地解析器一致。',
+    'proxyStale.unavailable': '无法读取当前解析器状态，未做比对。',
     'nav.about': '关于',
 
     'appearance.title': '外观',
@@ -447,6 +452,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'dnsStale.config': 'Current configuration',
     'dnsStale.match': 'The DoH endpoint matches the current DNS configuration.',
     'dnsStale.unavailable': 'Could not read the current DNS configuration, so no comparison was made.',
+    'proxyStale.title': 'Proxy start-up parameters are stale',
+    'proxyStale.body': 'The proxy address in this report differs from the running local resolver. liora-net picks a new port on every start, so restart the kernel after restarting the resolver or changing DNS.',
+    'proxyStale.none': 'None (no proxy)',
+    'proxyStale.match': 'The proxy address matches the running local resolver.',
+    'proxyStale.unavailable': 'Could not read the resolver state, so no comparison was made.',
     'nav.about': 'About',
 
     'appearance.title': 'Appearance',

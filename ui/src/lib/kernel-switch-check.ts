@@ -80,6 +80,7 @@ export interface DnsPlanLike {
 export interface KernelSetupLike {
   dohTemplates: string;
   dnsMode: string;
+  proxy?: string;
   usesNet: boolean;
   netMissing: boolean;
 }
@@ -119,6 +120,67 @@ export function checkDohTemplate(
     mode: plan.mode,
     provider: plan.endpoint?.name || plan.endpoint?.id || undefined,
     protocol: plan.endpoint?.protocol,
+  };
+}
+
+export interface ProxyRuntimeLike {
+  running: boolean;
+  proxyPort: number;
+}
+
+export interface ProxyCheck {
+  /** Proxy address recorded in the report. */
+  reported: string;
+  /** Proxy the kernel would use now. */
+  expected: string;
+  stale: boolean;
+  hostChanged: boolean;
+  portChanged: boolean;
+}
+
+function trimProxy(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+/** Splits an http proxy address into host and port for a precise comparison. */
+function proxyParts(value: string): { host: string; port: string } {
+  const trimmed = value.trim().replace(/\/+$/, '');
+  if (!trimmed) return { host: '', port: '' };
+  try {
+    const url = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`);
+    return {
+      host: url.hostname.toLowerCase(),
+      port: url.port || (url.protocol === 'https:' ? '443' : '80'),
+    };
+  } catch {
+    return { host: trimmed.toLowerCase(), port: '' };
+  }
+}
+
+/**
+ * liora-net binds an ephemeral port on every start, so a report's proxy address
+ * goes stale even when no setting changed. The kernel setup is authoritative
+ * when available; otherwise the running resolver's port is used.
+ */
+export function checkProxy(
+  switches: string[],
+  setup: KernelSetupLike | null,
+  runtime: ProxyRuntimeLike | null,
+): ProxyCheck {
+  const reported = trimProxy(switchValue(switches, 'proxy-server'));
+  const expected = setup
+    ? trimProxy(setup.proxy ?? '')
+    : runtime && runtime.running && runtime.proxyPort > 0
+      ? `http://127.0.0.1:${runtime.proxyPort}`
+      : '';
+  const before = proxyParts(reported);
+  const now = proxyParts(expected);
+  return {
+    reported,
+    expected,
+    stale: reported !== expected,
+    hostChanged: before.host !== now.host,
+    portChanged: before.port !== now.port,
   };
 }
 

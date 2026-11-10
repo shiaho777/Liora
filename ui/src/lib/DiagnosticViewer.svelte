@@ -7,9 +7,12 @@
   import {
     checkDohTemplate,
     checkForcedOrigins,
+    checkProxy,
     type DohTemplateCheck,
     type ForcedOriginsCheck,
     type KernelSetupLike,
+    type ProxyCheck,
+    type ProxyRuntimeLike,
   } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
 
@@ -22,6 +25,8 @@
   let rulesError = $state('');
   let dohCheck = $state<DohTemplateCheck | null>(null);
   let dohError = $state('');
+  let proxyCheck = $state<ProxyCheck | null>(null);
+  let proxyError = $state('');
 
   // Turns generic switch/limit copy into statements about this report.
   const context = $derived({
@@ -64,6 +69,8 @@
     rulesError = '';
     dohCheck = null;
     dohError = '';
+    proxyCheck = null;
+    proxyError = '';
     void loadCrossChecks(result.report);
   }
 
@@ -73,7 +80,7 @@
   async function loadCrossChecks(parsed: DiagnosticReport): Promise<void> {
     if (!parsed.switchesKnown) return;
     const kernel = parsed.kernel && parsed.kernel !== 'unknown' ? parsed.kernel : '';
-    const [rules, plan, setup] = await Promise.allSettled([
+    const [rules, plan, setup, runtime] = await Promise.allSettled([
       call<{
         rules: Array<{ name: string; enabled: boolean; domains: string[]; h3: string }>;
         enabled: boolean;
@@ -84,6 +91,7 @@
         endpoint?: { name?: string; id?: string; protocol?: string } | null;
       }>('dns.plan'),
       kernel ? call<KernelSetupLike>('kernels.setup', { id: kernel }) : Promise.resolve(null),
+      call<ProxyRuntimeLike>('net.runtime'),
     ]);
     if (report?.raw !== parsed.raw) return;
 
@@ -105,6 +113,14 @@
       );
     } else {
       dohError = t('dnsStale.unavailable');
+    }
+
+    if (runtime.status === 'fulfilled') {
+      proxyCheck = checkProxy(parsed.switches, setupValue, runtime.value);
+    } else if (setupValue) {
+      proxyCheck = checkProxy(parsed.switches, setupValue, null);
+    } else {
+      proxyError = t('proxyStale.unavailable');
     }
   }
 
@@ -322,6 +338,26 @@
         <div class="diag__note diag__note--ok">{t('dnsStale.match')}</div>
       {:else if dohError}
         <div class="diag__note">{dohError}</div>
+      {/if}
+
+      {#if proxyCheck?.stale}
+        <div class="callout callout--warning" style="margin-top: 2px">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span class="flag__copy">
+            <span class="flag__title">{t('proxyStale.title')}</span>
+            <span class="flag__detail">{t('proxyStale.body')}</span>
+            <span class="flag__detail mono">
+              {t('dnsStale.reported')}: {proxyCheck.reported || t('proxyStale.none')}
+            </span>
+            <span class="flag__detail mono">
+              {t('dnsStale.expected')}: {proxyCheck.expected || t('proxyStale.none')}
+            </span>
+          </span>
+        </div>
+      {:else if proxyCheck && (proxyCheck.reported || proxyCheck.expected)}
+        <div class="diag__note diag__note--ok">{t('proxyStale.match')}</div>
+      {:else if proxyError}
+        <div class="diag__note">{proxyError}</div>
       {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.limits')}</span>
