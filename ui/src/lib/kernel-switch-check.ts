@@ -205,3 +205,55 @@ export function checkForcedOrigins(
     stale: missing.length > 0 || extra.length > 0,
   };
 }
+
+export type StaleKind = 'rules' | 'dns' | 'proxy';
+
+export interface StaleItem {
+  kind: StaleKind;
+  /** Human-readable values from the report and from the current config. */
+  reported: string;
+  expected: string;
+  missing: string[];
+  extra: string[];
+}
+
+/**
+ * Merges the individual checks into one answer, so a report shows a single
+ * "restart the kernel" conclusion with every reason instead of three separate
+ * warnings the reader has to reconcile.
+ */
+export function staleItems(
+  rules: ForcedOriginsCheck | null,
+  dns: DohTemplateCheck | null,
+  proxy: ProxyCheck | null,
+): StaleItem[] {
+  const out: StaleItem[] = [];
+  if (rules?.stale) {
+    out.push({
+      kind: 'rules',
+      reported: rules.reported.join(', '),
+      expected: rules.expected.join(', '),
+      missing: rules.missing,
+      extra: rules.extra,
+    });
+  }
+  if (dns?.stale) {
+    out.push({
+      kind: 'dns',
+      reported: dns.reported,
+      expected: dns.expected,
+      missing: [],
+      extra: [],
+    });
+  }
+  if (proxy?.stale) {
+    out.push({
+      kind: 'proxy',
+      reported: proxy.reported,
+      expected: proxy.expected,
+      missing: [],
+      extra: [],
+    });
+  }
+  return out;
+}

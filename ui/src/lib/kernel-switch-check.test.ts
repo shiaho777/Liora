@@ -5,6 +5,7 @@ import {
   checkProxy,
   expectedForcedOrigins,
   parseForcedOrigins,
+  staleItems,
 } from './kernel-switch-check';
 
 const forceRule = (domains: string[], enabled = true) => ({
@@ -258,5 +259,68 @@ describe('checkProxy', () => {
       null,
     );
     expect(check.stale).toBe(false);
+  });
+});
+
+describe('staleItems', () => {
+  it('returns nothing when every check is clean', () => {
+    expect(staleItems(null, null, null)).toEqual([]);
+  });
+
+  it('merges rule, DoH and proxy staleness in a stable order', () => {
+    const rules = checkForcedOrigins(
+      ['--origin-to-force-quic-on=x.com:443'],
+      [{ enabled: true, domains: ['example.org'], h3: 'force' }],
+      true,
+    );
+    const dns = checkDohTemplate(
+      ['--dns-over-https-templates=https://dns.quad9.net/dns-query'],
+      {
+        mode: 'provider',
+        dohTemplates: 'https://cloudflare-dns.com/dns-query',
+        endpoint: { name: 'Cloudflare', protocol: 'doh' },
+      },
+      null,
+    );
+    const proxy = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300'],
+      {
+        dohTemplates: '',
+        dnsMode: 'system',
+        proxy: 'http://127.0.0.1:62411',
+        usesNet: true,
+        netMissing: false,
+      },
+      null,
+    );
+
+    const items = staleItems(rules, dns, proxy);
+    expect(items.map((item) => item.kind)).toEqual(['rules', 'dns', 'proxy']);
+    expect(items[0]).toMatchObject({
+      reported: 'x.com:443',
+      expected: 'example.org:443',
+      extra: ['x.com:443'],
+      missing: ['example.org:443'],
+    });
+    expect(items[1].reported).toContain('quad9');
+    expect(items[2].reported).toContain('5300');
+  });
+
+  it('skips checks that are not stale', () => {
+    const dns = checkDohTemplate(
+      ['--dns-over-https-templates=https://cloudflare-dns.com/dns-query'],
+      {
+        mode: 'provider',
+        dohTemplates: 'https://cloudflare-dns.com/dns-query',
+        endpoint: { name: 'Cloudflare', protocol: 'doh' },
+      },
+      null,
+    );
+    const proxy = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300'],
+      null,
+      { running: true, proxyPort: 5300 },
+    );
+    expect(staleItems(null, dns, proxy)).toEqual([]);
   });
 });

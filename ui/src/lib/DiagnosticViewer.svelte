@@ -8,11 +8,13 @@
     checkDohTemplate,
     checkForcedOrigins,
     checkProxy,
+    staleItems,
     type DohTemplateCheck,
     type ForcedOriginsCheck,
     type KernelSetupLike,
     type ProxyCheck,
     type ProxyRuntimeLike,
+    type StaleKind,
   } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
 
@@ -27,6 +29,31 @@
   let dohError = $state('');
   let proxyCheck = $state<ProxyCheck | null>(null);
   let proxyError = $state('');
+
+  const stale = $derived(staleItems(ruleCheck, dohCheck, proxyCheck));
+  const errored = $derived(
+    [
+      rulesError ? 'rules' : '',
+      dohError ? 'dns' : '',
+      proxyError ? 'proxy' : '',
+    ].filter(Boolean) as StaleKind[],
+  );
+  const configured = $derived(
+    Boolean(
+      ruleCheck?.reported.length ||
+        ruleCheck?.expected.length ||
+        dohCheck?.reported ||
+        dohCheck?.expected ||
+        proxyCheck?.reported ||
+        proxyCheck?.expected,
+    ),
+  );
+
+  function staleLabel(kind: StaleKind): string {
+    if (kind === 'rules') return t('restart.rules');
+    if (kind === 'dns') return t('restart.dns');
+    return t('restart.proxy');
+  }
 
   // Turns generic switch/limit copy into statements about this report.
   const context = $derived({
@@ -297,67 +324,44 @@
       </div>
       {#if !report.switchesKnown}
         <div class="diag__note">{t('stale.unknown')}</div>
-      {:else if rulesError}
-        <div class="diag__note">{rulesError}</div>
-      {:else if ruleCheck?.stale}
-        <div class="callout callout--warning" style="margin-top: 2px">
-          <span class="callout__icon"><Icon name="warning" size={14} /></span>
-          <span class="flag__copy">
-            <span class="flag__title">{t('stale.title')}</span>
-            <span class="flag__detail">{t('stale.body')}</span>
-            {#if ruleCheck.extra.length > 0}
-              <span class="flag__detail mono">{t('stale.extra')}: {ruleCheck.extra.join(', ')}</span>
-            {/if}
-            {#if ruleCheck.missing.length > 0}
-              <span class="flag__detail mono">{t('stale.missing')}: {ruleCheck.missing.join(', ')}</span>
-            {/if}
-          </span>
-        </div>
-      {:else if ruleCheck && ruleCheck.reported.length > 0}
-        <div class="diag__note diag__note--ok">{t('stale.match')}</div>
-      {/if}
-
-      {#if dohCheck?.stale}
-        <div class="callout callout--warning" style="margin-top: 2px">
-          <span class="callout__icon"><Icon name="warning" size={14} /></span>
-          <span class="flag__copy">
-            <span class="flag__title">{t('dnsStale.title')}</span>
-            <span class="flag__detail">{t('dnsStale.body')}</span>
-            <span class="flag__detail mono">
-              {t('dnsStale.reported')}: {dohCheck.reported || t('dnsStale.none')}
+      {:else}
+        {#if stale.length > 0}
+          <div class="callout callout--warning" style="margin-top: 2px">
+            <span class="callout__icon"><Icon name="warning" size={14} /></span>
+            <span class="flag__copy">
+              <span class="flag__title">{t('restart.title')}</span>
+              <span class="flag__detail">{t('restart.body')}</span>
+              {#each stale as item (item.kind)}
+                <span class="flag__detail">
+                  <strong>{staleLabel(item.kind)}</strong>
+                </span>
+                <span class="flag__detail mono">
+                  {t('dnsStale.reported')}: {item.reported || t('restart.none')}
+                </span>
+                <span class="flag__detail mono">
+                  {t('dnsStale.expected')}: {item.expected || t('restart.none')}
+                </span>
+                {#if item.extra.length > 0}
+                  <span class="flag__detail mono">
+                    {t('stale.extra')}: {item.extra.join(', ')}
+                  </span>
+                {/if}
+                {#if item.missing.length > 0}
+                  <span class="flag__detail mono">
+                    {t('stale.missing')}: {item.missing.join(', ')}
+                  </span>
+                {/if}
+              {/each}
             </span>
-            <span class="flag__detail mono">
-              {t('dnsStale.expected')}: {dohCheck.expected || t('dnsStale.none')}
-            </span>
-            <span class="flag__detail">
-              {t('dnsStale.config')}: {dohCheck.provider ?? '—'}{#if dohCheck.protocol}{' · '}{dohCheck.protocol}{/if}{' · '}{dohCheck.mode}
-            </span>
-          </span>
-        </div>
-      {:else if dohCheck && (dohCheck.reported || dohCheck.expected)}
-        <div class="diag__note diag__note--ok">{t('dnsStale.match')}</div>
-      {:else if dohError}
-        <div class="diag__note">{dohError}</div>
-      {/if}
-
-      {#if proxyCheck?.stale}
-        <div class="callout callout--warning" style="margin-top: 2px">
-          <span class="callout__icon"><Icon name="warning" size={14} /></span>
-          <span class="flag__copy">
-            <span class="flag__title">{t('proxyStale.title')}</span>
-            <span class="flag__detail">{t('proxyStale.body')}</span>
-            <span class="flag__detail mono">
-              {t('dnsStale.reported')}: {proxyCheck.reported || t('proxyStale.none')}
-            </span>
-            <span class="flag__detail mono">
-              {t('dnsStale.expected')}: {proxyCheck.expected || t('proxyStale.none')}
-            </span>
-          </span>
-        </div>
-      {:else if proxyCheck && (proxyCheck.reported || proxyCheck.expected)}
-        <div class="diag__note diag__note--ok">{t('proxyStale.match')}</div>
-      {:else if proxyError}
-        <div class="diag__note">{proxyError}</div>
+          </div>
+        {:else if configured && errored.length === 0}
+          <div class="diag__note diag__note--ok">{t('restart.match')}</div>
+        {/if}
+        {#if errored.length > 0}
+          <div class="diag__note">
+            {t('restart.partial', { items: errored.map(staleLabel).join('、') })}
+          </div>
+        {/if}
       {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.limits')}</span>
