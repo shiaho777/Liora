@@ -740,6 +740,12 @@ NSString* jsonEscape(id object) {
       [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
     });
   };
+  events.onHistory = [weakSelf, tab](bool canBack, bool canForward) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.history"
+                         params:@{@"tab" : @(tab), @"canBack" : @(canBack), @"canForward" : @(canForward)}];
+    });
+  };
   events.onTitle = [weakSelf, tab](const std::string& title) {
     NSString* text = ns(title);
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -1335,6 +1341,19 @@ NSString* jsonEscape(id object) {
       NSView* native = (__bridge NSView*)entry->second->nativeHandle();
       [native removeFromSuperview];
       _views.erase(entry);
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.back"] || [method isEqualToString:@"ui.forward"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    self.activeTab = tab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (!view) return;
+    if ([method isEqualToString:@"ui.back"]) {
+      view->back();
+    } else {
+      view->forward();
     }
     return;
   }

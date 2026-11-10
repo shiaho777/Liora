@@ -29,6 +29,8 @@
     error?: { url: string; code: number; message: string };
     download?: DownloadItem;
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
+    canBack?: boolean;
+    canForward?: boolean;
   }
 
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
@@ -265,6 +267,16 @@
       toast(params.message || t('error.saveFailed'), 'error');
       return;
     }
+    if (message.method === 'browser.history' && message.params) {
+      const params = message.params as { tab?: number; canBack?: boolean; canForward?: boolean };
+      const tab = tabs.find((entry) => entry.id === Number(params.tab));
+      if (tab) {
+        tab.canBack = params.canBack === true;
+        tab.canForward = params.canForward === true;
+        tabs = [...tabs];
+      }
+      return;
+    }
     if (message.method === 'browser.urlChanged' && message.params) {
       const params = message.params as { tab?: number; url?: string };
       const url = (params.url ?? '').trim();
@@ -434,12 +446,18 @@
         openSettings(name.slice('settings:'.length));
         return;
       }
+      if (name.startsWith('open:')) {
+        navigate(name.slice('open:'.length));
+        return;
+      }
       switch (name) {
         case 'newTab': newTab(); break;
         case 'closeTab': closeTab(activeId); break;
         case 'reload': navigate(active.url); break;
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
+        case 'back': goBack(); break;
+        case 'forward': goForward(); break;
         case 'zoomIn': void changeZoom(10); break;
         case 'zoomOut': void changeZoom(-10); break;
         case 'zoomReset': void changeZoom(0); break;
@@ -730,6 +748,16 @@
     notify('ui.navigate', { url, tab: activeId });
   }
 
+  function goBack(): void {
+    if (active.page !== 'web' || !active.canBack) return;
+    notify('ui.back', { tab: activeId });
+  }
+
+  function goForward(): void {
+    if (active.page !== 'web' || !active.canForward) return;
+    notify('ui.forward', { tab: activeId });
+  }
+
   function submitAddress(event: Event): void {
     event.preventDefault();
     navigate(addressValue);
@@ -907,10 +935,15 @@
 
     <div class="toolbar">
       <div class="toolbar__group">
-        <button class="icon-button" title={t('nav.back')} disabled={active.page !== 'web'}>
+        <button class="icon-button" title={t('nav.back')} disabled={!active.canBack} onclick={goBack}>
           <Icon name="back" />
         </button>
-        <button class="icon-button" title={t('nav.forward')} disabled={active.page !== 'web'}>
+        <button
+          class="icon-button"
+          title={t('nav.forward')}
+          disabled={!active.canForward}
+          onclick={goForward}
+        >
           <Icon name="forward" />
         </button>
         <button class="icon-button" title={t('nav.reload')} onclick={() => navigate(active.url)}>

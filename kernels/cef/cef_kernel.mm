@@ -89,6 +89,12 @@ void fireLoading(const std::shared_ptr<Bridge>& bridge, bool loading, double pro
   if (bridge && bridge->alive && bridge->events.onLoading) bridge->events.onLoading(loading, progress);
 }
 
+void fireHistory(const std::shared_ptr<Bridge>& bridge, bool canBack, bool canForward) {
+  if (bridge && bridge->alive && bridge->events.onHistory) {
+    bridge->events.onHistory(canBack, canForward);
+  }
+}
+
 void fireTitle(const std::shared_ptr<Bridge>& bridge, const std::string& title) {
   if (bridge && bridge->alive && bridge->events.onTitle) bridge->events.onTitle(title);
 }
@@ -299,8 +305,17 @@ class KernelClient : public CefClient,
     if (!frame || !frame->IsMain()) return;
     fireLoading(bridge_, false, 1.0);
     fireUrl(bridge_, frame->GetURL().ToString());
+    // Chromium updates the navigation entry just after OnLoadEnd; querying
+    // CanGoBack synchronously here returns false for the previous page.
     if (bridge_ && bridge_->alive && bridge_->events.onHistory) {
-      bridge_->events.onHistory(browser->CanGoBack(), browser->CanGoForward());
+      CefRefPtr<CefBrowser> current = browser;
+      auto bridge = bridge_;
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(150 * NSEC_PER_MSEC)),
+                     dispatch_get_main_queue(), ^{
+                       if (bridge->alive && current) {
+                         fireHistory(bridge, current->CanGoBack(), current->CanGoForward());
+                       }
+                     });
     }
   }
 
