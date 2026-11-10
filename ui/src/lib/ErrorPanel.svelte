@@ -4,6 +4,7 @@
   import { app, toast } from './state.svelte';
   import { buildKernelSwitches } from './kernel-switch-check';
   import { networkDelta } from './network-delta';
+  import { buildDiagnosticReport } from './diagnostic-report-build';
   import { t } from './i18n.svelte';
 
   interface Props {
@@ -79,69 +80,52 @@
     void loadDiagnostics();
   });
 
-  // A plain-text report that can be pasted into a bug report. Kept in one
-  // place so the visible preview and the clipboard cannot drift apart.
+  // A plain-text report that can be pasted into a bug report. The line
+  // formatting lives in diagnostic-report-build.ts so the viewer can build a
+  // refreshed report with the same shape.
   const report = $derived.by(() => {
-    const lines = [
-      'report: 1',
-      'Liora diagnostic report',
-      `Generated: ${new Date().toISOString()}`,
-      `Version: ${app.version} (${app.platform} ${app.arch})`,
-      `URL: ${url}`,
-      `Host: ${host}`,
-      `Error: ${code}${reason ? ` - ${reason}` : ''}`,
-      `Kernel: ${kernelId || 'unknown'}`,
-      `Switches: ${kernelSwitches.join(' ') || 'none'}`,
-      `Limits: ${kernelLimits.join(', ') || 'none'}`,
-      `Components: ${components.join(', ') || 'none'}`,
-      `Signature: ${app.runtime.codeSigning || 'unknown'}`,
-      `CEF: ${app.runtime.cefStatus || 'unknown'}`,
-    ];
+    const tls =
+      security?.https && security.host === host
+        ? `subject=${security.subject} valid=${security.valid ? 'yes' : 'no'} expires=${
+            security.notAfter > 0 ? new Date(security.notAfter).toISOString().slice(0, 10) : '-'
+          }`
+        : tlsFailure
+          ? 'handshake failed'
+          : 'not established';
 
-    if (applied) {
-      const when = new Date(applied.at).toISOString();
-      const provider = applied.provider || 'unknown';
-      const protocol = applied.protocol ? ` (${applied.protocol})` : '';
-      lines.push(`Applied: ${when} · ${provider}${protocol} · proxy ${applied.proxy || 'none'}`);
-      lines.push(
-        `Delta: ${
-          appliedDelta.length > 0
-            ? appliedDelta
-                .map((item) => `${item.kind} ${item.from || 'none'} -> ${item.to || 'none'}`)
-                .join(' · ')
-            : 'none'
-        }`,
-      );
-    } else {
-      lines.push('Applied: none');
-      lines.push('Delta: none');
-    }
-
-    if (security?.https && security.host === host) {
-      const expires = security.notAfter > 0 ? new Date(security.notAfter).toISOString().slice(0, 10) : '-';
-      lines.push(`TLS: subject=${security.subject} valid=${security.valid ? 'yes' : 'no'} expires=${expires}`);
-    } else if (tlsFailure) {
-      lines.push('TLS: handshake failed');
-    } else {
-      lines.push('TLS: not established');
-    }
-
-    lines.push(
-      `Rule: ${diag?.rule ? `${diag.rule.name} (h3=${diag.rule.h3}, ech=${diag.rule.ech})` : 'none'}`,
-    );
-    if (diag) {
-      lines.push(
-        `Upstream: ${diag.upstream.protocol} ${diag.upstream.id} ${diag.upstream.address} ${diag.elapsedMs}ms`,
-      );
-      lines.push(`Addresses: ${diag.addresses.join(', ') || 'none'}`);
-      lines.push(
-        `HTTPS: alpn=${diag.https?.alpn.join(',') || '-'} ech=${diag.https?.echBytes ?? 0}B`,
-      );
-    } else {
-      lines.push(`Diagnostics: ${diagError || 'unavailable'}`);
-    }
-
-    return lines.join('\n');
+    return buildDiagnosticReport({
+      version: app.version,
+      platform: app.platform,
+      arch: app.arch,
+      url,
+      host,
+      error: `${code}${reason ? ` - ${reason}` : ''}`,
+      kernel: kernelId || 'unknown',
+      switches: kernelSwitches,
+      limits: kernelLimits,
+      components,
+      signature: app.runtime.codeSigning || 'unknown',
+      cef: app.runtime.cefStatus || 'unknown',
+      applied: applied
+        ? {
+            at: new Date(applied.at).toISOString(),
+            provider: applied.provider,
+            protocol: applied.protocol,
+            proxy: applied.proxy,
+          }
+        : null,
+      delta: appliedDelta,
+      tls,
+      rule: diag?.rule
+        ? `${diag.rule.name} (h3=${diag.rule.h3}, ech=${diag.rule.ech})`
+        : 'none',
+      upstream: diag
+        ? `${diag.upstream.protocol} ${diag.upstream.id} ${diag.upstream.address} ${diag.elapsedMs}ms`
+        : undefined,
+      addresses: diag?.addresses,
+      https: diag ? (diag.https ?? { alpn: [], echBytes: 0 }) : undefined,
+      diagnostics: diag ? undefined : diagError || 'unavailable',
+    });
   });
 
   async function copyReport(): Promise<void> {    try {

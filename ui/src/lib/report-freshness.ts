@@ -24,7 +24,7 @@ export interface CurrentApplied {
   proxy?: string;
 }
 
-export type AppliedField = 'provider' | 'protocol' | 'proxy';
+export type AppliedField = 'provider' | 'protocol';
 
 export interface ReportFreshness {
   changed: boolean;
@@ -49,7 +49,9 @@ function appliedFields(report: ReportApplied | null, current: CurrentApplied | n
   const fields: AppliedField[] = [];
   if (text(report?.provider) !== text(current?.provider)) fields.push('provider');
   if (text(report?.protocol) !== text(current?.protocol)) fields.push('protocol');
-  if (proxyText(report?.proxy) !== proxyText(current?.proxy)) fields.push('proxy');
+  // The proxy port is ephemeral and changes on every launch, so a port-only
+  // difference says nothing about the configuration. It is still displayed in
+  // the applied snapshot and in a delta that also changes another field.
   return fields;
 }
 

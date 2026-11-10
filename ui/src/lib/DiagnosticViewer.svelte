@@ -23,6 +23,8 @@
     type StaleKind,
   } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
+  import { networkDelta } from './network-delta';
+  import { buildDiagnosticReport } from './diagnostic-report-build';
 
   let report = $state<DiagnosticReport | null>(null);
   let error = $state('');
@@ -36,6 +38,7 @@
   let proxyCheck = $state<ProxyCheck | null>(null);
   let proxyError = $state('');
   let freshness = $state<ReportFreshness | null>(null);
+  let savingRefresh = $state(false);
   let restarting = $state(false);
   // After a restart the report's historical switches are replaced by the ones
   // the kernel actually received, while the raw text stays untouched.
@@ -222,6 +225,114 @@
       );
     } else {
       freshness = null;
+    }
+  }
+
+  function tlsTextOf(value: DiagnosticReport): string {
+    const tls = value.tls;
+    if (tls.status === 'valid' || tls.status === 'invalid') {
+      return `subject=${tls.subject ?? ''} valid=${tls.status === 'valid' ? 'yes' : 'no'} expires=${tls.expires ?? '-'}`;
+    }
+    if (tls.status === 'failed') return 'handshake failed';
+    if (tls.status === 'absent') return 'not established';
+    return tls.raw || 'not established';
+  }
+
+  // Rebuilds the report with the current network state while keeping the
+  // failure context (URL, error, TLS, DNS result) from the saved snapshot.
+  async function saveRefreshedReport(): Promise<void> {
+    if (!report || savingRefresh) return;
+    savingRefresh = true;
+    try {
+      const kernel = report.kernel ?? '';
+      const [setup, installed, appliedResult, plan] = await Promise.allSettled([
+        kernel
+          ? call<KernelSetupLike & { switches?: string[]; unsupported?: string[] }>(
+              'kernels.setup',
+              { id: kernel },
+            )
+          : Promise.resolve(null),
+        call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
+        call<CurrentApplied>('net.lastApplied'),
+        call<{ mode: string; endpoint?: { name?: string; protocol?: string } | null }>(
+          'dns.plan',
+        ),
+      ]);
+
+      const setupValue = setup.status === 'fulfilled' && setup.value ? setup.value : null;
+      const currentApplied =
+        appliedResult.status === 'fulfilled' &&
+        appliedResult.value &&
+        typeof appliedResult.value.at === 'number' &&
+        appliedResult.value.at > 0
+          ? appliedResult.value
+          : null;
+      const planValue = plan.status === 'fulfilled' ? plan.value : null;
+      const currentDelta = currentApplied
+        ? networkDelta(
+            {
+              provider: currentApplied.provider,
+              protocol: currentApplied.protocol,
+              mode: currentApplied.mode,
+              proxy: currentApplied.proxy,
+            },
+            {
+              provider: planValue?.endpoint?.name ?? '',
+              protocol: planValue?.endpoint?.protocol ?? '',
+              mode: planValue?.mode ?? '',
+              proxy: setupValue?.proxy ?? '',
+            },
+          )
+        : [];
+
+      const components =
+        installed.status === 'fulfilled'
+          ? installed.value.map(
+              (item) => `${item.id}@${item.version}${item.current ? ' *' : ''}`,
+            )
+          : [];
+
+      const content = buildDiagnosticReport({
+        version: app.version,
+        platform: app.platform,
+        arch: app.arch,
+        url: report.url ?? '',
+        host: report.host ?? '',
+        error: `${report.errorCode ?? 0}${report.errorReason ? ` - ${report.errorReason}` : ''}`,
+        kernel: report.kernel ?? 'unknown',
+        switches: setupValue ? buildKernelSwitches(setupValue) : [],
+        limits: setupValue?.unsupported ?? [],
+        components,
+        signature: app.runtime.codeSigning || 'unknown',
+        cef: app.runtime.cefStatus || 'unknown',
+        applied: currentApplied
+          ? {
+              at: new Date(currentApplied.at as number).toISOString(),
+              provider: currentApplied.provider ?? '',
+              protocol: currentApplied.protocol ?? '',
+              proxy: currentApplied.proxy ?? '',
+            }
+          : null,
+        delta: currentDelta,
+        tls: tlsTextOf(report),
+        rule: report.rule.matched
+          ? `${report.rule.name} (h3=${report.rule.h3 ?? 'prefer'}, ech=${report.rule.ech ?? false})`
+          : 'none',
+        upstream: report.upstream
+          ? `${report.upstream.protocol} ${report.upstream.id} ${report.upstream.address}${
+              report.upstream.elapsedMs !== undefined ? ` ${report.upstream.elapsedMs}ms` : ''
+            }`
+          : undefined,
+        addresses: report.addresses,
+        https: report.https ?? undefined,
+        diagnostics: report.notes,
+      });
+
+      notify('ui.saveDiagnostic', { content });
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    } finally {
+      savingRefresh = false;
     }
   }
 
@@ -571,6 +682,17 @@
                   {t('diag.currentDelta')}: {deltaText(freshness.currentDelta)}
                 </span>
               {/if}
+              <span class="cluster" style="margin-top: 4px">
+                <button
+                  class="button button--primary button--sm"
+                  disabled={savingRefresh}
+                  onclick={saveRefreshedReport}
+                >
+                  <Icon name="download" size={12} />
+                  {savingRefresh ? t('diag.refreshing') : t('diag.refreshReport')}
+                </button>
+              </span>
+              <span class="flag__detail muted">{t('diag.refreshHint')}</span>
             </span>
           </div>
         {/if}

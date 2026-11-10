@@ -43,7 +43,7 @@ describe('reportFreshness', () => {
   it('detects a provider and proxy applied since the report', () => {
     const freshness = reportFreshness(reportApplied, reportDelta, currentApplied, currentConfig);
     expect(freshness.changed).toBe(true);
-    expect(freshness.appliedFields).toEqual(['provider', 'proxy']);
+    expect(freshness.appliedFields).toEqual(['provider']);
     expect(freshness.currentDelta).toEqual([]);
     expect(freshness.deltaChanged).toBe(true);
   });
@@ -65,7 +65,19 @@ describe('reportFreshness', () => {
   it('flags a missing current snapshot', () => {
     const freshness = reportFreshness(reportApplied, [], null, currentConfig);
     expect(freshness.appliedChanged).toBe(true);
-    expect(freshness.appliedFields).toEqual(['provider', 'protocol', 'proxy']);
+    expect(freshness.appliedFields).toEqual(['provider', 'protocol']);
+  });
+
+  it('does not mark the report stale for a proxy port alone', () => {
+    const freshness = reportFreshness(
+      reportApplied,
+      [],
+      { ...currentApplied, provider: 'Quad9 Secure', proxy: 'http://127.0.0.1:9999' },
+      { ...currentConfig, provider: 'Quad9 Secure', proxy: 'http://127.0.0.1:9999' },
+    );
+    expect(freshness.appliedChanged).toBe(false);
+    expect(freshness.deltaChanged).toBe(false);
+    expect(freshness.changed).toBe(false);
   });
 
   it('ignores case and trailing slashes', () => {

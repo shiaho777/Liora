@@ -427,6 +427,13 @@
           );
           break;
         }
+        case 'saverefreshed': {
+          const save = [...document.querySelectorAll('button')].find((button) =>
+            button.textContent?.includes('保存当前状态'),
+          );
+          save?.click();
+          break;
+        }
         case 'opendns': {
           const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
             item.textContent?.includes('DNS 与直连'),
