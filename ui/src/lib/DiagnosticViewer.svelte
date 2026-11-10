@@ -55,6 +55,14 @@
     ),
   );
 
+  function deltaLabel(kind: string): string {
+    if (kind === 'provider') return t('dns.deltaProvider');
+    if (kind === 'protocol') return t('dns.deltaProtocol');
+    if (kind === 'mode') return t('dns.deltaMode');
+    if (kind === 'proxy') return t('dns.deltaProxy');
+    return kind || t('diag.delta');
+  }
+
   function staleLabel(kind: StaleKind): string {
     if (kind === 'rules') return t('restart.rules');
     if (kind === 'dns') return t('restart.dns');
@@ -450,6 +458,41 @@
         </span>
       </div>
     </section>
+
+    {#if report.appliedKnown}
+      <section class="diag__section">
+        <div class="diag__label">{t('diag.applied')}</div>
+        {#if report.applied}
+          <div class="diag__row">
+            <span class="diag__key">{t('diag.appliedAt')}</span>
+            <span class="diag__value mono">{report.applied.at || '—'}</span>
+          </div>
+          <div class="diag__row">
+            <span class="diag__key">{t('dns.deltaProvider')}</span>
+            <span class="diag__value">
+              {report.applied.provider || '—'}{#if report.applied.protocol}{' ('}{report.applied.protocol}){/if}
+            </span>
+          </div>
+          <div class="diag__row">
+            <span class="diag__key">{t('dns.deltaProxy')}</span>
+            <span class="diag__value mono">{report.applied.proxy || t('dns.deltaNone')}</span>
+          </div>
+        {:else}
+          <div class="diag__note">{t('dns.deltaNone')}</div>
+        {/if}
+        {#if report.delta.length > 0}
+          <div class="diag__label" style:margin-top="6px">{t('diag.delta')}</div>
+          {#each report.delta as item, index (item.kind + index)}
+            <div class="diag__row">
+              <span class="diag__key">{deltaLabel(item.kind)}</span>
+              <span class="diag__value mono">
+                {item.from || t('dns.deltaNone')} → {item.to || t('dns.deltaNone')}
+              </span>
+            </div>
+          {/each}
+        {/if}
+      </section>
+    {/if}
 
     <section class="diag__section">
       <div class="diag__label">{t('error.connection')}</div>

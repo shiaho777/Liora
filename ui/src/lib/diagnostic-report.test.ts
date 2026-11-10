@@ -142,3 +142,65 @@ CEF: failed: process requirement -67030
     expect(result.report.tls.raw).toBe('handshake failed');
   });
 });
+
+describe('applied snapshot and delta', () => {
+  it('parses the applied provider, proxy, time and delta', () => {
+    const report = `${dnsReport}Applied: 2026-11-10T16:25:21.000Z · Quad9 Secure (doh) · proxy http://127.0.0.1:55977
+Delta: provider Quad9 Secure -> Cloudflare Standard · proxy http://127.0.0.1:55977 -> http://127.0.0.1:56030
+`;
+    const result = parseDiagnosticReport(report);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.report.appliedKnown).toBe(true);
+    expect(result.report.applied).toMatchObject({
+      at: '2026-11-10T16:25:21.000Z',
+      provider: 'Quad9 Secure',
+      protocol: 'doh',
+      proxy: 'http://127.0.0.1:55977',
+    });
+    expect(result.report.deltaKnown).toBe(true);
+    expect(result.report.delta).toEqual([
+      {
+        kind: 'provider',
+        from: 'Quad9 Secure',
+        to: 'Cloudflare Standard',
+      },
+      {
+        kind: 'proxy',
+        from: 'http://127.0.0.1:55977',
+        to: 'http://127.0.0.1:56030',
+      },
+    ]);
+  });
+
+  it('parses explicit none and marks missing fields as unknown', () => {
+    const none = parseDiagnosticReport(`${dnsReport}Applied: none
+Delta: none
+`);
+    expect(none.ok).toBe(true);
+    if (!none.ok) return;
+    expect(none.report.appliedKnown).toBe(true);
+    expect(none.report.applied).toBeNull();
+    expect(none.report.deltaKnown).toBe(true);
+    expect(none.report.delta).toEqual([]);
+
+    const missing = parseDiagnosticReport(dnsReport);
+    expect(missing.ok).toBe(true);
+    if (!missing.ok) return;
+    expect(missing.report.appliedKnown).toBe(false);
+    expect(missing.report.deltaKnown).toBe(false);
+  });
+
+  it('handles providers without a protocol suffix', () => {
+    const report = `${dnsReport}Applied: 2026-11-10 · Custom DNS · proxy none
+Delta: mode secure -> automatic
+`;
+    const result = parseDiagnosticReport(report);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.applied?.provider).toBe('Custom DNS');
+    expect(result.report.applied?.protocol).toBe('');
+    expect(result.report.delta).toEqual([{ kind: 'mode', from: 'secure', to: 'automatic' }]);
+  });
+});

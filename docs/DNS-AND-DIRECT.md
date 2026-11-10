@@ -106,6 +106,8 @@ Host: expired.badssl.com
 Error: -1202 - 证书校验未通过（可能已过期或不受信任）。
 Kernel: system
 Kernel: cef
+Applied: 2026-11-10T08:27:51.284Z · Quad9 Secure (doh) · proxy http://127.0.0.1:57009
+Delta: provider Quad9 Secure -> Cloudflare Standard · proxy http://127.0.0.1:57009 -> http://127.0.0.1:57051
 Switches: --enable-quic --origin-to-force-quic-on=x.com:443 --dns-over-https-mode=secure
 Limits: none
 Components: kernel-cef@156.0.26 *
@@ -118,7 +120,7 @@ Addresses: 104.154.89.105
 HTTPS: alpn=- ech=0B
 ```
 
-`Switches` / `Limits` / `Components` / `Signature` / `CEF` 让报告也能解释渲染与签名问题：Chromium 的进程校验失败（`-67030`）在报告里直接可见，不必再靠猜。`Switches` 以空格分隔，单个开关值里的逗号（如 `--origin-to-force-quic-on=x.com:443,y.com:443`）不会被拆开。
+`Applied` / `Delta` 记录上次应用的网络配置与当前差异（修改后未应用时尤其有用）；查看器会单独渲染“上次应用与差异”分区。`Switches` / `Limits` / `Components` / `Signature` / `CEF` 让报告也能解释渲染与签名问题：Chromium 的进程校验失败（`-67030`）在报告里直接可见，不必再靠猜。`Switches` 以空格分隔，单个开关值里的逗号（如 `--origin-to-force-quic-on=x.com:443,y.com:443`）不会被拆开。
 
 查看器会为每个开关和每个 `Limits` 项显示一句作用与后果说明，并把报告里的具体值带进去（例如实际被强制的主机、本地 DoH 端口、受影响的规则名）：
 

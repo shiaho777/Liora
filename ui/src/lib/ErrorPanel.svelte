@@ -3,6 +3,7 @@
   import { call, notify } from './bridge';
   import { app, toast } from './state.svelte';
   import { buildKernelSwitches } from './kernel-switch-check';
+  import { networkDelta } from './network-delta';
   import { t } from './i18n.svelte';
 
   interface Props {
@@ -27,8 +28,23 @@
     elapsedMs: number;
   }
 
+  interface AppliedSnapshot {
+    at: number;
+    provider: string;
+    protocol: string;
+    mode: string;
+    proxy: string;
+  }
+
+  interface DnsPlan {
+    mode: string;
+    endpoint?: { name?: string; protocol?: string } | null;
+  }
+
   let diag = $state<Diagnostics | null>(null);
   let diagError = $state('');
+  let applied = $state<AppliedSnapshot | null>(null);
+  let appliedDelta = $state<Array<{ kind: string; from: string; to: string }>>([]);
   let kernelId = $state('');
   let kernelSwitches = $state<string[]>([]);
   let kernelLimits = $state<string[]>([]);
@@ -81,6 +97,25 @@
       `Signature: ${app.runtime.codeSigning || 'unknown'}`,
       `CEF: ${app.runtime.cefStatus || 'unknown'}`,
     ];
+
+    if (applied) {
+      const when = new Date(applied.at).toISOString();
+      const provider = applied.provider || 'unknown';
+      const protocol = applied.protocol ? ` (${applied.protocol})` : '';
+      lines.push(`Applied: ${when} · ${provider}${protocol} · proxy ${applied.proxy || 'none'}`);
+      lines.push(
+        `Delta: ${
+          appliedDelta.length > 0
+            ? appliedDelta
+                .map((item) => `${item.kind} ${item.from || 'none'} -> ${item.to || 'none'}`)
+                .join(' · ')
+            : 'none'
+        }`,
+      );
+    } else {
+      lines.push('Applied: none');
+      lines.push('Delta: none');
+    }
 
     if (security?.https && security.host === host) {
       const expires = security.notAfter > 0 ? new Date(security.notAfter).toISOString().slice(0, 10) : '-';
@@ -164,7 +199,7 @@
 
     // Switches and installed components explain rendering and signing
     // failures, which the DNS endpoint cannot see.
-    const [setup, installed] = await Promise.allSettled([
+    const [setup, installed, appliedResult, planResult] = await Promise.allSettled([
       kernelId
         ? call<{
             switches?: string[];
@@ -175,6 +210,8 @@
           }>('kernels.setup', { id: kernelId })
         : Promise.resolve(null),
       call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
+      call<AppliedSnapshot>('net.lastApplied'),
+      call<DnsPlan>('dns.plan'),
     ]);
     if (setup.status === 'fulfilled' && setup.value) {
       // The effective flags, so the report records what the kernel actually
@@ -186,6 +223,34 @@
       components = installed.value.map(
         (item) => `${item.id}@${item.version}${item.current ? ' *' : ''}`,
       );
+    }
+
+    applied =
+      appliedResult.status === 'fulfilled' &&
+      appliedResult.value &&
+      typeof appliedResult.value.at === 'number' &&
+      appliedResult.value.at > 0
+        ? appliedResult.value
+        : null;
+    if (applied && planResult.status === 'fulfilled') {
+      const currentProxy =
+        setup.status === 'fulfilled' && setup.value ? (setup.value.proxy ?? '') : '';
+      appliedDelta = networkDelta(
+        {
+          provider: applied.provider,
+          protocol: applied.protocol,
+          mode: applied.mode,
+          proxy: applied.proxy,
+        },
+        {
+          provider: planResult.value.endpoint?.name ?? '',
+          protocol: planResult.value.endpoint?.protocol ?? '',
+          mode: planResult.value.mode,
+          proxy: currentProxy,
+        },
+      );
+    } else {
+      appliedDelta = [];
     }
 
     try {

@@ -421,6 +421,12 @@
           }, 600);
           break;
         }
+        case 'openfail': {
+          (window as unknown as { __lioraOpenUrl?: (url: string) => void }).__lioraOpenUrl?.(
+            'https://this-host-does-not-exist.invalid/',
+          );
+          break;
+        }
         case 'opendns': {
           const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
             item.textContent?.includes('DNS 与直连'),

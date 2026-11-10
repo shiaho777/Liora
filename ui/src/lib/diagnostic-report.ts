@@ -20,6 +20,20 @@ export interface RuleSummary {
   raw: string;
 }
 
+export interface AppliedSummary {
+  at: string;
+  provider?: string;
+  protocol?: string;
+  proxy?: string;
+  raw: string;
+}
+
+export interface DeltaSummary {
+  kind: string;
+  from: string;
+  to: string;
+}
+
 export interface DiagnosticReport {
   version: number;
   generated?: string;
@@ -38,6 +52,12 @@ export interface DiagnosticReport {
   limits: string[];
   /** Installed components, "id@version" with "*" for the active version. */
   components: string[];
+  /** Network configuration the kernel last loaded. */
+  applied: AppliedSummary | null;
+  appliedKnown: boolean;
+  /** Differences between the applied configuration and the current one. */
+  delta: DeltaSummary[];
+  deltaKnown: boolean;
   /** How the application itself is code signed. */
   signature?: string;
   /** Whether the Chromium kernel started, failed, or was not selected. */
@@ -112,6 +132,52 @@ function parseUpstream(value: string): DiagnosticReport['upstream'] {
   return { protocol, id, address, elapsedMs: elapsed ? Number(elapsed[1]) : undefined };
 }
 
+function parseApplied(value: string): AppliedSummary | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none') return null;
+  const parts = trimmed.split('·').map((part) => part.trim()).filter(Boolean);
+  let at = '';
+  let provider = '';
+  let protocol = '';
+  let proxy = '';
+  for (const part of parts) {
+    if (part.toLowerCase().startsWith('proxy ')) {
+      proxy = part.slice('proxy '.length).trim();
+      continue;
+    }
+    const paren = part.lastIndexOf('(');
+    if (paren > 0 && part.endsWith(')')) {
+      provider = part.slice(0, paren).trim();
+      protocol = part.slice(paren + 1, -1).trim();
+      continue;
+    }
+    if (!at) {
+      at = part;
+    } else if (!provider) {
+      provider = part;
+    }
+  }
+  return { at, provider, protocol, proxy, raw: trimmed };
+}
+
+function parseDelta(value: string): DeltaSummary[] {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none') return [];
+  return trimmed
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const arrow = part.indexOf(' -> ');
+      if (arrow < 0) return { kind: '', from: '', to: part };
+      const left = part.slice(0, arrow).trim();
+      const to = part.slice(arrow + ' -> '.length).trim();
+      const space = left.indexOf(' ');
+      if (space < 0) return { kind: left, from: '', to };
+      return { kind: left.slice(0, space), from: left.slice(space + 1).trim(), to };
+    });
+}
+
 function parseHttps(value: string): DiagnosticReport['https'] {
   const alpn = /alpn=([^\s]*)/.exec(value)?.[1] ?? '';
   const ech = /ech=(\d+)B/.exec(value)?.[1] ?? '0';
@@ -163,6 +229,10 @@ export function parseDiagnosticReport(text: string): ParseResult {
     switchesKnown: fields.has('switches'),
     limits: splitList(fields.get('limits'), ','),
     components: splitList(fields.get('components'), ','),
+    applied: parseApplied(fields.get('applied') ?? ''),
+    appliedKnown: fields.has('applied'),
+    delta: parseDelta(fields.get('delta') ?? ''),
+    deltaKnown: fields.has('delta'),
     signature: fields.get('signature'),
     cef: fields.get('cef'),
     tls: parseTls(fields.get('tls') ?? ''),
@@ -194,6 +264,8 @@ export function parseDiagnosticReport(text: string): ParseResult {
     'components',
     'signature',
     'cef',
+    'applied',
+    'delta',
     'tls',
     'rule',
     'upstream',
