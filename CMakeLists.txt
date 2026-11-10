@@ -38,6 +38,10 @@ set_target_properties(liora_sqlite PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(core)
 
+if(APPLE AND LIORA_CEF_ROOT)
+  add_subdirectory(kernels/cef)
+endif()
+
 if(LIORA_BUILD_TESTS)
   enable_testing()
   add_subdirectory(core/tests)

@@ -28,7 +28,7 @@ WebUI (Svelte 5)  ──  JSON-RPC  ──  Shell (C++ / Cocoa · Win32 · GTK �
 | macOS 壳（Cocoa + WKWebView + liora:// 资源协议 + 桥接） | 可构建运行 |
 | liora-net（本地 DoH、DoT 上游、HTTPS 记录改写、CONNECT 代理） | 可用，已对真实 Cloudflare 上游验证 |
 | Windows / Linux / Android / iOS 壳 | 未实现，接口已预留 |
-| CEF 内核适配 | 未实现（见 `kernels/cef/README.md`） |
+| CEF 内核适配 | 适配层可用真实 CEF 156 编译链接，尚不能运行（见 `kernels/cef/README.md`） |
 | MV3 扩展 | 未实现 |
 
 ## 快速开始
@@ -48,6 +48,12 @@ cmake --build build --parallel && ctest --test-dir build --output-on-failure
 
 cd ui && pnpm install && pnpm dev      # 在普通浏览器里开发界面（内置 mock 后端）
 cd net && cargo test
+
+# CEF 内核（可选，约 135MB）
+./scripts/fetch-cef.sh
+cmake -S . -B build-cef -G Ninja -DCMAKE_BUILD_TYPE=Release -DLIORA_BUILD_SHELL=OFF \
+  -DLIORA_CEF_ROOT="$PWD/build/cef/cef_binary_156.0.26+g8ea0c73+chromium-156.0.8078.88_macosarm64_minimal"
+cmake --build build-cef --target liora_cef_kernel
 ```
 
 > 如果构建报 "Toolchain Swift 6.3.0 could not be located"，说明 `PATH` 里有损坏的编译器转发脚本。`scripts/dev.sh` 已经固定使用 Xcode 的 `clang` / `ar` / `ranlib`，Rust 也使用同一个链接器。
