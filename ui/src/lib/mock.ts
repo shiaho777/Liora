@@ -36,6 +36,11 @@ URL: https://this-host-does-not-exist.invalid/
 Host: this-host-does-not-exist.invalid
 Error: -1005 - 连接在加载过程中中断。
 Kernel: system
+Switches: none
+Limits: ech, forceQuic
+Components: none
+Signature: ad-hoc (no Team ID, io.liora.browser)
+CEF: not selected
 TLS: not established
 Rule: none
 Upstream: doh cloudflare https://cloudflare-dns.com/dns-query 339ms

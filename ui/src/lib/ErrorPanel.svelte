@@ -29,6 +29,9 @@
   let diag = $state<Diagnostics | null>(null);
   let diagError = $state('');
   let kernelId = $state('');
+  let kernelSwitches = $state<string[]>([]);
+  let kernelLimits = $state<string[]>([]);
+  let components = $state<string[]>([]);
 
   let host = $derived.by(() => {
     try {
@@ -71,6 +74,11 @@
       `Host: ${host}`,
       `Error: ${code}${reason ? ` - ${reason}` : ''}`,
       `Kernel: ${kernelId || 'unknown'}`,
+      `Switches: ${kernelSwitches.join(' ') || 'none'}`,
+      `Limits: ${kernelLimits.join(', ') || 'none'}`,
+      `Components: ${components.join(', ') || 'none'}`,
+      `Signature: ${app.runtime.codeSigning || 'unknown'}`,
+      `CEF: ${app.runtime.cefStatus || 'unknown'}`,
     ];
 
     if (security?.https && security.host === host) {
@@ -141,11 +149,35 @@
   async function loadDiagnostics(): Promise<void> {
     diag = null;
     diagError = '';
+    kernelSwitches = [];
+    kernelLimits = [];
+    components = [];
     if (!host) return;
 
-    call<{ id: string }>('kernels.current', { site: host })
-      .then((value) => (kernelId = value.id))
-      .catch(() => (kernelId = ''));
+    try {
+      const current = await call<{ id: string }>('kernels.current', { site: host });
+      kernelId = current.id;
+    } catch {
+      kernelId = '';
+    }
+
+    // Switches and installed components explain rendering and signing
+    // failures, which the DNS endpoint cannot see.
+    const [setup, installed] = await Promise.allSettled([
+      kernelId
+        ? call<{ switches?: string[]; unsupported?: string[] }>('kernels.setup', { id: kernelId })
+        : Promise.resolve(null),
+      call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
+    ]);
+    if (setup.status === 'fulfilled' && setup.value) {
+      kernelSwitches = setup.value.switches ?? [];
+      kernelLimits = setup.value.unsupported ?? [];
+    }
+    if (installed.status === 'fulfilled') {
+      components = installed.value.map(
+        (item) => `${item.id}@${item.version}${item.current ? ' *' : ''}`,
+      );
+    }
 
     try {
       const runtime = await call<{ running: boolean; diagPort: number }>('net.runtime');

@@ -130,6 +130,16 @@
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
   onNotification((message) => {
+    if (message.method === 'browser.runtime' && message.params) {
+      const params = message.params as { codeSigning?: string; cefStatus?: string };
+      app.runtime = {
+        codeSigning: params.codeSigning ?? '',
+        cefStatus: params.cefStatus ?? '',
+      };
+      // Visible to the shell for support diagnostics.
+      (window as unknown as { __lioraRuntimeSeen?: unknown }).__lioraRuntimeSeen = app.runtime;
+      return;
+    }
     if (message.method === 'browser.diagnosticSaved' && message.params) {
       const params = message.params as { path?: string };
       const name = (params.path ?? '').split('/').pop() ?? '';
@@ -282,6 +292,18 @@
         case 'savereport':
           (window as unknown as { __lioraSaveReport?: () => void }).__lioraSaveReport?.();
           break;
+        case 'pagedump': {
+          const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
+          const content = document.querySelector('.content');
+          (window as unknown as { __lioraPageText?: string }).__lioraPageText = [
+            document.body.innerText,
+            '-- content --',
+            content?.innerHTML.slice(0, 700) ?? 'no content element',
+            '-- errors --',
+            JSON.stringify(errors),
+          ].join('\n');
+          break;
+        }
       }
     };
   });

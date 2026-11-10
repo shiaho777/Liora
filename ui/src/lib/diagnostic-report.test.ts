@@ -96,6 +96,40 @@ describe('parseDiagnosticReport', () => {
     expect(result.report.extra.proxy).toBe('http://127.0.0.1:5300');
   });
 
+  it('parses kernel switches, components and signing state', () => {
+    const report = `${dnsReport}Switches: --enable-quic --origin-to-force-quic-on=x.com:443,twitter.com:443 --dns-over-https-mode=secure
+Limits: ech, forceQuic
+Components: kernel-cef@156.0.26 *, liora-net@0.1.0
+Signature: ad-hoc (no Team ID, io.liora.browser)
+CEF: failed: process requirement -67030
+`;
+    const result = parseDiagnosticReport(report);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // A comma inside a switch value must not split it into two switches.
+    expect(result.report.switches).toEqual([
+      '--enable-quic',
+      '--origin-to-force-quic-on=x.com:443,twitter.com:443',
+      '--dns-over-https-mode=secure',
+    ]);
+    expect(result.report.limits).toEqual(['ech', 'forceQuic']);
+    expect(result.report.components).toEqual(['kernel-cef@156.0.26 *', 'liora-net@0.1.0']);
+    expect(result.report.signature).toBe('ad-hoc (no Team ID, io.liora.browser)');
+    expect(result.report.cef).toBe('failed: process requirement -67030');
+  });
+
+  it('treats absent runtime fields as empty', () => {
+    const result = parseDiagnosticReport(dnsReport);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.switches).toEqual([]);
+    expect(result.report.limits).toEqual([]);
+    expect(result.report.components).toEqual([]);
+    expect(result.report.signature).toBeUndefined();
+    expect(result.report.cef).toBeUndefined();
+  });
+
   it('handles handshake failures without certificate details', () => {
     const result = parseDiagnosticReport(
       tlsReport.replace('TLS: subject=*.badssl.com valid=no expires=2015-04-12', 'TLS: handshake failed'),

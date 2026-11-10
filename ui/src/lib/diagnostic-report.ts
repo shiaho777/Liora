@@ -30,6 +30,16 @@ export interface DiagnosticReport {
   errorCode?: number;
   errorReason?: string;
   kernel?: string;
+  /** Chromium/Core switches handed to the kernel at start-up. */
+  switches: string[];
+  /** Capabilities the kernel explicitly cannot apply. */
+  limits: string[];
+  /** Installed components, "id@version" with "*" for the active version. */
+  components: string[];
+  /** How the application itself is code signed. */
+  signature?: string;
+  /** Whether the Chromium kernel started, failed, or was not selected. */
+  cef?: string;
   tls: TlsSummary;
   rule: RuleSummary;
   upstream?: { protocol: string; id: string; address: string; elapsedMs?: number };
@@ -49,6 +59,16 @@ function parseError(value: string): { code?: number; reason?: string } {
   const match = /^\s*(-?\d+)\s*(?:-\s*(.*))?$/.exec(value);
   if (!match) return { reason: value };
   return { code: Number(match[1]), reason: match[2]?.trim() };
+}
+
+function splitList(value: string | undefined, separator: string): string[] {
+  if (!value) return [];
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none') return [];
+  return trimmed
+    .split(separator)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function parseTls(value: string): TlsSummary {
@@ -137,6 +157,11 @@ export function parseDiagnosticReport(text: string): ParseResult {
     errorCode: error.code,
     errorReason: error.reason,
     kernel: fields.get('kernel'),
+    switches: splitList(fields.get('switches'), ' '),
+    limits: splitList(fields.get('limits'), ','),
+    components: splitList(fields.get('components'), ','),
+    signature: fields.get('signature'),
+    cef: fields.get('cef'),
     tls: parseTls(fields.get('tls') ?? ''),
     rule: parseRule(fields.get('rule') ?? ''),
     upstream: parseUpstream(fields.get('upstream') ?? ''),
@@ -161,6 +186,11 @@ export function parseDiagnosticReport(text: string): ParseResult {
     'host',
     'error',
     'kernel',
+    'switches',
+    'limits',
+    'components',
+    'signature',
+    'cef',
     'tls',
     'rule',
     'upstream',

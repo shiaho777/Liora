@@ -116,6 +116,8 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, assign) int64_t activeTab;
 @property(nonatomic, assign) BOOL refreshPending;
 @property(nonatomic, assign) BOOL openedLaunchUrl;
+@property(nonatomic, assign) BOOL sentRuntimeInfo;
+@property(nonatomic, copy) NSString* cefStatus;
 
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
@@ -167,6 +169,19 @@ NSString* jsonEscape(id object) {
   if (webView != self.ui || self.openedLaunchUrl) return;
   self.openedLaunchUrl = YES;
 
+  // Tell the interface how the app itself is signed. A diagnostic report that
+  // omits this cannot explain why Chromium's helper processes are rejected.
+  if (!self.sentRuntimeInfo) {
+    self.sentRuntimeInfo = YES;
+    NSString* signature = [self signingSummary];
+    NSLog(@"Liora: runtime info signing=%@ cef=%@", signature, self.cefStatus ?: @"not selected");
+    [self notifyInterface:@"browser.runtime"
+                   params:@{
+                     @"codeSigning" : signature,
+                     @"cefStatus" : self.cefStatus ?: @"not selected",
+                   }];
+  }
+
   // Verification hook for the command bridge that the menu uses.
   const char* command = getenv("LIORA_TEST_COMMAND");
   if (command && *command) {
@@ -179,6 +194,17 @@ NSString* jsonEscape(id object) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       [self sendUICommand:name];
       NSLog(@"Liora: command %@", name);
+      // Verification hook: print the visible text of the current interface.
+      if ([name isEqualToString:@"pagedump"]) {
+        [self.ui evaluateJavaScript:@"window.__lioraPageText || ''"
+                  completionHandler:^(id result, NSError* error) {
+                    if (error) {
+                      NSLog(@"Liora: page dump unavailable: %@", error.localizedDescription);
+                    } else {
+                      NSLog(@"Liora: page\n%@", result);
+                    }
+                  }];
+      }
       // Verification hook: print the failure report the interface generated.
       if ([name isEqualToString:@"reporttext"]) {
         [self.ui evaluateJavaScript:@"window.__lioraReportText || ''"
@@ -325,6 +351,10 @@ NSString* jsonEscape(id object) {
     return;
   }
 
+  // Distinguishes an unselected Chromium from one that failed to start, which
+  // is the difference between a preference and a bug report.
+  self.cefStatus = @"not selected";
+
   shell::registerSystemKernel(_core->kernels());
   // Start liora-net and point WebKit at it before any page loads.
   [self refreshNetworkNow];
@@ -367,10 +397,12 @@ NSString* jsonEscape(id object) {
 
   std::string error;
   if (!liora::cef::initialize(startup, &error)) {
+    self.cefStatus = [NSString stringWithFormat:@"failed: %@", ns(error)];
     NSLog(@"Liora: CEF failed to start: %s", error.c_str());
     return;
   }
   _core->attachKernel(liora::cef::createKernel());
+  self.cefStatus = @"ready";
   NSLog(@"Liora: CEF kernel ready (%zu switches)", startup.switches.size());
 }
 #endif
@@ -649,6 +681,28 @@ NSString* jsonEscape(id object) {
   NSLog(@"Liora: load failed for %@ (%d)", url, code);
   [self notifyInterface:@"browser.loadFailed"
                  params:@{@"url" : url ?: @"", @"code" : @(code), @"message" : message ?: @"", @"tab" : @(tab)}];
+}
+
+// Describes the running app's code signature. Ad-hoc builds have no Team ID,
+// which is exactly what macOS and Chromium's process checks object to.
+- (NSString*)signingSummary {
+  SecCodeRef code = NULL;
+  if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess || !code) return @"unknown";
+  CFDictionaryRef raw = NULL;
+  OSStatus status = SecCodeCopySigningInformation((SecStaticCodeRef)code, kSecCSSigningInformation, &raw);
+  CFRelease(code);
+  if (status != errSecSuccess || !raw) return @"unknown";
+
+  NSDictionary* info = CFBridgingRelease(raw);
+  NSString* team = info[(__bridge NSString*)kSecCodeInfoTeamIdentifier];
+  NSString* identifier = info[(__bridge NSString*)kSecCodeInfoIdentifier];
+  if (team.length) {
+    return [NSString stringWithFormat:@"Developer ID (%@ / %@)", team, identifier ?: @""];
+  }
+  if (identifier.length) {
+    return [NSString stringWithFormat:@"ad-hoc (no Team ID, %@)", identifier];
+  }
+  return @"ad-hoc (no Team ID)";
 }
 
 - (void)notifyInterface:(NSString*)method params:(NSDictionary*)params {  NSDictionary* message = @{@"jsonrpc" : @"2.0", @"method" : method, @"params" : params ?: @{}};

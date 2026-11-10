@@ -163,6 +163,78 @@
     </section>
 
     <section class="diag__section">
+      <div class="diag__label">{t('diag.runtime')}</div>
+      <div class="diag__row">
+        <span class="diag__key">{t('diag.signature')}</span>
+        <span class="diag__value">
+          {#if report.signature}
+            <span
+              class="badge"
+              class:badge--warning={/adhoc|unsigned/i.test(report.signature)}
+              class:badge--success={/developer id/i.test(report.signature)}
+            >
+              {report.signature}
+            </span>
+          {:else}
+            <span class="muted">{t('diag.none')}</span>
+          {/if}
+        </span>
+      </div>
+      <div class="diag__row">
+        <span class="diag__key">CEF</span>
+        <span class="diag__value">
+          {#if report.cef}
+            <span
+              class="badge"
+              class:badge--danger={report.cef.startsWith('failed')}
+              class:badge--success={report.cef === 'ready'}
+            >
+              {report.cef}
+            </span>
+          {:else}
+            <span class="muted">{t('diag.none')}</span>
+          {/if}
+        </span>
+      </div>
+      <div class="diag__row">
+        <span class="diag__key">{t('diag.switches')}</span>
+        <span class="diag__value">
+          {#if report.switches.length > 0}
+            {#each report.switches as item (item)}
+              <span class="badge mono">{item}</span>
+            {/each}
+          {:else}
+            <span class="muted">{t('diag.none')}</span>
+          {/if}
+        </span>
+      </div>
+      <div class="diag__row">
+        <span class="diag__key">{t('diag.limits')}</span>
+        <span class="diag__value">
+          {#if report.limits.length > 0}
+            {#each report.limits as item (item)}
+              <span class="badge badge--warning">{item}</span>
+            {/each}
+          {:else}
+            <span class="muted">{t('diag.none')}</span>
+          {/if}
+        </span>
+      </div>
+      <div class="diag__row">
+        <span class="diag__key">{t('diag.components')}</span>
+        <span class="diag__value">
+          {#if report.components.length > 0}
+            {#each report.components as item (item)}
+              <span class="badge mono">{item}</span>
+            {/each}
+          {:else}
+            <span class="muted">{t('diag.none')}</span>
+          {/if}
+        </span>
+      </div>
+    </section>
+
+    <section class="diag__section">
       <div class="diag__label">{t('error.connection')}</div>
       <div class="diag__row">
         <span class="diag__key">TLS</span>

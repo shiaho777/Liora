@@ -105,12 +105,20 @@ URL: https://expired.badssl.com/
 Host: expired.badssl.com
 Error: -1202 - 证书校验未通过（可能已过期或不受信任）。
 Kernel: system
+Kernel: cef
+Switches: --enable-quic --origin-to-force-quic-on=x.com:443 --dns-over-https-mode=secure
+Limits: none
+Components: kernel-cef@156.0.26 *
+Signature: ad-hoc (no Team ID, io.liora.browser)
+CEF: failed: Signature validation of current process failed (-67030)
 TLS: subject=*.badssl.com valid=no expires=2015-04-12
 Rule: none
 Upstream: doh cloudflare https://cloudflare-dns.com/dns-query 413ms
 Addresses: 104.154.89.105
 HTTPS: alpn=- ech=0B
 ```
+
+`Switches` / `Limits` / `Components` / `Signature` / `CEF` 让报告也能解释渲染与签名问题：Chromium 的进程校验失败（`-67030`）在报告里直接可见，不必再靠猜。`Switches` 以空格分隔，单个开关值里的逗号（如 `--origin-to-force-quic-on=x.com:443,y.com:443`）不会被拆开。
 
 ```bash
 curl "http://127.0.0.1:<diagPort>/diagnose?host=x.com"

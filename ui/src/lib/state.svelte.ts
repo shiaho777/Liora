@@ -26,6 +26,8 @@ export const app = $state({
   settingsSection: 'appearance',
   toasts: [] as Toast[],
   advancedVisible: false,
+  // Reported by the shell: how the app is signed and whether Chromium started.
+  runtime: { codeSigning: '', cefStatus: '' },
 });
 
 let toastSeq = 1;
