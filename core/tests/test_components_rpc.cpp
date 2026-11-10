@@ -5,8 +5,13 @@
 
 #include "liora/components.hpp"
 #include "liora/core.hpp"
+#include "liora/crypto.hpp"
 #include "liora/kernel.hpp"
 #include "liora/rpc.hpp"
+
+extern "C" {
+#include "tweetnacl.h"
+}
 
 using namespace liora;
 
@@ -50,6 +55,45 @@ std::string catalogWithHash(const std::string& hash) {
   auto pos = json.find("PLACEHOLDER");
   json.replace(pos, std::string("PLACEHOLDER").size(), hash);
   return json;
+}
+
+std::string hexBytes(std::string_view hex) {
+  auto value = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+  };
+  std::string out;
+  for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+    out.push_back(static_cast<char>((value(hex[i]) << 4) | value(hex[i + 1])));
+  }
+  return out;
+}
+
+// RFC 8032 test vector 1: secret key = seed || public key.
+const char* kTestSecretKeyHex =
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+    "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+const char* kTestPublicKeyHex =
+    "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+
+std::string signWithTestKey(std::string_view message) {
+  std::string secret = hexBytes(kTestSecretKeyHex);
+  // TweetNaCl's crypto_sign returns sig || message; keep the detached part.
+  std::vector<unsigned char> signedMessage(64 + message.size());
+  unsigned long long length = 0;
+  crypto_sign(signedMessage.data(), &length,
+              reinterpret_cast<const unsigned char*>(message.data()), message.size(),
+              reinterpret_cast<const unsigned char*>(secret.data()));
+  CHECK_EQ(length, static_cast<unsigned long long>(64 + message.size()));
+  return std::string(reinterpret_cast<const char*>(signedMessage.data()), 64);
+}
+
+Json signedCatalog(const std::string& hash) {
+  Json catalog = Json::parse(catalogWithHash(hash), nullptr, false);
+  catalog["signature"] = base64Encode(signWithTestKey(catalog.dump()));
+  return catalog;
 }
 
 }  // namespace
@@ -573,4 +617,60 @@ LIORA_TEST(core_reports_bad_requests_as_json) {
   CHECK(response.find("-32700") != std::string::npos);
   CHECK(response.find("invalid JSON") != std::string::npos);
   core.stop();
+}
+
+LIORA_TEST(components_require_valid_catalog_signatures) {
+  TempDir dir;
+  ComponentManager manager(dir / "components");
+  manager.setVerifier(ed25519Verify);
+  manager.setPublicKey(kTestPublicKeyHex);
+  CHECK(manager.signatureRequired());
+
+  Json catalog = signedCatalog(sha256Hex("hi"));
+  CHECK(!manager.loadCatalog(catalog.dump()).has_value());
+  CHECK(manager.find("kernel-cef") != nullptr);
+
+  // Changing any field after signing must invalidate the catalog.
+  Json tampered = catalog;
+  tampered["components"][0]["versions"][0]["builds"][0]["url"] =
+      "https://evil.invalid/cef.zip";
+  auto error = manager.loadCatalog(tampered.dump());
+  CHECK(error.has_value());
+  CHECK(error->find("signature") != std::string::npos);
+  CHECK(manager.find("kernel-cef") != nullptr);
+
+  // Unsigned and wrongly signed documents are both rejected.
+  Json unsignedDoc = Json::parse(catalogWithHash(sha256Hex("hi")), nullptr, false);
+  CHECK(manager.loadCatalog(unsignedDoc.dump()).has_value());
+
+  Json wrong = unsignedDoc;
+  wrong["signature"] = base64Encode(std::string(64, '\0'));
+  CHECK(manager.loadCatalog(wrong.dump()).has_value());
+}
+
+LIORA_TEST(core_enforces_component_catalog_signatures) {
+  TempDir dir;
+  Json catalog = signedCatalog(sha256Hex("hi"));
+  CHECK(writeFileAtomic(dir / "components.json", catalog.dump()));
+
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  options.updateKey = kTestPublicKeyHex;
+
+  Core core(options);
+  CHECK(!core.start());
+  CHECK(core.components().find("kernel-cef") != nullptr);
+  core.stop();
+
+  // Tampering with the on-disk catalog keeps the browser usable but leaves the
+  // component list empty.
+  Json tampered = catalog;
+  tampered["components"][0]["name"] = "evil";
+  CHECK(writeFileAtomic(dir / "components.json", tampered.dump()));
+
+  Core reopened(options);
+  CHECK(!reopened.start());
+  CHECK(reopened.components().find("kernel-cef") == nullptr);
+  reopened.stop();
 }

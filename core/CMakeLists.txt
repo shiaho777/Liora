@@ -34,6 +34,8 @@ add_library(liora_core STATIC
   src/migration/migrator.cpp
   src/kernel.cpp
   src/components.cpp
+  src/crypto.cpp
+  ${PROJECT_SOURCE_DIR}/third_party/tweetnacl/tweetnacl.c
   src/rpc.cpp
   src/core.cpp
   src/core_data.cpp
@@ -43,9 +45,15 @@ add_library(liora_core STATIC
   ${EMBED_SEARCH}
 )
 
+if(MSVC)
+  set_source_files_properties(${PROJECT_SOURCE_DIR}/third_party/tweetnacl/tweetnacl.c PROPERTIES COMPILE_OPTIONS "/w")
+else()
+  set_source_files_properties(${PROJECT_SOURCE_DIR}/third_party/tweetnacl/tweetnacl.c PROPERTIES COMPILE_OPTIONS "-w")
+endif()
+
 target_include_directories(liora_core
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/third_party/tweetnacl)
 target_link_libraries(liora_core
   PUBLIC nlohmann_json::nlohmann_json
   PRIVATE liora_sqlite)

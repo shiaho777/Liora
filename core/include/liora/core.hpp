@@ -47,6 +47,9 @@ class Core {
     std::string builtinCatalog;
     // Set by tests to keep the clock deterministic.
     bool skipAutoBackup = false;
+    // Optional Ed25519 public key (hex or base64) for the component catalog.
+    // Empty means catalog signatures are not enforced.
+    std::string updateKey;
   };
 
   explicit Core(Options options);

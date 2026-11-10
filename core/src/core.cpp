@@ -1,8 +1,10 @@
 #include "liora/core.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "embedded.hpp"
+#include "liora/crypto.hpp"
 #include "liora/paths.hpp"
 
 namespace liora {
@@ -86,6 +88,17 @@ std::optional<std::string> Core::start() {
   if (!settings_.load(&error)) return "settings: " + error;
   reloadRules();
   if (!storage_.open(&error)) return "database: " + error;
+
+  // A configured update key turns on catalog signature enforcement. Without
+  // one, unsigned catalogs are still accepted (development builds).
+  std::string updateKey = trim(options_.updateKey);
+  if (updateKey.empty()) {
+    if (const char* env = std::getenv("LIORA_UPDATE_KEY"); env && *env) updateKey = trim(env);
+  }
+  if (!updateKey.empty()) {
+    components_.setVerifier(ed25519Verify);
+    components_.setPublicKey(updateKey);
+  }
 
   if (!options_.builtinCatalog.empty()) {
     if (auto catalogError = components_.loadCatalog(options_.builtinCatalog)) {

@@ -363,6 +363,7 @@ NSString* jsonEscape(id object) {
   _core = std::make_unique<Core>(options);
 
   if (auto error = _core->start()) {
+    NSLog(@"Liora: core start failed: %s", error->c_str());
     NSAlert* alert = [[NSAlert alloc] init];
     alert.messageText = @"Liora 无法启动";
     alert.informativeText = ns(*error);

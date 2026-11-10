@@ -175,7 +175,9 @@ std::string ComponentManager::platformArch() {
 
 std::optional<std::string> ComponentManager::checkCatalogSignature(const Json& doc) const {
   std::lock_guard lock(mutex_);
-  if (!requireSignature_) return std::nullopt;
+  // A verifier and key are enough to turn enforcement on; requireSignature()
+  // remains an explicit override for callers that only have a verifier.
+  if (!requireSignature_ && !(verifier_ && !publicKey_.empty())) return std::nullopt;
   if (!verifier_) return "signature verification is not available";
   if (publicKey_.empty()) return "no update key is configured";
   if (catalogSignature_.empty()) return "the catalog is not signed";
@@ -189,6 +191,13 @@ std::optional<std::string> ComponentManager::checkCatalogSignature(const Json& d
 std::optional<std::string> ComponentManager::loadCatalog(std::string_view json) {
   Json doc = Json::parse(json, nullptr, false);
   if (doc.is_discarded() || !doc.is_object()) return "the component catalog is not valid JSON";
+
+  {
+    std::lock_guard lock(mutex_);
+    catalogSignature_ =
+        doc.contains("signature") && doc["signature"].is_string() ? doc["signature"].get<std::string>()
+                                                                  : std::string();
+  }
   if (auto error = checkCatalogSignature(doc)) return error;
 
   auto list = doc.find("components");
@@ -248,11 +257,6 @@ std::optional<std::string> ComponentManager::loadCatalog(std::string_view json) 
 std::optional<std::string> ComponentManager::loadCatalogFile(const fs::path& file) {
   auto text = readFile(file);
   if (!text) return "cannot read " + pathToUtf8(file);
-  Json doc = Json::parse(*text, nullptr, false);
-  if (!doc.is_discarded() && doc.is_object() && doc.contains("signature") && doc["signature"].is_string()) {
-    std::lock_guard lock(mutex_);
-    catalogSignature_ = doc["signature"].get<std::string>();
-  }
   return loadCatalog(*text);
 }
 

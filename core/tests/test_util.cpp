@@ -1,4 +1,5 @@
 #include "harness.hpp"
+#include "liora/crypto.hpp"
 #include "liora/util.hpp"
 
 using namespace liora;
@@ -68,4 +69,40 @@ LIORA_TEST(ids_are_unique) {
   std::string b = newId("rule");
   CHECK_NE(a, b);
   CHECK(startsWith(a, "rule-"));
+}
+
+namespace {
+
+std::string hexBytes(std::string_view hex) {
+  auto value = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+  };
+  std::string out;
+  for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+    out.push_back(static_cast<char>((value(hex[i]) << 4) | value(hex[i + 1])));
+  }
+  return out;
+}
+
+}  // namespace
+
+LIORA_TEST(ed25519_verifies_rfc8032_vector) {
+  // RFC 8032, Ed25519 test vector 1: empty message.
+  const std::string publicKey =
+      "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+  const std::string signature =
+      "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
+      "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
+
+  CHECK(ed25519Verify(publicKey, "", signature));
+  CHECK(ed25519Verify(base64Encode(hexBytes(publicKey)), "", base64Encode(hexBytes(signature))));
+
+  // A different message must not verify, and malformed material fails closed.
+  CHECK(!ed25519Verify(publicKey, "x", signature));
+  CHECK(!ed25519Verify("not-a-key", "", signature));
+  CHECK(!ed25519Verify(publicKey, "", ""));
+  CHECK(!ed25519Verify(publicKey, "", std::string(128, '0')));
 }

@@ -10,7 +10,8 @@ add_executable(liora_tests
 
 target_include_directories(liora_tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${PROJECT_SOURCE_DIR}/core/src)
+  ${PROJECT_SOURCE_DIR}/core/src
+  ${PROJECT_SOURCE_DIR}/third_party/tweetnacl)
 
 target_link_libraries(liora_tests PRIVATE liora_core liora_sqlite)
 
