@@ -74,6 +74,13 @@ std::optional<std::string> Core::start() {
       applied_ = std::move(doc);
     }
   }
+  if (auto text = readFile(paths_.root / "net-resolver.json")) {
+    Json doc = Json::parse(*text, nullptr, false);
+    if (doc.is_object()) {
+      std::lock_guard lock(resolverMutex_);
+      resolverStatus_ = std::move(doc);
+    }
+  }
 
   // Keep a daily automatic backup without asking.
   if (!options_.skipAutoBackup) {
@@ -382,6 +389,27 @@ void Core::registerCoreMethods() {
       }
     }
     return out;
+  });
+
+  rpc_.add("net.resolverStatus", [this](const Json&) {
+    std::lock_guard lock(resolverMutex_);
+    return resolverStatus_;
+  });
+
+  rpc_.add("net.markResolverRestart", [this](const Json& params) {
+    Json record;
+    {
+      std::lock_guard lock(resolverMutex_);
+      int64_t count = resolverStatus_.value("count", int64_t{0});
+      record = {{"at", params::optionalInteger(params, "at").value_or(nowMs())},
+                {"count", count + 1}};
+      resolverStatus_ = record;
+    }
+    std::string error;
+    if (!writeFileAtomic(paths_.root / "net-resolver.json", record.dump(), &error)) {
+      rpcFail(kRpcInternalError, error);
+    }
+    return record;
   });
 
   rpc_.add("net.lastApplied", [this](const Json&) {

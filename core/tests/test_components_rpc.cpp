@@ -429,6 +429,34 @@ LIORA_TEST(core_net_applied_snapshot_survives_restart) {
   reopened.stop();
 }
 
+LIORA_TEST(core_resolver_restart_counter_survives_restart) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  core.handleJson(Json{{"jsonrpc", "2.0"},
+                       {"id", 1},
+                       {"method", "net.markResolverRestart"},
+                       {"params", {{"at", 1700000000000LL}}}});
+  Json second = core.handleJson(Json{{"jsonrpc", "2.0"},
+                                     {"id", 2},
+                                     {"method", "net.markResolverRestart"},
+                                     {"params", {{"at", 1700000001000LL}}}});
+  CHECK_EQ(second["result"]["count"].get<int64_t>(), int64_t{2});
+  core.stop();
+
+  Core reopened(options);
+  CHECK(!reopened.start());
+  Json status =
+      reopened.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 3}, {"method", "net.resolverStatus"}});
+  CHECK_EQ(status["result"]["count"].get<int64_t>(), int64_t{2});
+  CHECK_EQ(status["result"]["at"].get<int64_t>(), int64_t{1700000001000LL});
+  reopened.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

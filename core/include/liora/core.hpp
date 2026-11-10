@@ -117,6 +117,9 @@ class Core {
   // the DNS panel can show it after navigation or a restart.
   mutable std::mutex appliedMutex_;
   Json applied_ = Json::object();
+  // Last successful liora-net start and how many times it has run.
+  mutable std::mutex resolverMutex_;
+  Json resolverStatus_ = Json::object();
   bool started_ = false;
 };
 

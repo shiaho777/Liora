@@ -404,6 +404,10 @@
           restart?.click();
           break;
         }
+        case 'restartservice': {
+          notify('ui.restartKernel', {});
+          break;
+        }
         case 'applyfrombadge': {
           document.querySelector<HTMLElement>('.network-pending')?.click();
           break;

@@ -490,6 +490,10 @@ export function createMockBackend(): MockBackend {
   // Mirrors the shell: the snapshot changes only when the kernel is (re)loaded.
   let mockAppliedConfig = JSON.stringify(netPlan().net);
   let mockLastApplied: Record<string, unknown> | null = null;
+  const storedResolver = localStorage.getItem('liora.mock.resolver');
+  let mockResolver: Record<string, unknown> | null = storedResolver
+    ? JSON.parse(storedResolver)
+    : { at: Date.now(), count: 1 };
 
   const methods: Record<string, Handler> = {
     'core.info': () => ({
@@ -657,6 +661,7 @@ export function createMockBackend(): MockBackend {
 
     'net.plan': () => netPlan(),
     'net.lastApplied': () => mockLastApplied ?? {},
+    'net.resolverStatus': () => mockResolver ?? {},
     'net.forHost': (p) => methods['rules.match'](p),
     'net.config': () => ({ config: netPlan().net, needsNet: netPlan().needsNet, warnings: [], kernels: [] }),
     'net.runtime': () => ({
@@ -865,6 +870,11 @@ export function createMockBackend(): MockBackend {
         if (method === 'ui.restartKernel') {
           const plan = netPlan();
           mockAppliedConfig = JSON.stringify(plan.net);
+          mockResolver = {
+            at: Date.now(),
+            count: Number(mockResolver?.count ?? 0) + 1,
+          };
+          localStorage.setItem('liora.mock.resolver', JSON.stringify(mockResolver));
           const variant = flatProviders().find((item) => item.id === get('dns.provider'));
           mockLastApplied = {
             at: Date.now(),

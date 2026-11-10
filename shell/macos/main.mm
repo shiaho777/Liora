@@ -485,9 +485,28 @@ NSString* jsonEscape(id object) {
     [self applyProxyPort:0];
     return;
   }
+  [self recordResolverRestart];
   if (markApplied) [self markApplied:configText proxy:[self localProxyURL]];
   [self publishRuntime];
   [self applyProxyPort:self.netService.proxyPort];
+}
+
+// Counts every successful liora-net start, including automatic resolver
+// refreshes. The DNS panel uses it to distinguish a process restart from a
+// configuration change.
+- (void)recordResolverRestart {
+  if (!_core) return;
+  liora::Json request = {
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "net.markResolverRestart"},
+      {"params", {{"at", liora::nowMs()}}}};
+  liora::Json response = _core->handleJson(request);
+  auto result = response.find("result");
+  if (result != response.end() && result->is_object()) {
+    NSLog(@"Liora: resolver restart recorded count=%lld",
+          static_cast<long long>(result->value("count", int64_t{0})));
+  }
 }
 
 - (NSString*)localProxyURL {

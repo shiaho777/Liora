@@ -68,6 +68,11 @@
     available: boolean;
   }
 
+  interface ResolverStatus {
+    at: number;
+    count: number;
+  }
+
   interface LastApplied {
     at: number;
     proxy: string;
@@ -86,6 +91,7 @@
   let currentConfig = $state('');
   let kernels = $state<KernelInfo[]>([]);
   let lastApplied = $state<LastApplied | null>(null);
+  let resolverStatus = $state<ResolverStatus | null>(null);
   let restarting = $state(false);
   let category = $state('all');
   let loading = $state(true);
@@ -133,13 +139,15 @@
   }
 
   async function refreshPlan(): Promise<void> {
-    const [plan, current, kernelSetup, kernelList, config, applied] = await Promise.allSettled([
+    const [plan, current, kernelSetup, kernelList, config, applied, resolver] =
+      await Promise.allSettled([
       call<ActivePlan>('dns.plan'),
       call<Runtime>('net.runtime'),
       call<KernelSetup>('kernels.setup', {}),
       call<KernelInfo[]>('kernels.list'),
       call<{ config: unknown }>('net.config', {}),
       call<LastApplied>('net.lastApplied'),
+      call<ResolverStatus>('net.resolverStatus'),
     ]);
     if (plan.status === 'fulfilled') active = plan.value;
     if (current.status === 'fulfilled') runtime = current.value;
@@ -152,6 +160,13 @@
       const value = applied.value;
       lastApplied =
         value && typeof value === 'object' && typeof value.at === 'number' && value.at > 0
+          ? value
+          : null;
+    }
+    if (resolver.status === 'fulfilled') {
+      const value = resolver.value;
+      resolverStatus =
+        value && typeof value === 'object' && typeof value.count === 'number' && value.count > 0
           ? value
           : null;
     }
@@ -393,6 +408,15 @@
             {/each}
           </div>
         {/if}
+      {/if}
+
+      {#if resolverStatus}
+        <div class="applied-line">
+          {t('dns.resolverRestarted', {
+            time: new Date(resolverStatus.at).toLocaleTimeString(),
+            count: resolverStatus.count,
+          })}
+        </div>
       {/if}
 
       {#if runtime?.running}
