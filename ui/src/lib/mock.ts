@@ -503,6 +503,23 @@ export function createMockBackend(): MockBackend {
     ? JSON.parse(storedResolver)
     : { at: Date.now(), count: 1 };
 
+  let mockRecent = [
+    {
+      name: 'liora-timeline-sample.txt',
+      path: '/mock/liora-timeline-sample.txt',
+      size: 420,
+      modified: Date.now() - 600000,
+      kind: 'timeline',
+    },
+    {
+      name: 'liora-diagnostic-sample.txt',
+      path: '/mock/liora-diagnostic-sample.txt',
+      size: 640,
+      modified: Date.now() - 3600000,
+      kind: 'report',
+    },
+  ];
+
   const methods: Record<string, Handler> = {
     'core.info': () => ({
       version: '0.1.0',
@@ -805,22 +822,17 @@ export function createMockBackend(): MockBackend {
     'backup.now': () => ({ path: 'mock/backups/manual.liora' }),
     'backup.sections': () => ['settings', 'bookmarks', 'history', 'permissions'],
 
-    'diagnostics.recent': () => [
-      {
-        name: 'liora-timeline-sample.txt',
-        path: '/mock/liora-timeline-sample.txt',
-        size: 420,
-        modified: Date.now() - 600000,
-        kind: 'timeline',
-      },
-      {
-        name: 'liora-diagnostic-sample.txt',
-        path: '/mock/liora-diagnostic-sample.txt',
-        size: 640,
-        modified: Date.now() - 3600000,
-        kind: 'report',
-      },
-    ],
+    'diagnostics.recent': () => mockRecent,
+    'diagnostics.delete': (p) => {
+      mockRecent = mockRecent.filter((entry) => entry.path !== p.path);
+      return { ok: true };
+    },
+    'diagnostics.clear': (p) => {
+      const keep = Math.max(0, Number(p.keep ?? 5));
+      const deleted = Math.max(0, mockRecent.length - keep);
+      mockRecent = mockRecent.slice(0, keep);
+      return { deleted };
+    },
     'migrate.detect': () => [
       {
         id: 'chrome/Default',

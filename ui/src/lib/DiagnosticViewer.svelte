@@ -193,6 +193,26 @@
     });
   }
 
+  async function deleteRecent(entry: { path: string; name: string }): Promise<void> {
+    try {
+      await call('diagnostics.delete', { path: entry.path });
+      toast(t('diag.deleted', { name: entry.name }));
+      await loadRecent();
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    }
+  }
+
+  async function clearOldRecent(): Promise<void> {
+    try {
+      const result = await call<{ deleted: number }>('diagnostics.clear', { keep: 5 });
+      toast(t('diag.cleared', { count: result.deleted ?? 0 }));
+      await loadRecent();
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    }
+  }
+
   $effect(() => {
     return onNotification((message) => {
       if (message.method === 'browser.diagnosticSaved') {
@@ -725,12 +745,27 @@
 
       {#if recent.length > 0}
         <div class="recent">
-          <div class="recent__title">{t('diag.recent')}</div>
+          <div class="recent__header">
+            <span class="recent__title">{t('diag.recent')}</span>
+            {#if recent.length > 5}
+              <button class="button button--ghost button--sm" onclick={clearOldRecent}>
+                {t('diag.clearOld')}
+              </button>
+            {/if}
+          </div>
           {#each recent as entry (entry.path)}
-            <button
+            <div
               class="recent__item"
+              role="button"
+              tabindex="0"
               data-kind={entry.kind}
               onclick={() => openRecent(entry)}
+              onkeydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  openRecent(entry);
+                }
+              }}
             >
               <span class="recent__name mono">{entry.name}</span>
               <span class="badge">
@@ -739,7 +774,17 @@
               <span class="recent__meta">
                 {formatEpoch(entry.modified)} · {entry.size} B
               </span>
-            </button>
+              <button
+                class="icon-button recent__delete"
+                title={t('diag.delete')}
+                onclick={(event) => {
+                  event.stopPropagation();
+                  void deleteRecent(entry);
+                }}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
           {/each}
         </div>
       {/if}
@@ -1216,11 +1261,18 @@
     margin-top: 6px;
   }
 
+  .recent__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+
   .recent__title {
     font-size: 11.5px;
     font-weight: 600;
     color: var(--text-secondary);
-    margin-bottom: 2px;
   }
 
   .recent__item {
@@ -1231,6 +1283,7 @@
     padding: 7px 9px;
     border-radius: var(--radius-sm);
     text-align: left;
+    cursor: pointer;
   }
 
   .recent__item:hover {

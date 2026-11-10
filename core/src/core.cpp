@@ -9,6 +9,16 @@ namespace liora {
 
 namespace {
 
+fs::path downloadsDirectory(const Settings& settings) {
+  std::string configured = settings.get("downloads.dir").get<std::string>();
+  return configured.empty() ? paths::homeDir() / "Downloads" : utf8ToPath(configured);
+}
+
+bool isDiagnosticName(const std::string& name) {
+  if (!endsWith(name, ".txt")) return false;
+  return startsWith(name, "liora-diagnostic-") || startsWith(name, "liora-timeline-");
+}
+
 Json customDnsEntry(const DnsEndpoint& endpoint, const Json& name) {
   return {{"id", endpoint.id},
           {"name", name.is_string() ? name.get<std::string>() : endpoint.name},
@@ -188,8 +198,7 @@ void Core::registerCoreMethods() {
   rpc_.add("core.ping", [](const Json&) { return Json{{"ok", true}, {"time", nowMs()}}; });
 
   rpc_.add("diagnostics.recent", [this](const Json& params) {
-    std::string configured = settings_.get("downloads.dir").get<std::string>();
-    fs::path dir = configured.empty() ? paths::homeDir() / "Downloads" : utf8ToPath(configured);
+    fs::path dir = downloadsDirectory(settings_);
     int limit = static_cast<int>(params::optionalInteger(params, "limit").value_or(20));
     if (limit <= 0) limit = 20;
 
@@ -198,14 +207,8 @@ void Core::registerCoreMethods() {
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
       if (!it->is_regular_file(ec)) continue;
       std::string name = pathToUtf8(it->path().filename());
-      std::string kind;
-      if (startsWith(name, "liora-diagnostic-") && endsWith(name, ".txt")) {
-        kind = "report";
-      } else if (startsWith(name, "liora-timeline-") && endsWith(name, ".txt")) {
-        kind = "timeline";
-      } else {
-        continue;
-      }
+      if (!isDiagnosticName(name)) continue;
+      std::string kind = startsWith(name, "liora-diagnostic-") ? "report" : "timeline";
       auto modified = it->last_write_time(ec);
       if (ec) continue;
       // file_clock has no portable epoch conversion we rely on; derive the
@@ -229,6 +232,47 @@ void Core::registerCoreMethods() {
       out.push_back(item.second);
     }
     return out;
+  });
+
+  rpc_.add("diagnostics.delete", [this](const Json& params) {
+    std::string raw = params::string(params, "path");
+    std::error_code ec;
+    fs::path dir = fs::weakly_canonical(downloadsDirectory(settings_), ec);
+    fs::path target = fs::weakly_canonical(utf8ToPath(raw), ec);
+    if (ec) rpcFail(kRpcInvalidParams, "invalid path");
+    if (target.parent_path() != dir || !isDiagnosticName(pathToUtf8(target.filename()))) {
+      rpcFail(kRpcPermission, "only diagnostic files in the downloads folder can be deleted");
+    }
+    std::error_code removeError;
+    if (!fs::remove(target, removeError) || removeError) {
+      rpcFail(kRpcInternalError, "cannot delete the file");
+    }
+    return Json{{"ok", true}};
+  });
+
+  rpc_.add("diagnostics.clear", [this](const Json& params) {
+    fs::path dir = downloadsDirectory(settings_);
+    int keep = static_cast<int>(params::optionalInteger(params, "keep").value_or(5));
+    if (keep < 0) keep = 0;
+
+    std::vector<std::pair<fs::file_time_type, fs::path>> files;
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+      if (!it->is_regular_file(ec)) continue;
+      if (!isDiagnosticName(pathToUtf8(it->path().filename()))) continue;
+      files.emplace_back(it->last_write_time(ec), it->path());
+    }
+    std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) {
+      if (a.first != b.first) return a.first > b.first;
+      return a.second.filename() > b.second.filename();
+    });
+
+    int deleted = 0;
+    for (size_t i = static_cast<size_t>(keep); i < files.size(); ++i) {
+      std::error_code removeError;
+      if (fs::remove(files[i].second, removeError) && !removeError) ++deleted;
+    }
+    return Json{{"deleted", deleted}};
   });
 
   rpc_.add("rpc.discover", [this](const Json&) { return rpc_.describe(); });

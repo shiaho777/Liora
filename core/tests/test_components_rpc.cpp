@@ -492,6 +492,63 @@ LIORA_TEST(core_lists_recent_diagnostic_reports) {
   core.stop();
 }
 
+LIORA_TEST(core_deletes_only_diagnostic_files) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  fs::path downloads = dir.path / "downloads";
+  fs::create_directories(downloads);
+  auto make = [&](const std::string& name, int ageSeconds) {
+    fs::path file = downloads / name;
+    CHECK(writeFileAtomic(file, "report: 1\n"));
+    std::error_code ec;
+    fs::last_write_time(file, fs::file_time_type::clock::now() - std::chrono::seconds(ageSeconds), ec);
+    return file;
+  };
+  fs::path oldest = make("liora-diagnostic-20260101-000000.txt", 40);
+  fs::path second = make("liora-diagnostic-20260102-000000.txt", 30);
+  fs::path third = make("liora-diagnostic-20260103-000000.txt", 20);
+  fs::path newest = make("liora-diagnostic-20260104-000000.txt", 10);
+  fs::path timeline = make("liora-timeline-20260105-000000.txt", 5);
+  fs::path notes = make("notes.txt", 1);
+  fs::path outside = dir.path / "outside.txt";
+  CHECK(writeFileAtomic(outside, "report: 1\n"));
+
+  CHECK(!core.settings().set("downloads.dir", pathToUtf8(downloads)));
+
+  auto remove = [&](const fs::path& path) {
+    return core.handleJson(Json{{"jsonrpc", "2.0"},
+                                {"id", 1},
+                                {"method", "diagnostics.delete"},
+                                {"params", {{"path", pathToUtf8(path)}}}});
+  };
+
+  Json removed = remove(second);
+  CHECK_EQ(removed["result"]["ok"], true);
+  CHECK(!fs::exists(second));
+
+  // Non-diagnostic names and files outside the downloads folder are refused.
+  CHECK(remove(notes)["error"].is_object());
+  CHECK(remove(outside)["error"].is_object());
+  CHECK(fs::exists(notes));
+  CHECK(fs::exists(outside));
+
+  Json cleared = core.handleJson(Json{{"jsonrpc", "2.0"},
+                                      {"id", 2},
+                                      {"method", "diagnostics.clear"},
+                                      {"params", {{"keep", 2}}}});
+  CHECK_EQ(cleared["result"]["deleted"].get<int>(), 2);
+  CHECK(fs::exists(newest));
+  CHECK(fs::exists(timeline));
+  CHECK(!fs::exists(oldest));
+  CHECK(!fs::exists(third));
+  core.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

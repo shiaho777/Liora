@@ -507,6 +507,17 @@
           document.querySelector<HTMLElement>('.recent__item')?.click();
           break;
         }
+        case 'deleterecent': {
+          document.querySelector<HTMLElement>('.recent__delete')?.click();
+          break;
+        }
+        case 'clearrecent': {
+          const clear = [...document.querySelectorAll('button')].find((button) =>
+            button.textContent?.includes('清理旧文件'),
+          );
+          clear?.click();
+          break;
+        }
         case 'openrecenttimeline': {
           document.querySelector<HTMLElement>('.recent__item[data-kind="timeline"]')?.click();
           break;
