@@ -106,6 +106,7 @@ Host: expired.badssl.com
 Error: -1202 - 证书校验未通过（可能已过期或不受信任）。
 Kernel: system
 Kernel: cef
+Resolver: restarted 2026-11-10T08:42:58.529Z (run 2)
 Applied: 2026-11-10T08:27:51.284Z · Quad9 Secure (doh) · proxy http://127.0.0.1:57009
 Delta: provider Quad9 Secure -> Cloudflare Standard · proxy http://127.0.0.1:57009 -> http://127.0.0.1:57051
 Switches: --enable-quic --origin-to-force-quic-on=x.com:443 --dns-over-https-mode=secure
@@ -120,7 +121,7 @@ Addresses: 104.154.89.105
 HTTPS: alpn=- ech=0B
 ```
 
-`Applied` / `Delta` 记录上次应用的网络配置与当前差异（修改后未应用时尤其有用）；查看器会单独渲染“上次应用与差异”分区。打开报告时还会重新读取 `net.lastApplied` 与当前 `dns.plan`，如果报告保存后状态又变了，会显示：
+`Resolver` 记录本地解析器最近一次成功启动的时间与累计次数，便于判断失败前后是否发生过解析器重启。`Applied` / `Delta` 记录上次应用的网络配置与当前差异（修改后未应用时尤其有用）；查看器会在“内核与签名”分区显示解析器重启信息，并单独渲染“上次应用与差异”分区。打开报告时还会重新读取 `net.lastApplied` 与当前 `dns.plan`，如果报告保存后状态又变了，会显示：
 
 ```
 报告与当前状态不一致

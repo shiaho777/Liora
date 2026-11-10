@@ -37,6 +37,11 @@
     proxy: string;
   }
 
+  interface ResolverStatus {
+    at: number;
+    count: number;
+  }
+
   interface DnsPlan {
     mode: string;
     endpoint?: { name?: string; protocol?: string } | null;
@@ -46,6 +51,7 @@
   let diagError = $state('');
   let applied = $state<AppliedSnapshot | null>(null);
   let appliedDelta = $state<Array<{ kind: string; from: string; to: string }>>([]);
+  let resolverStatus = $state<ResolverStatus | null>(null);
   let kernelId = $state('');
   let kernelSwitches = $state<string[]>([]);
   let kernelLimits = $state<string[]>([]);
@@ -106,6 +112,9 @@
       components,
       signature: app.runtime.codeSigning || 'unknown',
       cef: app.runtime.cefStatus || 'unknown',
+      resolver: resolverStatus
+        ? { at: new Date(resolverStatus.at).toISOString(), count: resolverStatus.count }
+        : null,
       applied: applied
         ? {
             at: new Date(applied.at).toISOString(),
@@ -183,7 +192,7 @@
 
     // Switches and installed components explain rendering and signing
     // failures, which the DNS endpoint cannot see.
-    const [setup, installed, appliedResult, planResult] = await Promise.allSettled([
+    const [setup, installed, appliedResult, planResult, resolverResult] = await Promise.allSettled([
       kernelId
         ? call<{
             switches?: string[];
@@ -196,6 +205,7 @@
       call<Array<{ id: string; version: string; current: boolean }>>('components.installed', {}),
       call<AppliedSnapshot>('net.lastApplied'),
       call<DnsPlan>('dns.plan'),
+      call<ResolverStatus>('net.resolverStatus'),
     ]);
     if (setup.status === 'fulfilled' && setup.value) {
       // The effective flags, so the report records what the kernel actually
@@ -208,6 +218,14 @@
         (item) => `${item.id}@${item.version}${item.current ? ' *' : ''}`,
       );
     }
+
+    resolverStatus =
+      resolverResult.status === 'fulfilled' &&
+      resolverResult.value &&
+      typeof resolverResult.value.at === 'number' &&
+      resolverResult.value.count > 0
+        ? resolverResult.value
+        : null;
 
     applied =
       appliedResult.status === 'fulfilled' &&

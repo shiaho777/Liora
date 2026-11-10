@@ -245,7 +245,8 @@
     savingRefresh = true;
     try {
       const kernel = report.kernel ?? '';
-      const [setup, installed, appliedResult, plan] = await Promise.allSettled([
+      const [setup, installed, appliedResult, plan, resolverResult] =
+        await Promise.allSettled([
         kernel
           ? call<KernelSetupLike & { switches?: string[]; unsupported?: string[] }>(
               'kernels.setup',
@@ -257,6 +258,7 @@
         call<{ mode: string; endpoint?: { name?: string; protocol?: string } | null }>(
           'dns.plan',
         ),
+        call<{ at: number; count: number }>('net.resolverStatus'),
       ]);
 
       const setupValue = setup.status === 'fulfilled' && setup.value ? setup.value : null;
@@ -268,6 +270,13 @@
           ? appliedResult.value
           : null;
       const planValue = plan.status === 'fulfilled' ? plan.value : null;
+      const resolverValue =
+        resolverResult.status === 'fulfilled' &&
+        resolverResult.value &&
+        typeof resolverResult.value.at === 'number' &&
+        resolverResult.value.count > 0
+          ? resolverResult.value
+          : null;
       const currentDelta = currentApplied
         ? networkDelta(
             {
@@ -305,6 +314,12 @@
         components,
         signature: app.runtime.codeSigning || 'unknown',
         cef: app.runtime.cefStatus || 'unknown',
+        resolver: resolverValue
+          ? {
+              at: new Date(resolverValue.at).toISOString(),
+              count: resolverValue.count,
+            }
+          : null,
         applied: currentApplied
           ? {
               at: new Date(currentApplied.at as number).toISOString(),
@@ -334,6 +349,11 @@
     } finally {
       savingRefresh = false;
     }
+  }
+
+  function formatTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
   function portOf(value: string): string {
@@ -498,6 +518,21 @@
 
     <section class="diag__section">
       <div class="diag__label">{t('diag.runtime')}</div>
+      {#if report.resolverKnown}
+        <div class="diag__row">
+          <span class="diag__key">{t('diag.resolver')}</span>
+          <span class="diag__value">
+            {#if report.resolver}
+              {t('dns.resolverRestarted', {
+                time: formatTime(report.resolver.at),
+                count: report.resolver.count ?? 0,
+              })}
+            {:else}
+              <span class="muted">{t('dns.deltaNone')}</span>
+            {/if}
+          </span>
+        </div>
+      {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.signature')}</span>
         <span class="diag__value">

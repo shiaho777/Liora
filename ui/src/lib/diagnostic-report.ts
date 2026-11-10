@@ -20,6 +20,12 @@ export interface RuleSummary {
   raw: string;
 }
 
+export interface ResolverSummary {
+  at: string;
+  count?: number;
+  raw: string;
+}
+
 export interface AppliedSummary {
   at: string;
   provider?: string;
@@ -52,6 +58,9 @@ export interface DiagnosticReport {
   limits: string[];
   /** Installed components, "id@version" with "*" for the active version. */
   components: string[];
+  /** Last successful local resolver start. */
+  resolver: ResolverSummary | null;
+  resolverKnown: boolean;
   /** Network configuration the kernel last loaded. */
   applied: AppliedSummary | null;
   appliedKnown: boolean;
@@ -130,6 +139,14 @@ function parseUpstream(value: string): DiagnosticReport['upstream'] {
   const elapsed = /^(\d+)ms$/.exec(last);
   const address = tokens.slice(2, elapsed ? tokens.length - 1 : tokens.length).join(' ');
   return { protocol, id, address, elapsedMs: elapsed ? Number(elapsed[1]) : undefined };
+}
+
+function parseResolver(value: string): ResolverSummary | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none') return null;
+  const match = /^restarted\s+(.+?)\s+\(run\s+(\d+)\)$/i.exec(trimmed);
+  if (!match) return { at: trimmed, raw: trimmed };
+  return { at: match[1], count: Number(match[2]), raw: trimmed };
 }
 
 function parseApplied(value: string): AppliedSummary | null {
@@ -229,6 +246,8 @@ export function parseDiagnosticReport(text: string): ParseResult {
     switchesKnown: fields.has('switches'),
     limits: splitList(fields.get('limits'), ','),
     components: splitList(fields.get('components'), ','),
+    resolver: parseResolver(fields.get('resolver') ?? ''),
+    resolverKnown: fields.has('resolver'),
     applied: parseApplied(fields.get('applied') ?? ''),
     appliedKnown: fields.has('applied'),
     delta: parseDelta(fields.get('delta') ?? ''),
@@ -264,6 +283,7 @@ export function parseDiagnosticReport(text: string): ParseResult {
     'components',
     'signature',
     'cef',
+    'resolver',
     'applied',
     'delta',
     'tls',

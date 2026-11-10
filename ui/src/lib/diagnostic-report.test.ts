@@ -204,3 +204,34 @@ Delta: mode secure -> automatic
     expect(result.report.delta).toEqual([{ kind: 'mode', from: 'secure', to: 'automatic' }]);
   });
 });
+
+describe('resolver restart metadata', () => {
+  it('parses the restart time and run count', () => {
+    const result = parseDiagnosticReport(
+      `${dnsReport}Resolver: restarted 2026-11-10T16:41:08.000Z (run 2)
+`,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.resolverKnown).toBe(true);
+    expect(result.report.resolver).toEqual({
+      at: '2026-11-10T16:41:08.000Z',
+      count: 2,
+      raw: 'restarted 2026-11-10T16:41:08.000Z (run 2)',
+    });
+  });
+
+  it('handles none and reports written before the field existed', () => {
+    const none = parseDiagnosticReport(`${dnsReport}Resolver: none
+`);
+    expect(none.ok).toBe(true);
+    if (!none.ok) return;
+    expect(none.report.resolverKnown).toBe(true);
+    expect(none.report.resolver).toBeNull();
+
+    const missing = parseDiagnosticReport(dnsReport);
+    expect(missing.ok).toBe(true);
+    if (!missing.ok) return;
+    expect(missing.report.resolverKnown).toBe(false);
+  });
+});

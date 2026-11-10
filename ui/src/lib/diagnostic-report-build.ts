@@ -16,6 +16,7 @@ export interface ReportSections {
   components: string[];
   signature: string;
   cef: string;
+  resolver?: { at: string; count: number } | null;
   applied: { at: string; provider: string; protocol: string; proxy: string } | null;
   delta: DeltaLike[];
   /** Text after "TLS:", e.g. "subject=... valid=no expires=..." */
@@ -46,6 +47,12 @@ export function buildDiagnosticReport(sections: ReportSections): string {
     `Signature: ${sections.signature}`,
     `CEF: ${sections.cef}`,
   ];
+
+  if (sections.resolver) {
+    lines.push(`Resolver: restarted ${sections.resolver.at} (run ${sections.resolver.count})`);
+  } else {
+    lines.push('Resolver: none');
+  }
 
   if (sections.applied) {
     const protocol = sections.applied.protocol ? ` (${sections.applied.protocol})` : '';
