@@ -295,6 +295,27 @@
         case 'restartkernel':
           (window as unknown as { __lioraRestartKernel?: () => void }).__lioraRestartKernel?.();
           break;
+        case 'dnscycle': {
+          // Test hook: switch the DNS provider from the panel, then use the
+          // panel's restart action once the setting has been saved.
+          const mode = [...document.querySelectorAll('button')].find(
+            (button) => button.textContent.trim() === '选择提供商',
+          );
+          mode?.click();
+          setTimeout(() => {
+            const quad9 = [...document.querySelectorAll<HTMLElement>('.provider')].find((card) =>
+              card.textContent?.includes('Quad9'),
+            );
+            quad9?.click();
+            setTimeout(() => {
+              const restart = [...document.querySelectorAll('button')].find((button) =>
+                button.textContent?.includes('重启'),
+              );
+              restart?.click();
+            }, 1200);
+          }, 600);
+          break;
+        }
         case 'pagedump': {
           const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
           const content = document.querySelector('.content');

@@ -182,26 +182,17 @@ NSString* jsonEscape(id object) {
                    }];
   }
 
-  // Verification hooks for the command bridge that the menu uses. A second
-  // command allows checking UI state after an action (e.g. restart -> dump).
-  const char* command = getenv("LIORA_TEST_COMMAND");
-  if (command && *command) {
+  // Verification hooks for the command bridge. Several commands allow a test
+  // to open a screen, act, then dump the resulting state.
+  const char* commandEnvs[] = {"LIORA_TEST_COMMAND", "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3"};
+  const char* delayEnvs[] = {"LIORA_TEST_COMMAND_DELAY_MS", "LIORA_TEST_COMMAND2_DELAY_MS",
+                             "LIORA_TEST_COMMAND3_DELAY_MS"};
+  for (int index = 0; index < 3; ++index) {
+    const char* command = getenv(commandEnvs[index]);
+    if (!command || !*command) continue;
     NSString* name = ns(command);
     double delay = 0.3;
-    if (const char* ms = getenv("LIORA_TEST_COMMAND_DELAY_MS")) {
-      delay = atof(ms) / 1000.0;
-    }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-                     [self runTestCommand:name];
-                   });
-  }
-
-  const char* command2 = getenv("LIORA_TEST_COMMAND2");
-  if (command2 && *command2) {
-    NSString* name = ns(command2);
-    double delay = 2.0;
-    if (const char* ms = getenv("LIORA_TEST_COMMAND2_DELAY_MS")) {
+    if (const char* ms = getenv(delayEnvs[index])) {
       delay = atof(ms) / 1000.0;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
@@ -776,6 +767,7 @@ NSString* jsonEscape(id object) {
   for (auto& entry : _views) {
     entry.second->reload(true);
   }
+  NSLog(@"Liora: reloaded %lu kernel views", (unsigned long)_views.size());
 
   NSMutableArray* switches = [NSMutableArray array];
   for (const auto& item : setup.switches) [switches addObject:ns(item)];

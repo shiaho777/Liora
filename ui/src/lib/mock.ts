@@ -845,6 +845,23 @@ export function createMockBackend(): MockBackend {
       // Shell-directed notifications: nothing to answer, but a failing URL can
       // be simulated so the error panel is reviewable in a browser.
       if (method.startsWith('ui.')) {
+        if (method === 'ui.restartKernel') {
+          const plan = netPlan();
+          setTimeout(() => {
+            respond({
+              jsonrpc: '2.0',
+              method: 'browser.kernelRestarted',
+              params: {
+                kernel: get('kernel.default'),
+                switches: [],
+                dnsMode: 'secure',
+                dohTemplates: plan.dns.dohTemplates,
+                proxy: 'http://127.0.0.1:5400',
+              },
+            });
+          }, 400);
+          return;
+        }
         if (method === 'ui.pickFile' && request.params?.purpose === 'diagnosticReport') {
           // The native shell reads the file; the mock answers with a sample so
           // the viewer can be reviewed in a plain browser.

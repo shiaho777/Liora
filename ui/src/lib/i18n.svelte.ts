@@ -165,6 +165,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'restart.working': '正在重启…',
     'restart.done': '内核已重启，启动参数已刷新',
     'restart.refreshed': '以下启动参数已刷新为当前值。',
+    'restart.panelKernelTitle': '修改后需要重启内核',
+    'restart.panelKernelHint': '当前内核在启动时读取 DNS 与 QUIC 参数；重启会让新设置生效，并重载已打开的页面。',
+    'restart.panelResolverTitle': '重启本地解析器',
+    'restart.panelResolverHint': '重启 liora-net 会分配新的代理端口，并重载页面以使用新的 DNS 与规则。',
+    'restart.panelResolverAction': '重启解析器',
     'nav.about': '关于',
 
     'appearance.title': '外观',
@@ -481,6 +486,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'restart.working': 'Restarting…',
     'restart.done': 'Kernel restarted; start-up parameters refreshed',
     'restart.refreshed': 'The start-up parameters below were refreshed to their current values.',
+    'restart.panelKernelTitle': 'Restart required after changes',
+    'restart.panelKernelHint': 'This kernel reads DNS and QUIC parameters at start-up; restarting applies them and reloads open pages.',
+    'restart.panelResolverTitle': 'Restart the local resolver',
+    'restart.panelResolverHint': 'Restarting liora-net assigns a new proxy port and reloads pages with the new DNS and rules.',
+    'restart.panelResolverAction': 'Restart resolver',
     'nav.about': 'About',
 
     'appearance.title': 'Appearance',

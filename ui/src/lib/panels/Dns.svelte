@@ -2,7 +2,7 @@
   import Icon from '../Icon.svelte';
   import Segmented from '../Segmented.svelte';
   import Rules from './Rules.svelte';
-  import { call } from '../bridge';
+  import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
   import { localized, t } from '../i18n.svelte';
@@ -58,12 +58,21 @@
     unsupported: string[];
   }
 
+  interface KernelInfo {
+    id: string;
+    name: string;
+    netNeedsRestart: boolean;
+    available: boolean;
+  }
+
   let categories = $state<Category[]>([]);
   let providers = $state<Provider[]>([]);
   let custom = $state<CustomDns[]>([]);
   let active = $state<ActivePlan | null>(null);
   let runtime = $state<Runtime | null>(null);
   let setup = $state<KernelSetup | null>(null);
+  let kernels = $state<KernelInfo[]>([]);
+  let restarting = $state(false);
   let category = $state('all');
   let loading = $state(true);
 
@@ -110,15 +119,39 @@
   }
 
   async function refreshPlan(): Promise<void> {
-    const [plan, current, kernelSetup] = await Promise.allSettled([
+    const [plan, current, kernelSetup, kernelList] = await Promise.allSettled([
       call<ActivePlan>('dns.plan'),
       call<Runtime>('net.runtime'),
       call<KernelSetup>('kernels.setup', {}),
+      call<KernelInfo[]>('kernels.list'),
     ]);
     if (plan.status === 'fulfilled') active = plan.value;
     if (current.status === 'fulfilled') runtime = current.value;
     if (kernelSetup.status === 'fulfilled') setup = kernelSetup.value;
+    if (kernelList.status === 'fulfilled' && Array.isArray(kernelList.value)) {
+      kernels = kernelList.value;
+    }
   }
+
+  // Reuses the shell's restart path: new resolver process, new proxy port,
+  // re-applied proxy and reloaded kernel views.
+  function restartKernel(): void {
+    if (restarting) return;
+    restarting = true;
+    notify('ui.restartKernel', { kernel: setup?.kernel ?? '' });
+    setTimeout(() => {
+      restarting = false;
+    }, 15000);
+  }
+
+  $effect(() => {
+    return onNotification((message) => {
+      if (message.method !== 'browser.kernelRestarted') return;
+      restarting = false;
+      toast(t('restart.done'));
+      void refreshPlan();
+    });
+  });
 
   $effect(() => {
     void load();
@@ -142,6 +175,9 @@
 
   const selectedVariant = $derived(allVariants.find((variant) => variant.id === providerId));
 
+  const activeKernel = $derived(kernels.find((kernel) => kernel.id === setup?.kernel) ?? null);
+  const restartRequired = $derived(Boolean(activeKernel?.netNeedsRestart));
+  const canRestart = $derived(restartRequired || runtime?.running === true);
   const needsResolver = $derived(Boolean(active?.needsNet || setup?.usesNet || setup?.netMissing));
   const resolverMissing = $derived(needsResolver && runtime?.running === false);
 
@@ -276,6 +312,34 @@
         <div class="callout" style:margin-top="10px">
           <span class="callout__icon"><Icon name="info" size={14} /></span>
           <span>{t('dns.unsupported')}: {setup.unsupported.map(capLabel).join('、')}</span>
+        </div>
+      {/if}
+
+      {#if canRestart}
+        <div class="row" style:margin-top="10px">
+          <div class="row__main">
+            <div class="row__title">
+              {restartRequired ? t('restart.panelKernelTitle') : t('restart.panelResolverTitle')}
+            </div>
+            <div class="row__desc">
+              {restartRequired ? t('restart.panelKernelHint') : t('restart.panelResolverHint')}
+            </div>
+          </div>
+          <div class="row__control">
+            <button
+              class="button button--sm"
+              class:button--primary={restartRequired}
+              disabled={restarting}
+              onclick={restartKernel}
+            >
+              <Icon name="refresh" size={12} />
+              {restarting
+                ? t('restart.working')
+                : restartRequired
+                  ? t('restart.action')
+                  : t('restart.panelResolverAction')}
+            </button>
+          </div>
         </div>
       {/if}
 
