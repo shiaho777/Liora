@@ -524,6 +524,7 @@ export function createMockBackend(): MockBackend {
       if (p.values) Object.assign(state.settings, p.values);
       else set(p.key, p.value);
       persist();
+      queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return { ok: true };
     },
     'settings.reset': (p) => {
@@ -612,6 +613,7 @@ export function createMockBackend(): MockBackend {
       }
       state.rules.push(rule);
       persist();
+      queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return rule;
     },
     'rules.update': (p) => {
@@ -619,17 +621,20 @@ export function createMockBackend(): MockBackend {
       if (index < 0) throw { code: -32002, message: '规则不存在' };
       state.rules[index] = { ...state.rules[index], ...p, domains: p.domains ?? state.rules[index].domains };
       persist();
+      queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return state.rules[index];
     },
     'rules.remove': (p) => {
       state.rules = state.rules.filter((r) => r.id !== p.id);
       persist();
+      queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return { ok: true };
     },
     'rules.enable': (p) => {
       const rule = state.rules.find((r) => r.id === p.id);
       if (rule) rule.enabled = p.enabled !== false;
       persist();
+      queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return { ok: true };
     },
     'rules.match': (p) => {

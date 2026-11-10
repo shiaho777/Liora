@@ -185,12 +185,12 @@ NSString* jsonEscape(id object) {
 
   // Verification hooks for the command bridge. Several commands allow a test
   // to open a screen, act, then dump the resulting state.
-  const char* commandEnvs[] = {"LIORA_TEST_COMMAND", "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3",
-                               "LIORA_TEST_COMMAND4", "LIORA_TEST_COMMAND5"};
-  const char* delayEnvs[] = {"LIORA_TEST_COMMAND_DELAY_MS", "LIORA_TEST_COMMAND2_DELAY_MS",
+  const char* commandEnvs[] = {"LIORA_TEST_COMMAND",  "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3",
+                               "LIORA_TEST_COMMAND4", "LIORA_TEST_COMMAND5", "LIORA_TEST_COMMAND6"};
+  const char* delayEnvs[] = {"LIORA_TEST_COMMAND_DELAY_MS",  "LIORA_TEST_COMMAND2_DELAY_MS",
                              "LIORA_TEST_COMMAND3_DELAY_MS", "LIORA_TEST_COMMAND4_DELAY_MS",
-                             "LIORA_TEST_COMMAND5_DELAY_MS"};
-  for (int index = 0; index < 5; ++index) {
+                             "LIORA_TEST_COMMAND5_DELAY_MS", "LIORA_TEST_COMMAND6_DELAY_MS"};
+  for (int index = 0; index < 6; ++index) {
     const char* command = getenv(commandEnvs[index]);
     if (!command || !*command) continue;
     NSString* name = ns(command);

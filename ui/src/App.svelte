@@ -17,6 +17,7 @@
     type DownloadRecord,
   } from './lib/downloads.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
+  import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
   import { call, describeSettings, notify, onNotification } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
 
@@ -68,6 +69,7 @@
       sessionReady = true;
       await loadBookmarks();
       await loadDownloadHistory();
+      void refreshNetworkStatus();
     })
     .catch((error) => toast(String(error?.message ?? error), 'error'));
 
@@ -129,7 +131,27 @@
 
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
+  let networkTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Network settings can change from the DNS panel, the rules list or a
+  // restart. Refresh the global "unapplied changes" state shortly afterwards.
+  function scheduleNetworkStatus(): void {
+    clearTimeout(networkTimer);
+    networkTimer = setTimeout(() => {
+      void refreshNetworkStatus();
+    }, 300);
+  }
+
   onNotification((message) => {
+    if (
+      message.method === 'settings.changed' ||
+      message.method === 'net.rulesChanged' ||
+      message.method === 'net.runtimeChanged' ||
+      message.method === 'browser.kernelRestarted' ||
+      message.method === 'core.reloaded'
+    ) {
+      scheduleNetworkStatus();
+    }
     if (message.method === 'browser.runtime' && message.params) {
       const params = message.params as { codeSigning?: string; cefStatus?: string };
       app.runtime = {
@@ -315,6 +337,24 @@
             button.textContent?.includes('重启'),
           );
           restart?.click();
+          break;
+        }
+        case 'leavepage': {
+          const appearance = [...document.querySelectorAll<HTMLElement>('.nav-item')].find(
+            (item) => item.textContent.trim() === '外观',
+          );
+          appearance?.click();
+          break;
+        }
+        case 'opendnsrestart': {
+          const chip = document.querySelector<HTMLElement>('.network-pending');
+          chip?.click();
+          setTimeout(() => {
+            const restart = [...document.querySelectorAll('button')].find((button) =>
+              button.textContent?.includes('重启'),
+            );
+            restart?.click();
+          }, 1500);
           break;
         }
         case 'pagedump': {
@@ -628,6 +668,16 @@
       </form>
 
       <div class="toolbar__group">
+        {#if networkPending()}
+          <button
+            class="network-pending"
+            title={t('network.pendingHint')}
+            onclick={() => openSettings('dns')}
+          >
+            <span class="dot"></span>
+            {t('network.pending')}
+          </button>
+        {/if}
         <button
           class="icon-button"
           class:icon-button--active={downloads.open}

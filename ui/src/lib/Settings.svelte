@@ -3,6 +3,7 @@
   import { app, toast, updateSetting } from './state.svelte';
   import { loadSettings } from './settings-store.svelte';
   import { setLocale, t } from './i18n.svelte';
+  import { networkPending } from './network-status.svelte';
 
   import Appearance from './panels/Appearance.svelte';
   import SearchPanel from './panels/Search.svelte';
@@ -73,6 +74,9 @@
       >
         <Icon name={section.icon} size={14} />
         {t(section.label)}
+        {#if section.id === 'dns' && networkPending()}
+          <span class="nav-badge">{t('network.navBadge')}</span>
+        {/if}
       </button>
     {/each}
 
@@ -127,6 +131,16 @@
 </div>
 
 <style>
+  .nav-badge {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: 10px;
+    font-weight: 600;
+  }
+
   .mode-hint {
     padding: 10px 8px 4px;
     border-top: 1px solid var(--border);
