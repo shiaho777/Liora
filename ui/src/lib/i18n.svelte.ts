@@ -21,6 +21,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'bookmarks.bar': '书签栏',
     'bookmarks.added': '已加入书签',
     'bookmarks.removed': '已移除书签',
+    'history.clear': '清空历史',
 
     'settings.title': '设置',
     'settings.lede': '大多数事情不需要设置。这里放的是你真正会改动的那部分。',
@@ -206,6 +207,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'bookmarks.bar': 'Bookmarks bar',
     'bookmarks.added': 'Bookmarked',
     'bookmarks.removed': 'Bookmark removed',
+    'history.clear': 'Clear history',
 
     'settings.title': 'Settings',
     'settings.lede': 'Most things need no configuration. This is the part you will actually change.',

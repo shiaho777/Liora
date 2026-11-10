@@ -6,6 +6,9 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/WebKit.h>
 
+#include <fcntl.h>
+#include <sys/file.h>
+
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -543,8 +546,7 @@ NSString* jsonEscape(id object) {
     return;
   }
 
-  if ([method isEqualToString:@"ui.navigate"]) {
-    NSString* url = params[@"url"];
+  if ([method isEqualToString:@"ui.navigate"]) {    NSString* url = params[@"url"];
     if (!url.length) return;
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
     self.activeTab = tab;
@@ -553,6 +555,14 @@ NSString* jsonEscape(id object) {
     if (!view) return;
     [self layoutContent];
     view->load(stdString(url));
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.setZoom"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    double percent = [params[@"percent"] doubleValue];
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (view) view->setZoom(percent > 0 ? percent : 100);
     return;
   }
 
@@ -665,6 +675,23 @@ int main(int argc, const char* argv[]) {
     int code = liora::cef::executeProcess(argc, const_cast<char**>(argv));
     if (code >= 0) return code;
 #endif
+    // One browser process per profile. A lock file works even when the app is
+    // started from a terminal, where LaunchServices has no registration.
+    std::string lockPath =
+        liora::pathToUtf8(liora::paths::dataRoot() / "instance.lock");
+    std::error_code lockError;
+    std::filesystem::create_directories(liora::paths::dataRoot(), lockError);
+    static int instanceLock = open(lockPath.c_str(), O_CREAT | O_RDWR, 0600);
+    if (instanceLock >= 0 && flock(instanceLock, LOCK_EX | LOCK_NB) != 0) {
+      NSString* bundleId = [[NSBundle mainBundle] bundleIdentifier];
+      for (NSRunningApplication* other in
+               [NSRunningApplication runningApplicationsWithBundleIdentifier:bundleId]) {
+        [other activateWithOptions:0];
+      }
+      NSLog(@"Liora: another instance is already running");
+      return 0;
+    }
+
     NSApplication* app = [NSApplication sharedApplication];
     g_controller = [[LioraController alloc] init];
     app.delegate = g_controller;

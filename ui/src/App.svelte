@@ -239,6 +239,27 @@
     addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
   }
 
+  // Zoom is remembered per site, matching the settings model.
+  function siteOf(url: string): string {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return '';
+    }
+  }
+
+  async function changeZoom(delta: number): Promise<void> {
+    if (active.page !== 'web') return;
+    const site = siteOf(active.url);
+    const current = Number(
+      (await call<Record<string, number>>('settings.get', { key: 'content.zoom', site }))['content.zoom'] ?? 100,
+    );
+    const next = delta === 0 ? 100 : Math.min(500, Math.max(25, current + delta));
+    await call('settings.set', { key: 'content.zoom', value: next, site });
+    notify('ui.setZoom', { tab: activeId, percent: next });
+    toast(`${next}%`);
+  }
+
   // The shortcuts a browser must have before anything else.
   function onKeydown(event: KeyboardEvent): void {
     const mod = event.metaKey || event.ctrlKey;
@@ -269,6 +290,21 @@
     if (key === 'd') {
       event.preventDefault();
       void toggleBookmark();
+      return;
+    }
+    if (event.key === '=' || event.key === '+') {
+      event.preventDefault();
+      void changeZoom(10);
+      return;
+    }
+    if (event.key === '-') {
+      event.preventDefault();
+      void changeZoom(-10);
+      return;
+    }
+    if (event.key === '0') {
+      event.preventDefault();
+      void changeZoom(0);
       return;
     }
     if (key === 'tab') {
@@ -393,7 +429,7 @@
     </div>
 
     <div class="bookmarksbar">
-      <button class="bookmark-chip" onclick={() => openPage('bookmarks')}>
+      <button class="bookmark-chip" onclick={() => navigate('liora://bookmarks')}>
         <Icon name="star" size={12} />
         {t('bookmarks.bar')}
       </button>
@@ -402,7 +438,7 @@
           {entry.title}
         </button>
       {/each}
-      <button class="bookmark-chip" onclick={() => openPage('history')}>
+      <button class="bookmark-chip" onclick={() => navigate('liora://history')}>
         <Icon name="history" size={12} />
         {t('nav.history')}
       </button>
@@ -410,7 +446,7 @@
 
     <div class="content" class:content--native={active.page === 'web'} bind:this={contentEl}>
       {#if active.page === 'newtab'}
-        <NewTab onnavigate={(url) => navigate(url)} onopen={(page) => openPage(page as never)} />
+        <NewTab onnavigate={(url) => navigate(url)} onopen={(page) => navigate(`liora://${page}`)} />
       {:else if active.page === 'settings'}
         <Settings />
       {:else if active.page === 'bookmarks' || active.page === 'history'}

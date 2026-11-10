@@ -35,7 +35,11 @@
     try {
       if (kind === 'bookmarks') {
         const roots = await call<Record<string, BookmarkNode>>('bookmarks.tree');
-        tree = roots.other ?? roots.bar ?? null;
+        // Show every bookmark, not just one root folder.
+        const children = [roots.bar, roots.other, roots.mobile]
+          .filter(Boolean)
+          .flatMap((root) => root.children ?? []);
+        tree = { id: 0, type: 'folder', title: '', children };
       } else {
         history = await call<HistoryItem[]>('history.search', { query, limit: 200 });
       }
@@ -63,6 +67,21 @@
   }
 
   let items = $derived(flatten(tree));
+
+  async function removeHistory(url: string): Promise<void> {
+    await call('history.remove', { url });
+    history = history.filter((item) => item.url !== url);
+  }
+
+  async function clearHistory(): Promise<void> {
+    await call('history.clear', {});
+    history = [];
+  }
+
+  async function removeBookmark(id: number): Promise<void> {
+    await call('bookmarks.remove', { id });
+    await load();
+  }
 
   function when(ms: number): string {
     if (!ms) return '';
@@ -101,6 +120,9 @@
           placeholder={t('address.placeholder')}
         />
       {/if}
+      {#if kind === 'history'}
+        <button class="button button--sm" onclick={clearHistory}>{t('history.clear')}</button>
+      {/if}
       <button class="icon-button" title={t('nav.reload')} onclick={() => load()}>
         <Icon name="refresh" />
       </button>
@@ -115,27 +137,69 @@
         <div class="empty">{t('rules.empty')}</div>
       {:else}
         {#each items as item (item.id)}
-          <button class="entry" onclick={() => item.url && onnavigate?.(item.url)}>
+          <div
+            class="entry"
+            role="button"
+            tabindex="0"
+            onclick={() => item.url && onnavigate?.(item.url)}
+            onkeydown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                item.url && onnavigate?.(item.url);
+              }
+            }}
+          >
             <span class="entry__icon"><Icon name="star" size={12} /></span>
             <span class="entry__main">
               <span class="entry__title">{item.title || item.url}</span>
               <span class="entry__url mono">{item.url}</span>
             </span>
-          </button>
+            <button
+              class="icon-button"
+              title={t('rules.delete')}
+              onclick={(event) => {
+                event.stopPropagation();
+                void removeBookmark(item.id);
+              }}
+            >
+              <Icon name="trash" size={14} />
+            </button>
+          </div>
         {/each}
       {/if}
     {:else if history.length === 0}
       <div class="empty">{t('data.backup.empty')}</div>
     {:else}
       {#each history as item (item.url)}
-        <button class="entry" onclick={() => onnavigate?.(item.url)}>
+        <div
+          class="entry"
+          role="button"
+          tabindex="0"
+          onclick={() => onnavigate?.(item.url)}
+          onkeydown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onnavigate?.(item.url);
+            }
+          }}
+        >
           <span class="entry__icon"><Icon name="globe" size={12} /></span>
           <span class="entry__main">
             <span class="entry__title">{item.title || host(item.url)}</span>
             <span class="entry__url mono">{item.url}</span>
           </span>
           <span class="entry__time">{when(item.lastVisit)}</span>
-        </button>
+          <button
+            class="icon-button"
+            title={t('rules.delete')}
+            onclick={(event) => {
+              event.stopPropagation();
+              void removeHistory(item.url);
+            }}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        </div>
       {/each}
     {/if}
   </div>
@@ -195,6 +259,7 @@
     padding: 9px 10px;
     border-radius: var(--radius-sm);
     text-align: left;
+    cursor: pointer;
   }
 
   .entry:hover {

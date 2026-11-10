@@ -313,6 +313,7 @@ export function createMockBackend(): MockBackend {
     rules: Rule[];
     installed: Array<{ id: string; version: string; path: string; installedAt: number; current: boolean }>;
     bookmarks: Array<{ id: number; title: string; url: string }>;
+    history: Array<{ url: string; title: string; visitCount: number; lastVisit: number }>;
   } = stored
     ? JSON.parse(stored)
     : {
@@ -324,10 +325,22 @@ export function createMockBackend(): MockBackend {
           { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
           { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
         ],
+        history: [
+          { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
+          { url: 'https://developer.mozilla.org', title: 'MDN Web Docs', visitCount: 9, lastVisit: Date.now() - 86400000 },
+          { url: 'https://www.chromium.org', title: 'Chromium', visitCount: 5, lastVisit: Date.now() - 172800000 },
+          { url: 'https://github.com', title: 'GitHub', visitCount: 4, lastVisit: Date.now() - 259200000 },
+        ],
       };
   state.bookmarks ??= [
     { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
     { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
+  ];
+  state.history ??= [
+    { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
+    { url: 'https://developer.mozilla.org', title: 'MDN Web Docs', visitCount: 9, lastVisit: Date.now() - 86400000 },
+    { url: 'https://www.chromium.org', title: 'Chromium', visitCount: 5, lastVisit: Date.now() - 172800000 },
+    { url: 'https://github.com', title: 'GitHub', visitCount: 4, lastVisit: Date.now() - 259200000 },
   ];
 
   if (state.rules.length === 0) {
@@ -359,6 +372,7 @@ export function createMockBackend(): MockBackend {
         rules: state.rules,
         installed: state.installed,
         bookmarks: state.bookmarks,
+        history: state.history,
       }),
     );
   };
@@ -699,14 +713,25 @@ export function createMockBackend(): MockBackend {
       localStorage.removeItem('liora.mock.session');
       return { ok: true };
     },
-    'history.top': () => [
-      { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
-      { url: 'https://developer.mozilla.org', title: 'MDN Web Docs', visitCount: 9, lastVisit: Date.now() - 86400000 },
-      { url: 'https://www.chromium.org', title: 'Chromium', visitCount: 5, lastVisit: Date.now() - 172800000 },
-      { url: 'https://github.com', title: 'GitHub', visitCount: 4, lastVisit: Date.now() - 259200000 },
-    ],
+    'history.top': () => state.history.slice(0, 8),
     'history.suggest': () => [],
-    'history.search': () => [],
+    'history.search': (p) => {
+      const query = String(p.query ?? '').toLowerCase();
+      const limit = Number(p.limit ?? 100);
+      return state.history
+        .filter((item) => !query || item.url.toLowerCase().includes(query) || item.title.toLowerCase().includes(query))
+        .slice(0, limit);
+    },
+    'history.remove': (p) => {
+      state.history = state.history.filter((item) => item.url !== p.url);
+      persist();
+      return { ok: true };
+    },
+    'history.clear': () => {
+      state.history = [];
+      persist();
+      return { ok: true };
+    },
 
     'backup.list': () => [],
     'backup.now': () => ({ path: 'mock/backups/manual.liora' }),
