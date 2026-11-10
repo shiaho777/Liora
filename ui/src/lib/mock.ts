@@ -585,6 +585,7 @@ export function createMockBackend(): MockBackend {
     'net.plan': () => netPlan(),
     'net.forHost': (p) => methods['rules.match'](p),
     'net.runtime': () => ({ running: true, dohPort: 5399, proxyPort: 5400, spki: 'mock' }),
+    'dns.plan': () => netPlan().dns,
 
     'kernels.list': () => [
       {
@@ -621,7 +622,6 @@ export function createMockBackend(): MockBackend {
       usesNet: netPlan().needsNet,
       netMissing: false,
     }),
-
     'components.catalog': () => [
       {
         id: 'kernel-cef',

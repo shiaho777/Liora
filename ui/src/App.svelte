@@ -21,6 +21,7 @@
   let addressValue = $state('');
   let addressFocused = $state(false);
   let contentEl = $state<HTMLDivElement | null>(null);
+  let addressEl = $state<HTMLInputElement | null>(null);
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -156,7 +157,52 @@
     addressFocused = false;
     addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
   }
+
+  // The shortcuts a browser must have before anything else.
+  function onKeydown(event: KeyboardEvent): void {
+    const mod = event.metaKey || event.ctrlKey;
+    if (!mod) return;
+    const key = event.key.toLowerCase();
+
+    if (key === 'l') {
+      event.preventDefault();
+      addressEl?.focus();
+      addressEl?.select();
+      return;
+    }
+    if (key === 't') {
+      event.preventDefault();
+      newTab();
+      return;
+    }
+    if (key === 'w') {
+      event.preventDefault();
+      closeTab(activeId);
+      return;
+    }
+    if (key === 'r') {
+      event.preventDefault();
+      navigate(active.url);
+      return;
+    }
+    if (key === 'tab') {
+      event.preventDefault();
+      const index = tabs.findIndex((tab) => tab.id === activeId);
+      const next = (index + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length;
+      activeId = tabs[next].id;
+      return;
+    }
+    if (/^[1-9]$/.test(key)) {
+      const index = Number(key) - 1;
+      if (index < tabs.length) {
+        event.preventDefault();
+        activeId = tabs[index].id;
+      }
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if !app.ready}
   <div class="boot">
@@ -239,7 +285,8 @@
         </span>
         <input
           class="address__input"
-          value={addressValue}
+          bind:this={addressEl}
+          bind:value={addressValue}
           oninput={(event) => (addressValue = (event.target as HTMLInputElement).value)}
           onfocus={onAddressFocus}
           onblur={onAddressBlur}

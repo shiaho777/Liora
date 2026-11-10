@@ -336,6 +336,8 @@ NSString* jsonEscape(id object) {
   runtime.proxyPort = static_cast<uint16_t>(self.netService.proxyPort);
   runtime.spki = stdString(self.netService.spki);
   if (_core) _core->setNetRuntime(runtime);
+  NSLog(@"Liora: resolver runtime running=%d doh=%u proxy=%u", (int)runtime.running,
+        (unsigned)runtime.dohPort, (unsigned)runtime.proxyPort);
 }
 
 - (void)applyProxyPort:(int)port {

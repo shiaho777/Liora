@@ -45,10 +45,25 @@
     endpoint: { name: string; protocol: string; address: string } | null;
   }
 
+  interface Runtime {
+    running: boolean;
+    dohPort: number;
+    proxyPort: number;
+  }
+
+  interface KernelSetup {
+    kernel: string;
+    usesNet: boolean;
+    netMissing: boolean;
+    unsupported: string[];
+  }
+
   let categories = $state<Category[]>([]);
   let providers = $state<Provider[]>([]);
   let custom = $state<CustomDns[]>([]);
   let active = $state<ActivePlan | null>(null);
+  let runtime = $state<Runtime | null>(null);
+  let setup = $state<KernelSetup | null>(null);
   let category = $state('all');
   let loading = $state(true);
 
@@ -95,15 +110,22 @@
   }
 
   async function refreshPlan(): Promise<void> {
-    try {
-      active = await call<ActivePlan>('dns.plan');
-    } catch {
-      /* the plan is informational; failure must not block the panel */
-    }
+    const [plan, current, kernelSetup] = await Promise.allSettled([
+      call<ActivePlan>('dns.plan'),
+      call<Runtime>('net.runtime'),
+      call<KernelSetup>('kernels.setup', {}),
+    ]);
+    if (plan.status === 'fulfilled') active = plan.value;
+    if (current.status === 'fulfilled') runtime = current.value;
+    if (kernelSetup.status === 'fulfilled') setup = kernelSetup.value;
   }
 
   $effect(() => {
     void load();
+  });
+
+  $effect(() => {
+    void refreshPlan();
   });
 
   const allVariants = $derived(
@@ -120,12 +142,25 @@
 
   const selectedVariant = $derived(allVariants.find((variant) => variant.id === providerId));
 
+  const needsResolver = $derived(Boolean(active?.needsNet || setup?.usesNet || setup?.netMissing));
+  const resolverMissing = $derived(needsResolver && runtime?.running === false);
+
   const status = $derived.by(() => {
     if (mode === 'off') return { kind: 'muted', text: t('dns.status.system') };
-    if (active?.needsNet && protocol !== 'doh') return { kind: 'warning', text: t('dns.status.needsNet') };
+    if (resolverMissing) return { kind: 'warning', text: t('dns.status.resolverDown') };
     if (mode === 'auto') return { kind: 'muted', text: t('dns.status.auto') };
     return { kind: 'success', text: t('dns.status.secure') };
   });
+
+  function capLabel(cap: string): string {
+    const labels: Record<string, string> = {
+      ech: 'ECH',
+      forceQuic: t('kernels.cap.forceQuic'),
+      httpsRecords: t('kernels.cap.httpsRecords'),
+      dns: t('nav.dns'),
+    };
+    return labels[cap] ?? cap;
+  }
 
   async function chooseMode(next: string): Promise<void> {
     await set('dns.mode', next);
@@ -219,6 +254,28 @@
               {mode === 'auto' ? t('dns.mode.auto.desc') : mode === 'off' ? t('dns.mode.off.desc') : active?.summary}
             </div>
           </div>
+        </div>
+      {/if}
+
+      {#if runtime?.running}
+        <div class="cluster" style:margin-top="10px">
+          <span class="badge badge--success">
+            <span class="dot"></span>
+            {t('dns.runtime.running')}
+          </span>
+          <span class="mono muted">DoH :{runtime.dohPort} · {t('dns.runtime.proxy')} :{runtime.proxyPort}</span>
+        </div>
+      {:else if resolverMissing}
+        <div class="callout callout--warning" style:margin-top="10px">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span>{t('dns.status.resolverDownHint')}</span>
+        </div>
+      {/if}
+
+      {#if setup && setup.unsupported.length > 0}
+        <div class="callout" style:margin-top="10px">
+          <span class="callout__icon"><Icon name="info" size={14} /></span>
+          <span>{t('dns.unsupported')}: {setup.unsupported.map(capLabel).join('、')}</span>
         </div>
       {/if}
 

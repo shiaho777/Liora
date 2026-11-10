@@ -91,6 +91,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'dns.status.auto': '自动（内核支持时升级为加密）',
     'dns.status.system': '使用系统解析',
     'dns.status.needsNet': '需要 liora-net 才能使用 DoT / DoQ',
+    'dns.status.resolverDown': '本地解析器未运行',
+    'dns.status.resolverDownHint': '当前设置需要本地解析器，但它没有运行。检查应用日志中的 liora-net 记录。',
+    'dns.runtime.running': '本地解析器运行中',
+    'dns.runtime.proxy': '代理',
+    'dns.unsupported': '当前内核不支持',
     'dns.installNet': '安装 liora-net',
     'dns.probe': '测试连接',
 
@@ -269,6 +274,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'dns.status.auto': 'Automatic (encrypted when the kernel supports it)',
     'dns.status.system': 'Using the system resolver',
     'dns.status.needsNet': 'DoT and DoQ need liora-net',
+    'dns.status.resolverDown': 'The local resolver is not running',
+    'dns.status.resolverDownHint': 'These settings need the local resolver, but it is not running. Check the liora-net entries in the application log.',
+    'dns.runtime.running': 'Local resolver running',
+    'dns.runtime.proxy': 'Proxy',
+    'dns.unsupported': 'Not supported by this kernel',
     'dns.installNet': 'Install liora-net',
     'dns.probe': 'Test connection',
 
