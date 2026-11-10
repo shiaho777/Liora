@@ -799,6 +799,16 @@ NSString* jsonEscape(id object) {
   // target="_blank" opens in the same view for now; real tabs arrive with the
   // tab model in the interface.
   events.onOpenWindow = [](const std::string&, bool) { return false; };
+  // A kernel may create its native view asynchronously (CEF). Lay out again
+  // once it exists so a newly opened tab cannot cover the toolbar.
+  events.onReady = [weakSelf]() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf layoutContent];
+      // Adding an async native view above the WebView can leave the toolbar
+      // unpainted until the next tab change; ask AppKit to redraw it once.
+      weakSelf.ui.needsDisplay = YES;
+    });
+  };
 
   auto view = kernel->createView(options, std::move(events));
   if (!view) return nullptr;

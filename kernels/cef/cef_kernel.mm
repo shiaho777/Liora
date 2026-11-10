@@ -193,6 +193,7 @@ class KernelClient : public CefClient,
     CEF_REQUIRE_UI_THREAD();
     browser_ = browser;
     if (onCreated) onCreated();
+    if (bridge_ && bridge_->alive && bridge_->events.onReady) bridge_->events.onReady();
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {

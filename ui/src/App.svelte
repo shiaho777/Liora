@@ -524,6 +524,18 @@
           document.querySelector<HTMLElement>('.recent__item[data-kind="timeline"]')?.click();
           break;
         }
+        case 'tab1': {
+          document.querySelectorAll<HTMLElement>('.tab')[0]?.click();
+          break;
+        }
+        case 'tab2': {
+          document.querySelectorAll<HTMLElement>('.tab')[1]?.click();
+          break;
+        }
+        case 'tab3': {
+          document.querySelectorAll<HTMLElement>('.tab')[2]?.click();
+          break;
+        }
         case 'cefdownload': {
           const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
             item.textContent?.includes('Chromium (CEF)'),

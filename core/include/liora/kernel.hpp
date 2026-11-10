@@ -134,6 +134,9 @@ struct ViewEvents {
   std::function<void(const DownloadEvent& event)> onDownload;
   // TLS details for the page that just loaded.
   std::function<void(const SecurityInfo& info)> onSecurity;
+  // The kernel view is now attached and can be laid out. Kernels that create
+  // their native view asynchronously use this to request a fresh layout.
+  std::function<void()> onReady;
 };
 
 class IKernelView {
