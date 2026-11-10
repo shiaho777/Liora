@@ -26,6 +26,13 @@
 
 兼容模式仅用于本地开发/验证。正式分发应使用 Apple 签名并关闭该选项。
 
+## 失败页、下载与弹窗
+
+- `OnLoadError` 把 Chromium net error 映射为界面认识的 NSURLError 码（例如 `ERR_NAME_NOT_RESOLVED` → `-1003`、证书错误 → `-1202`），交给现有错误页显示，不再留下空白视图。
+- `CefDownloadHandler` 把附件保存到 `downloads.dir`（默认下载目录，重名自动编号；`downloads.ask` 打开时询问位置），进度与完成事件复用现有下载页、历史记录与 toast。
+- `target="_blank"` 暂时通过 `OnBeforePopup` 在当前视图打开；完整的标签模型接入后再改成新标签。
+- 单进程兼容模式下同样支持下载与错误页；DoH/代理仍不会启用。
+
 ## 启动顺序修复
 
 `ui.navigate` 可能在 `OnAfterCreated` 之前请求 URL。视图现在会缓存待加载 URL、尺寸与可见性，并在浏览器创建后一次性应用；否则 CEF 首次导航会被丢弃，表现为空白页。

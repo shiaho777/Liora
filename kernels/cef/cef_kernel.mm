@@ -9,6 +9,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_download_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_version.h"
@@ -17,6 +18,62 @@
 
 namespace liora::cef {
 namespace {
+
+// Maps Chromium net errors onto the NSURLErrorDomain codes the interface
+// already explains. 0 means the failure should be ignored (navigation replaced).
+int nsErrorForCef(int code) {
+  switch (code) {
+    case ERR_ABORTED:
+      return 0;
+    case ERR_NAME_NOT_RESOLVED:
+      return -1003;
+    case ERR_CONNECTION_REFUSED:
+      return -1004;
+    case ERR_CONNECTION_RESET:
+    case ERR_CONNECTION_CLOSED:
+    case ERR_CONNECTION_ABORTED:
+      return -1005;
+    case ERR_INTERNET_DISCONNECTED:
+      return -1009;
+    case ERR_TIMED_OUT:
+      return -1001;
+    case ERR_CERT_DATE_INVALID:
+      return -1201;
+    case ERR_CERT_AUTHORITY_INVALID:
+    case ERR_CERT_COMMON_NAME_INVALID:
+    case ERR_CERT_INVALID:
+      return -1202;
+    case ERR_SSL_PROTOCOL_ERROR:
+      return -1200;
+    default:
+      return -1005;
+  }
+}
+
+NSString* defaultDownloadDirectory() {
+  NSString* dir = [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES)
+      firstObject];
+  return dir.length ? dir : NSTemporaryDirectory();
+}
+
+NSString* nsFromCef(const CefString& value) {
+  return [NSString stringWithUTF8String:value.ToString().c_str()] ?: @"";
+}
+
+NSURL* uniqueFileURL(NSURL* url) {
+  NSFileManager* files = [NSFileManager defaultManager];
+  if (![files fileExistsAtPath:url.path]) return url;
+  NSString* directory = url.URLByDeletingLastPathComponent.path;
+  NSString* name = url.lastPathComponent.stringByDeletingPathExtension;
+  NSString* ext = url.pathExtension;
+  for (int i = 1; i < 1000; ++i) {
+    NSString* candidate = [NSString
+        stringWithFormat:@"%@ (%d)%@", name, i, ext.length ? [@"." stringByAppendingString:ext] : @""];
+    NSURL* next = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:candidate]];
+    if (![files fileExistsAtPath:next.path]) return next;
+  }
+  return url;
+}
 
 // Shared with the client so callbacks never touch a destroyed view.
 struct Bridge {
@@ -34,12 +91,103 @@ void fireUrl(const std::shared_ptr<Bridge>& bridge, const std::string& url) {
   if (bridge && bridge->alive && bridge->events.onUrl) bridge->events.onUrl(url);
 }
 
-class KernelClient : public CefClient, public CefLifeSpanHandler, public CefLoadHandler {
+class KernelClient : public CefClient,
+                     public CefLifeSpanHandler,
+                     public CefLoadHandler,
+                     public CefDownloadHandler {
  public:
-  explicit KernelClient(std::shared_ptr<Bridge> bridge) : bridge_(std::move(bridge)) {}
+  KernelClient(std::shared_ptr<Bridge> bridge, const ViewOptions& options)
+      : bridge_(std::move(bridge)), options_(options) {}
 
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+
+  // target="_blank": keep the popup in the same view until the shell owns a
+  // full tab model for kernel-created windows.
+  bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
+                     CefRefPtr<CefFrame> frame,
+                     int popup_id,
+                     const CefString& target_url,
+                     const CefString& target_frame_name,
+                     WindowOpenDisposition target_disposition,
+                     bool user_gesture,
+                     const CefPopupFeatures& popup_features,
+                     CefWindowInfo& window_info,
+                     CefRefPtr<CefClient>& client,
+                     CefBrowserSettings& settings,
+                     CefRefPtr<CefDictionaryValue>& extra_info,
+                     bool* no_javascript_access) override {
+    if (!frame || target_url.empty()) return false;
+    frame->LoadURL(target_url);
+    return true;
+  }
+
+  bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,
+                        CefRefPtr<CefDownloadItem> item,
+                        const CefString& suggested_name,
+                        CefRefPtr<CefBeforeDownloadCallback> callback) override {
+    if (!item || !callback) return false;
+
+    NSString* directory = options_.downloadDir.empty()
+                              ? defaultDownloadDirectory()
+                              : [NSString stringWithUTF8String:options_.downloadDir.c_str()];
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    NSString* name = suggested_name.empty() ? @"download" : nsFromCef(suggested_name);
+    NSURL* target = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:name]];
+
+    if (options_.askWhereToSave) {
+      NSSavePanel* panel = [NSSavePanel savePanel];
+      panel.nameFieldStringValue = target.lastPathComponent;
+      panel.directoryURL = [NSURL fileURLWithPath:directory];
+      if ([panel runModal] != NSModalResponseOK || !panel.URL) {
+        callback->Continue("", false);
+        return true;
+      }
+      target = panel.URL;
+    } else {
+      target = uniqueFileURL(target);
+    }
+
+    callback->Continue(std::string(target.path.UTF8String), false);
+    if (bridge_ && bridge_->alive && bridge_->events.onDownload) {
+      DownloadEvent event;
+      event.id = std::to_string(item->GetId());
+      event.filename = std::string(target.lastPathComponent.UTF8String);
+      event.path = std::string(target.path.UTF8String);
+      event.tab = options_.tab;
+      event.total = item->GetTotalBytes();
+      event.state = DownloadState::kStarted;
+      bridge_->events.onDownload(event);
+    }
+    return true;
+  }
+
+  void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefDownloadItem> item,
+                         CefRefPtr<CefDownloadItemCallback> callback) override {
+    if (!item || !bridge_ || !bridge_->alive || !bridge_->events.onDownload) return;
+
+    DownloadEvent event;
+    event.id = std::to_string(item->GetId());
+    event.path = item->GetFullPath().ToString();
+    event.filename = item->GetSuggestedFileName().ToString();
+    event.tab = options_.tab;
+    event.received = item->GetReceivedBytes();
+    event.total = item->GetTotalBytes();
+    if (item->IsComplete()) {
+      event.state = DownloadState::kFinished;
+    } else if (item->IsCanceled()) {
+      event.state = DownloadState::kFailed;
+      event.error = "canceled";
+    } else {
+      event.state = DownloadState::kProgress;
+    }
+    bridge_->events.onDownload(event);
+  }
 
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
@@ -72,9 +220,11 @@ class KernelClient : public CefClient, public CefLifeSpanHandler, public CefLoad
                    ErrorCode errorCode, const CefString& errorText,
                    const CefString& failedUrl) override {
     if (!frame || !frame->IsMain()) return;
-    NSLog(@"Liora: CEF load error %d %s", static_cast<int>(errorCode),
-          failedUrl.ToString().c_str());
     fireLoading(bridge_, false, 0.0);
+    const int mapped = nsErrorForCef(static_cast<int>(errorCode));
+    if (mapped != 0 && bridge_ && bridge_->alive && bridge_->events.onError) {
+      bridge_->events.onError(failedUrl.ToString(), mapped, errorText.ToString());
+    }
   }
 
   CefRefPtr<CefBrowser> browser() const { return browser_; }
@@ -85,6 +235,7 @@ class KernelClient : public CefClient, public CefLifeSpanHandler, public CefLoad
 
  private:
   std::shared_ptr<Bridge> bridge_;
+  ViewOptions options_;
   CefRefPtr<CefBrowser> browser_;
 
   IMPLEMENT_REFCOUNTING(KernelClient);
@@ -95,7 +246,7 @@ class CefView final : public IKernelView {
   CefView(const ViewOptions& options, ViewEvents events) {
     bridge_ = std::make_shared<Bridge>();
     bridge_->events = std::move(events);
-    client_ = new KernelClient(bridge_);
+    client_ = new KernelClient(bridge_, options);
     client_->onCreated = [this]() {
       flushPendingState();
       flushPendingUrl();
