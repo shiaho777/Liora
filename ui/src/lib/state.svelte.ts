@@ -44,7 +44,7 @@ export function toast(
   setTimeout(() => {
     const index = app.toasts.findIndex((item) => item.id === id);
     if (index >= 0) app.toasts.splice(index, 1);
-  }, action ? 6000 : kind === 'error' ? 5200 : 2600);
+  }, action ? 8000 : kind === 'error' ? 5200 : 2600);
 }
 
 function applyAppearance(): void {

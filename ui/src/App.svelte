@@ -284,8 +284,24 @@
       return;
     }
     if (message.method === 'browser.download' && message.params) {
-      const params = message.params as { id: string; tab?: number };
+      const params = message.params as {
+        id: string;
+        tab?: number;
+        state?: string;
+        path?: string;
+        filename?: string;
+      };
       handleDownloadEvent(params as never);
+      if (params.state === 'finished') {
+        const path = params.path ?? '';
+        const name = path.split('/').pop() || params.filename || '';
+        const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+        toast(
+          t('downloads.saved', { name }),
+          'info',
+          directory ? { label: t('downloads.reveal'), path: directory } : undefined,
+        );
+      }
       const tab = tabs.find((entry) => entry.id === Number(params.tab));
       const item = downloads.items.find((entry) => entry.id === params.id);
       if (tab && item) {
