@@ -153,6 +153,7 @@ void Core::registerCoreMethods() {
   rpc_.setNamespaceDescription("history", "Browsing history");
   rpc_.setNamespaceDescription("backup", "Backups");
   rpc_.setNamespaceDescription("migrate", "Importing data from other browsers");
+  rpc_.setNamespaceDescription("session", "Tabs restored on the next start");
   rpc_.setNamespaceDescription("kernels", "Browser kernels");
   rpc_.setNamespaceDescription("components", "Downloadable components");
 

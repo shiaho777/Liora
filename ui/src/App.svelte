@@ -4,7 +4,7 @@
   import Settings from './lib/Settings.svelte';
   import Library from './lib/Library.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
-  import { describeSettings, notify } from './lib/bridge';
+  import { call, describeSettings, notify } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
 
   interface Tab {
@@ -36,14 +36,83 @@
     sogou: 'https://www.sogou.com/web?query=',
   };
   let searchEngine = $state('duckduckgo');
+  let bookmarks = $state<Array<{ id: number; title: string; url: string }>>([]);
+  let sessionReady = $state(false);
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   boot()
     .then(async () => {
       const description = await describeSettings();
       const engine = description.items.find((item) => item.key === 'search.engine');
       if (engine && typeof engine.value === 'string') searchEngine = engine.value;
+
+      const restore = description.items.find((item) => item.key === 'startup.restore');
+      if (restore?.value !== false) await restoreSession();
+      sessionReady = true;
+      await loadBookmarks();
     })
     .catch((error) => toast(String(error?.message ?? error), 'error'));
+
+  function pageForUrl(url: string): Tab['page'] {
+    const internal = internalPageFor(url);
+    return (internal ?? 'web') as Tab['page'];
+  }
+
+  async function restoreSession(): Promise<void> {
+    try {
+      const session = await call<{
+        tabs?: Array<{ url: string; title: string; page: string }>;
+        active?: number;
+      }>('session.load');
+      if (!session.tabs?.length) return;
+      const restored: Tab[] = session.tabs.map((item, index) => ({
+        id: index + 1,
+        title: item.title || item.url,
+        url: item.url,
+        page: pageForUrl(item.url),
+      }));
+      tabs = restored;
+      tabSeq = restored.length + 1;
+      activeId = restored.some((tab) => tab.id === session.active) ? session.active! : restored[0].id;
+      // Load every page tab; the shell keeps background views hidden.
+      for (const tab of restored) {
+        if (tab.page === 'web') notify('ui.navigate', { url: tab.url, tab: tab.id });
+      }
+    } catch {
+      /* a damaged session file must not block startup */
+    }
+  }
+
+  async function loadBookmarks(): Promise<void> {
+    try {
+      const tree = await call<Record<string, { children?: Array<{ id: number; type: string; title: string; url?: string }> }>>(
+        'bookmarks.tree',
+      );
+      bookmarks = (tree.bar?.children ?? [])
+        .filter((node) => node.type === 'url' && node.url)
+        .slice(0, 12)
+        .map((node) => ({ id: node.id, title: node.title || node.url!, url: node.url! }));
+    } catch {
+      bookmarks = [];
+    }
+  }
+
+  async function toggleBookmark(): Promise<void> {
+    if (active.page !== 'web') return;
+    try {
+      const existing = await call<Array<{ id: number }>>('bookmarks.forUrl', { url: active.url });
+      for (const entry of existing) await call('bookmarks.remove', { id: entry.id });
+      if (existing.length === 0) {
+        await call('bookmarks.add', { title: active.title, url: active.url, parent: 2 });
+        toast(t('bookmarks.added'));
+      } else {
+        toast(t('bookmarks.removed'));
+      }
+      await loadBookmarks();
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    }
+  }
 
   $effect(() => {
     if (active) addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
@@ -80,6 +149,18 @@
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
     notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' });
+  });
+
+  // Remember the tab set so the next launch can restore it.
+  $effect(() => {
+    const snapshot = tabs.map((tab) => ({ url: tab.url, title: tab.title, page: tab.page }));
+    const selected = activeId;
+    if (!sessionReady) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      void call('session.save', { tabs: snapshot, active: selected });
+    }, 700);
+    return () => clearTimeout(saveTimer);
   });
 
   function updateTab(id: number, patch: Partial<Tab>): void {
@@ -183,6 +264,11 @@
     if (key === 'r') {
       event.preventDefault();
       navigate(active.url);
+      return;
+    }
+    if (key === 'd') {
+      event.preventDefault();
+      void toggleBookmark();
       return;
     }
     if (key === 'tab') {
@@ -311,6 +397,11 @@
         <Icon name="star" size={12} />
         {t('bookmarks.bar')}
       </button>
+      {#each bookmarks as entry (entry.id)}
+        <button class="bookmark-chip" title={entry.url} onclick={() => navigate(entry.url)}>
+          {entry.title}
+        </button>
+      {/each}
       <button class="bookmark-chip" onclick={() => openPage('history')}>
         <Icon name="history" size={12} />
         {t('nav.history')}

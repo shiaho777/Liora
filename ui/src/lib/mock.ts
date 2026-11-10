@@ -312,9 +312,23 @@ export function createMockBackend(): MockBackend {
     sites: Record<string, Record<string, unknown>>;
     rules: Rule[];
     installed: Array<{ id: string; version: string; path: string; installedAt: number; current: boolean }>;
+    bookmarks: Array<{ id: number; title: string; url: string }>;
   } = stored
     ? JSON.parse(stored)
-    : { settings: {}, sites: {}, rules: [], installed: [] };
+    : {
+        settings: {},
+        sites: {},
+        rules: [],
+        installed: [],
+        bookmarks: [
+          { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
+          { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
+        ],
+      };
+  state.bookmarks ??= [
+    { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
+    { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
+  ];
 
   if (state.rules.length === 0) {
     for (const preset of PRESETS) {
@@ -339,7 +353,13 @@ export function createMockBackend(): MockBackend {
   const persist = () => {
     localStorage.setItem(
       'liora.mock.state',
-      JSON.stringify({ settings: state.settings, sites: state.sites, rules: state.rules, installed: state.installed }),
+      JSON.stringify({
+        settings: state.settings,
+        sites: state.sites,
+        rules: state.rules,
+        installed: state.installed,
+        bookmarks: state.bookmarks,
+      }),
     );
   };
 
@@ -650,14 +670,35 @@ export function createMockBackend(): MockBackend {
         id: 1,
         type: 'folder',
         title: '书签栏',
-        children: [
-          { id: 10, type: 'url', title: 'Svelte', url: 'https://svelte.dev' },
-          { id: 11, type: 'url', title: 'Chromium', url: 'https://www.chromium.org' },
-        ],
+        children: state.bookmarks.map((entry) => ({ ...entry, type: 'url' })),
       },
       other: { id: 2, type: 'folder', title: '其他书签', children: [] },
       mobile: { id: 3, type: 'folder', title: '移动端书签', children: [] },
     }),
+    'bookmarks.forUrl': (p) => state.bookmarks.filter((entry) => entry.url === p.url),
+    'bookmarks.add': (p) => {
+      const entry = { id: 100 + state.bookmarks.length, title: p.title || p.url, url: p.url };
+      state.bookmarks.push(entry);
+      persist();
+      return entry;
+    },
+    'bookmarks.remove': (p) => {
+      state.bookmarks = state.bookmarks.filter((entry) => entry.id !== p.id);
+      persist();
+      return { ok: true };
+    },
+    'session.load': () => {
+      const raw = localStorage.getItem('liora.mock.session');
+      return raw ? JSON.parse(raw) : { tabs: [], active: 0 };
+    },
+    'session.save': (p) => {
+      localStorage.setItem('liora.mock.session', JSON.stringify({ tabs: p.tabs, active: p.active }));
+      return { ok: true };
+    },
+    'session.clear': () => {
+      localStorage.removeItem('liora.mock.session');
+      return { ok: true };
+    },
     'history.top': () => [
       { url: 'https://svelte.dev', title: 'Svelte', visitCount: 12, lastVisit: Date.now() },
       { url: 'https://developer.mozilla.org', title: 'MDN Web Docs', visitCount: 9, lastVisit: Date.now() - 86400000 },

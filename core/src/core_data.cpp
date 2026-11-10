@@ -280,6 +280,39 @@ void Core::registerDataMethods() {
     if (!writeFileAtomic(utf8ToPath(path), html, &error)) rpcFail(kRpcInternalError, error);
     return Json{{"path", path}};
   });
+
+  // ---- Session ----
+
+  rpc_.add("session.save", [this](const Json& params) {
+    Json session = {
+        {"version", 1},
+        {"savedAt", nowMs()},
+        {"active", params::optionalInteger(params, "active").value_or(0)},
+        {"tabs", params::optional(params, "tabs").value_or(Json::array())},
+    };
+    if (!session["tabs"].is_array()) rpcFail(kRpcInvalidParams, "tabs must be a list");
+    std::string error;
+    if (!writeFileAtomic(paths_.root / "session.json", session.dump(), &error)) {
+      rpcFail(kRpcInternalError, error);
+    }
+    return Json{{"ok", true}};
+  });
+
+  rpc_.add("session.load", [this](const Json&) {
+    auto text = readFile(paths_.root / "session.json");
+    if (!text) return Json{{"tabs", Json::array()}, {"active", 0}};
+    Json session = Json::parse(*text, nullptr, false);
+    if (session.is_discarded() || !session.is_object()) {
+      return Json{{"tabs", Json::array()}, {"active", 0}};
+    }
+    return session;
+  });
+
+  rpc_.add("session.clear", [this](const Json&) {
+    std::error_code ec;
+    fs::remove(paths_.root / "session.json", ec);
+    return Json{{"ok", true}};
+  });
 }
 
 }  // namespace liora
