@@ -96,7 +96,7 @@ ECH 的**外层 SNI 由服务端下发的 ECHConfig 里的 `public_name` 决定*
 
 保存下来的报告可以在应用内重新打开：访问 `liora://diagnostics`，或 设置 → 诊断报告。诊断页会扫描下载目录中的 `liora-diagnostic-*.txt` 与 `liora-timeline-*.txt`（按修改时间倒序，最多 12 条），显示文件名、类型、时间与大小；点击后由壳读取文件内容并在查看器中打开。诊断报告进入报告视图，时间线文件进入只读时间线视图，保留原始事件顺序。
 
-列表支持逐项删除与“清理旧文件”（保留最新 5 个）。逐项删除先由 Core 的 `diagnostics.validateDelete` 校验路径，再交给壳调用 `NSFileManager trashItemAtURL` 移入系统废纸篓，因此可以恢复；“清理旧文件”使用 `diagnostics.clear`，是永久删除。两者都只允许操作下载目录内、以 `liora-diagnostic-` 或 `liora-timeline-` 开头的 `.txt` 文件，其他路径与文件名会被拒绝。该列表直接来自磁盘，因此重启应用后仍然存在。界面用同一套字段定义解析文件并分区还原（页面 / 连接 / 解析 / 备注 / 未知字段 + 原始文本），解析器有 7 个单元测试覆盖版本校验、TLS、规则、上游与地址格式。
+列表支持逐项删除与“清理旧文件”（保留最新 5 个）。逐项删除与“清理旧文件”都先由 Core 的 `diagnostics.validateDelete` 校验路径，再交给壳调用 `NSFileManager trashItemAtURL` 移入系统废纸篓，因此可以恢复。批量清理会逐项处理并返回成功/失败数量。Core 的 `diagnostics.clear` 仍保留给内部/批量 API，但界面不再使用永久删除。两者都只允许操作下载目录内、以 `liora-diagnostic-` 或 `liora-timeline-` 开头的 `.txt` 文件，其他路径与文件名会被拒绝。该列表直接来自磁盘，因此重启应用后仍然存在。界面用同一套字段定义解析文件并分区还原（页面 / 连接 / 解析 / 备注 / 未知字段 + 原始文本），解析器有 7 个单元测试覆盖版本校验、TLS、规则、上游与地址格式。
 
 ```
 report: 1

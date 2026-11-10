@@ -199,14 +199,12 @@
     notify('ui.trashDiagnostic', { path: entry.path, name: entry.name });
   }
 
-  async function clearOldRecent(): Promise<void> {
-    try {
-      const result = await call<{ deleted: number }>('diagnostics.clear', { keep: 5 });
-      toast(t('diag.cleared', { count: result.deleted ?? 0 }));
-      await loadRecent();
-    } catch (error: any) {
-      toast(String(error?.message ?? error), 'error');
-    }
+  function clearOldRecent(): void {
+    const old = recent.slice(5);
+    if (old.length === 0) return;
+    // Move every old file through the same recoverable trash path as a single
+    // delete, then refresh once from disk.
+    notify('ui.trashDiagnostics', { paths: old.map((entry) => entry.path) });
   }
 
   $effect(() => {
@@ -225,6 +223,15 @@
       if (message.method === 'browser.diagnosticDeleteFailed') {
         const failure = (message.params ?? {}) as { message?: string };
         toast(failure.message || t('diag.deleteFailed'), 'error');
+        return;
+      }
+      if (message.method === 'browser.diagnosticsTrashed') {
+        const result = (message.params ?? {}) as { deleted?: number; failed?: number };
+        toast(t('diag.cleared', { count: result.deleted ?? 0 }));
+        if (result.failed) {
+          toast(t('diag.clearFailed', { count: result.failed }), 'error');
+        }
+        void loadRecent();
         return;
       }
       if (message.method === 'settings.changed' || message.method === 'net.rulesChanged') {

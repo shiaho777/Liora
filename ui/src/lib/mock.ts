@@ -935,6 +935,20 @@ export function createMockBackend(): MockBackend {
           }, 400);
           return;
         }
+        if (method === 'ui.trashDiagnostics') {
+          const paths = Array.isArray(request.params?.paths) ? request.params.paths : [];
+          const before = mockRecent.length;
+          const set = new Set(paths.map((path: unknown) => String(path)));
+          mockRecent = mockRecent.filter((entry) => !set.has(entry.path));
+          setTimeout(() => {
+            respond({
+              jsonrpc: '2.0',
+              method: 'browser.diagnosticsTrashed',
+              params: { deleted: before - mockRecent.length, failed: 0 },
+            });
+          }, 300);
+          return;
+        }
         if (method === 'ui.trashDiagnostic') {
           const path = String(request.params?.path ?? '');
           const name =
