@@ -628,6 +628,7 @@
             url={active.error.url}
             message={active.error.message}
             code={active.error.code}
+            security={active.security}
             onretry={() => {
               const target = active.error!.url || active.url;
               updateTab(activeId, { error: undefined });

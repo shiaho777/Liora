@@ -90,6 +90,8 @@ ECH 的**外层 SNI 由服务端下发的 ECHConfig 里的 `public_name` 决定*
 
 诊断端点**不是** DoH 端口：DoH 使用自签证书，网页无法直接访问，所以另开一个只绑定 `127.0.0.1` 的明文 HTTP 端口，并返回 `Access-Control-Allow-Origin: *`。它只做只读查询，不修改任何配置。
 
+站点卡片与**加载失败页**共用这个端点：失败页会同时显示错误码含义、TLS 是否建立、是否命中规则、解析到的地址与上游，用来区分"DNS 没解析出来"和"解析出来了但连接/TLS 失败"。
+
 ```bash
 curl "http://127.0.0.1:<diagPort>/diagnose?host=x.com"
 ```

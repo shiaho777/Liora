@@ -1,17 +1,32 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { call } from './bridge';
   import { t } from './i18n.svelte';
 
   interface Props {
     url: string;
     message: string;
     code: number;
+    security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean } | null;
     onretry?: () => void;
     ondirect?: () => void;
     onsettings?: () => void;
   }
 
-  let { url, message, code, onretry, ondirect, onsettings }: Props = $props();
+  let { url, message, code, security = null, onretry, ondirect, onsettings }: Props = $props();
+
+  interface Diagnostics {
+    host: string;
+    rule: { name: string; h3: string; ech: boolean; dns: string | null } | null;
+    upstream: { id: string; protocol: string; address: string };
+    addresses: string[];
+    https: { alpn: string[]; echBytes: number } | null;
+    resolved: boolean;
+    elapsedMs: number;
+  }
+
+  let diag = $state<Diagnostics | null>(null);
+  let diagError = $state('');
 
   let host = $derived.by(() => {
     try {
@@ -20,6 +35,50 @@
       return url;
     }
   });
+
+  // Friendly explanation for the platform error codes users actually hit.
+  const reason = $derived.by(() => {
+    const codes: Record<number, string> = {
+      [-1001]: t('error.reasonTimeout'),
+      [-1003]: t('error.reasonHost'),
+      [-1004]: t('error.reasonConnect'),
+      [-1005]: t('error.reasonLost'),
+      [-1009]: t('error.reasonOffline'),
+      [-1200]: t('error.reasonTls'),
+      [-1201]: t('error.reasonTlsDate'),
+      [-1202]: t('error.reasonTlsUntrusted'),
+    };
+    return codes[code] ?? '';
+  });
+
+  const tlsFailure = $derived(code <= -1200 && code >= -1210);
+
+  $effect(() => {
+    void loadDiagnostics();
+  });
+
+  async function loadDiagnostics(): Promise<void> {
+    diag = null;
+    diagError = '';
+    if (!host) return;
+    try {
+      const runtime = await call<{ running: boolean; diagPort: number }>('net.runtime');
+      if (!runtime.running || !runtime.diagPort) {
+        diagError = t('site.diagOff');
+        return;
+      }
+      const response = await fetch(
+        `http://127.0.0.1:${runtime.diagPort}/diagnose?host=${encodeURIComponent(host)}`,
+      );
+      if (!response.ok) {
+        diagError = t('site.diagFailed');
+        return;
+      }
+      diag = (await response.json()) as Diagnostics;
+    } catch {
+      diagError = t('site.diagFailed');
+    }
+  }
 </script>
 
 <div class="errorpage">
@@ -44,6 +103,68 @@
     </div>
 
     <p class="errorpage__hint">{t('error.directHint')}</p>
+
+    {#if reason}
+      <p class="errorpage__reason">{reason}</p>
+    {/if}
+
+    <div class="diag">
+      <div class="diag__row">
+        <span class="diag__label">{t('error.connection')}</span>
+        <span class="diag__value">
+          {#if tlsFailure}
+            <span class="badge badge--danger">{t('error.tlsFailed')}</span>
+            {#if security?.subject && security.host === host}
+              <span class="mono muted">{security.subject}</span>
+            {/if}
+          {:else if security?.https && security.host === host}
+            <span class="badge" class:badge--success={security.valid} class:badge--danger={!security.valid}>
+              {security.valid ? t('site.valid') : t('site.invalid')}
+            </span>
+          {:else if url.startsWith('https:')}
+            <span class="badge badge--warning">{t('error.noTls')}</span>
+          {:else}
+            <span class="badge">{t('error.plainHttp')}</span>
+          {/if}
+        </span>
+      </div>
+
+      <div class="diag__row">
+        <span class="diag__label">{t('error.resolution')}</span>
+        <span class="diag__value">
+          {#if diagError}
+            <span class="muted">{diagError}</span>
+          {:else if !diag}
+            <span class="muted">{t('site.resolving')}</span>
+          {:else}
+            <span class="badge mono">{diag.upstream.protocol.toUpperCase()}</span>
+            {#if diag.rule}
+              <span class="badge badge--accent">{t('site.ruleMatched')}</span>
+            {:else}
+              <span class="badge">{t('error.noRule')}</span>
+            {/if}
+            {#if diag.resolved}
+              <span class="badge badge--success">{t('error.resolved')}</span>
+            {:else}
+              <span class="badge badge--warning">{t('error.notResolved')}</span>
+            {/if}
+          {/if}
+        </span>
+      </div>
+
+      {#if diag}
+        <div class="diag__row">
+          <span class="diag__label">{t('error.addresses')}</span>
+          <span class="diag__value mono">
+            {diag.addresses.length > 0 ? diag.addresses.slice(0, 4).join(', ') : t('site.noAddress')}
+          </span>
+        </div>
+        <div class="diag__row">
+          <span class="diag__label">{t('error.upstream')}</span>
+          <span class="diag__value mono">{diag.upstream.id} · {diag.elapsedMs} ms</span>
+        </div>
+      {/if}
+    </div>
 
     <div class="errorpage__footer">
       <span class="mono muted">NSURLError {code}</span>
@@ -124,6 +245,46 @@
     align-items: center;
     gap: 12px;
     font-size: 11.5px;
+  }
+
+  .errorpage__reason {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--warning);
+  }
+
+  .diag {
+    margin-top: 14px;
+    width: min(520px, 100%);
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+  }
+
+  .diag__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 11.5px;
+  }
+
+  .diag__label {
+    width: 64px;
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .diag__value {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    align-items: center;
+    word-break: break-all;
   }
 
   .link {
