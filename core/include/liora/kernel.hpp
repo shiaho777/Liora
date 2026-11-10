@@ -55,6 +55,10 @@ struct NetRuntime {
   uint16_t diagPort = 0;
   // base64 SHA-256 of the local DoH certificate's SubjectPublicKeyInfo.
   std::string spki;
+  // JSON of the network config the kernel views were last loaded with. The
+  // shell updates it on launch and on an explicit restart, not when it merely
+  // refreshes the resolver, so the interface can show unapplied changes.
+  std::string appliedConfig;
 };
 
 // How the shell configures one kernel for a NetConfig.

@@ -487,6 +487,9 @@ export function createMockBackend(): MockBackend {
     };
   };
 
+  // Mirrors the shell: the snapshot changes only when the kernel is (re)loaded.
+  let mockAppliedConfig = JSON.stringify(netPlan().net);
+
   const methods: Record<string, Handler> = {
     'core.info': () => ({
       version: '0.1.0',
@@ -648,7 +651,14 @@ export function createMockBackend(): MockBackend {
 
     'net.plan': () => netPlan(),
     'net.forHost': (p) => methods['rules.match'](p),
-    'net.runtime': () => ({ running: true, dohPort: 5399, proxyPort: 5400, spki: 'mock' }),
+    'net.config': () => ({ config: netPlan().net, needsNet: netPlan().needsNet, warnings: [], kernels: [] }),
+    'net.runtime': () => ({
+      running: true,
+      dohPort: 5399,
+      proxyPort: 5400,
+      spki: 'mock',
+      appliedConfig: mockAppliedConfig,
+    }),
     'dns.plan': () => netPlan().dns,
 
     'kernels.list': () => [
@@ -847,6 +857,7 @@ export function createMockBackend(): MockBackend {
       if (method.startsWith('ui.')) {
         if (method === 'ui.restartKernel') {
           const plan = netPlan();
+          mockAppliedConfig = JSON.stringify(plan.net);
           setTimeout(() => {
             respond({
               jsonrpc: '2.0',

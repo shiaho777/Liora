@@ -364,6 +364,35 @@ LIORA_TEST(core_download_history_over_rpc) {
   core.stop();
 }
 
+LIORA_TEST(core_net_runtime_roundtrip) {
+  TempDir dir;
+  Core::Options options;
+  options.paths = CorePaths::forProfile(dir.path);
+  options.skipAutoBackup = true;
+  Core core(options);
+  CHECK(!core.start());
+
+  Json set = core.handleJson(Json{
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "net.setRuntime"},
+      {"params",
+       {{"running", true},
+        {"dohPort", 5300},
+        {"proxyPort", 5301},
+        {"diagPort", 5302},
+        {"spki", "abc="},
+        {"appliedConfig", "{\"rules\":[]}"}}}});
+  CHECK_EQ(set["result"]["ok"], true);
+
+  Json got =
+      core.handleJson(Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "net.runtime"}});
+  CHECK_EQ(got["result"]["proxyPort"].get<int>(), 5301);
+  CHECK_EQ(got["result"]["diagPort"].get<int>(), 5302);
+  CHECK_EQ(got["result"]["appliedConfig"].get<std::string>(), std::string("{\"rules\":[]}"));
+  core.stop();
+}
+
 LIORA_TEST(core_reports_bad_requests_as_json) {
   TempDir dir;
   Core::Options options;

@@ -4,7 +4,9 @@ import {
   checkDohTemplate,
   checkForcedOrigins,
   checkProxy,
+  configFingerprint,
   expectedForcedOrigins,
+  hasUnappliedChanges,
   parseForcedOrigins,
   staleItems,
 } from './kernel-switch-check';
@@ -354,5 +356,34 @@ describe('buildKernelSwitches', () => {
       '--dns-over-https-mode=secure',
       '--dns-over-https-templates=https://dns.example/q',
     ]);
+  });
+});
+
+describe('hasUnappliedChanges', () => {
+  const config = { dns: { mode: 'provider', provider: 'quad9' }, rules: [{ id: 'r' }] };
+
+  it('ignores formatting and key order', () => {
+    expect(configFingerprint(config)).toBe(configFingerprint(JSON.stringify(config)));
+    expect(
+      hasUnappliedChanges(
+        configFingerprint(config),
+        JSON.stringify({ rules: [{ id: 'r' }], dns: { provider: 'quad9', mode: 'provider' } }),
+      ),
+    ).toBe(false);
+  });
+
+  it('detects a changed provider', () => {
+    const applied = configFingerprint({ ...config, dns: { mode: 'provider', provider: 'cloudflare' } });
+    expect(hasUnappliedChanges(configFingerprint(config), applied)).toBe(true);
+  });
+
+  it('detects a changed rule set', () => {
+    const applied = configFingerprint({ ...config, rules: [] });
+    expect(hasUnappliedChanges(configFingerprint(config), applied)).toBe(true);
+  });
+
+  it('treats an empty applied snapshot as pending, but no current config as clean', () => {
+    expect(hasUnappliedChanges(configFingerprint(config), '')).toBe(true);
+    expect(hasUnappliedChanges('', '')).toBe(false);
   });
 });

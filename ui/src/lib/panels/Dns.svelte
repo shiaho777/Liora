@@ -6,6 +6,7 @@
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
   import { localized, t } from '../i18n.svelte';
+  import { configFingerprint, hasUnappliedChanges } from '../kernel-switch-check';
 
   interface Category {
     id: string;
@@ -49,6 +50,7 @@
     running: boolean;
     dohPort: number;
     proxyPort: number;
+    appliedConfig?: string;
   }
 
   interface KernelSetup {
@@ -71,6 +73,7 @@
   let active = $state<ActivePlan | null>(null);
   let runtime = $state<Runtime | null>(null);
   let setup = $state<KernelSetup | null>(null);
+  let currentConfig = $state('');
   let kernels = $state<KernelInfo[]>([]);
   let restarting = $state(false);
   let category = $state('all');
@@ -119,11 +122,12 @@
   }
 
   async function refreshPlan(): Promise<void> {
-    const [plan, current, kernelSetup, kernelList] = await Promise.allSettled([
+    const [plan, current, kernelSetup, kernelList, config] = await Promise.allSettled([
       call<ActivePlan>('dns.plan'),
       call<Runtime>('net.runtime'),
       call<KernelSetup>('kernels.setup', {}),
       call<KernelInfo[]>('kernels.list'),
+      call<{ config: unknown }>('net.config', {}),
     ]);
     if (plan.status === 'fulfilled') active = plan.value;
     if (current.status === 'fulfilled') runtime = current.value;
@@ -131,6 +135,7 @@
     if (kernelList.status === 'fulfilled' && Array.isArray(kernelList.value)) {
       kernels = kernelList.value;
     }
+    if (config.status === 'fulfilled') currentConfig = configFingerprint(config.value.config);
   }
 
   // Reuses the shell's restart path: new resolver process, new proxy port,
@@ -177,7 +182,12 @@
 
   const activeKernel = $derived(kernels.find((kernel) => kernel.id === setup?.kernel) ?? null);
   const restartRequired = $derived(Boolean(activeKernel?.netNeedsRestart));
-  const canRestart = $derived(restartRequired || runtime?.running === true);
+  // Compare the settings that are active now with the snapshot the kernel
+  // views were last loaded with. A scheduled resolver refresh does not update
+  // that snapshot, so pending changes stay visible until an explicit restart.
+  const hasPendingChanges = $derived(
+    hasUnappliedChanges(currentConfig, runtime?.appliedConfig ?? ''),
+  );
   const needsResolver = $derived(Boolean(active?.needsNet || setup?.usesNet || setup?.netMissing));
   const resolverMissing = $derived(needsResolver && runtime?.running === false);
 
@@ -315,14 +325,12 @@
         </div>
       {/if}
 
-      {#if canRestart}
+      {#if hasPendingChanges}
         <div class="row" style:margin-top="10px">
           <div class="row__main">
-            <div class="row__title">
-              {restartRequired ? t('restart.panelKernelTitle') : t('restart.panelResolverTitle')}
-            </div>
+            <div class="row__title">{t('dns.pendingTitle')}</div>
             <div class="row__desc">
-              {restartRequired ? t('restart.panelKernelHint') : t('restart.panelResolverHint')}
+              {restartRequired ? t('dns.pendingKernelHint') : t('dns.pendingResolverHint')}
             </div>
           </div>
           <div class="row__control">

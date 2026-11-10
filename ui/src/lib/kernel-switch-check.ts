@@ -279,3 +279,35 @@ export function staleItems(
   }
   return out;
 }
+
+function sortedValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedValue);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) out[key] = sortedValue(record[key]);
+    return out;
+  }
+  return value;
+}
+
+/** Stable fingerprint of a network config, whether it arrives as JSON or an object. */
+export function configFingerprint(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return JSON.stringify(sortedValue(parsed));
+  } catch {
+    return typeof value === 'string' ? value : '';
+  }
+}
+
+/**
+ * True when the settings active now differ from the snapshot the kernel views
+ * were last loaded with. An empty applied snapshot (old shell) counts as
+ * different so the user can apply it once.
+ */
+export function hasUnappliedChanges(currentConfig: string, appliedConfig: string): boolean {
+  if (!currentConfig) return false;
+  return configFingerprint(appliedConfig) !== configFingerprint(currentConfig);
+}

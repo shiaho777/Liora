@@ -118,6 +118,7 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, assign) BOOL openedLaunchUrl;
 @property(nonatomic, assign) BOOL sentRuntimeInfo;
 @property(nonatomic, copy) NSString* cefStatus;
+@property(nonatomic, copy) NSString* appliedConfig;
 
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
@@ -184,10 +185,12 @@ NSString* jsonEscape(id object) {
 
   // Verification hooks for the command bridge. Several commands allow a test
   // to open a screen, act, then dump the resulting state.
-  const char* commandEnvs[] = {"LIORA_TEST_COMMAND", "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3"};
+  const char* commandEnvs[] = {"LIORA_TEST_COMMAND", "LIORA_TEST_COMMAND2", "LIORA_TEST_COMMAND3",
+                               "LIORA_TEST_COMMAND4", "LIORA_TEST_COMMAND5"};
   const char* delayEnvs[] = {"LIORA_TEST_COMMAND_DELAY_MS", "LIORA_TEST_COMMAND2_DELAY_MS",
-                             "LIORA_TEST_COMMAND3_DELAY_MS"};
-  for (int index = 0; index < 3; ++index) {
+                             "LIORA_TEST_COMMAND3_DELAY_MS", "LIORA_TEST_COMMAND4_DELAY_MS",
+                             "LIORA_TEST_COMMAND5_DELAY_MS"};
+  for (int index = 0; index < 5; ++index) {
     const char* command = getenv(commandEnvs[index]);
     if (!command || !*command) continue;
     NSString* name = ns(command);
@@ -367,7 +370,7 @@ NSString* jsonEscape(id object) {
 
   shell::registerSystemKernel(_core->kernels());
   // Start liora-net and point WebKit at it before any page loads.
-  [self refreshNetworkNow];
+  [self refreshNetworkNowMarkingApplied:YES];
 #ifdef LIORA_WITH_CEF
   [self startCefIfSelected];
 #endif
@@ -427,6 +430,13 @@ NSString* jsonEscape(id object) {
 }
 
 - (void)refreshNetworkNow {
+  [self refreshNetworkNowMarkingApplied:NO];
+}
+
+// `markApplied` is set on launch and on an explicit restart. A scheduled
+// refresh only restarts the resolver, so the kernel views keep the previous
+// snapshot and the interface can report unapplied changes.
+- (void)refreshNetworkNowMarkingApplied:(BOOL)markApplied {
   self.refreshPending = NO;
   if (!_core) return;
 
@@ -441,6 +451,7 @@ NSString* jsonEscape(id object) {
 
   bool needsNet = result->value("needsNet", false);
   std::string config = result->contains("config") ? (*result)["config"].dump() : "{}";
+  NSString* configText = ns(config);
 
   // The kernel decides whether it needs the local service: a kernel without
   // native DoH needs the proxy even for a plain DoH provider.
@@ -452,13 +463,14 @@ NSString* jsonEscape(id object) {
 
   if (!needsNet) {
     [self.netService stop];
-    _core->setNetRuntime(liora::NetRuntime{});
+    if (markApplied) self.appliedConfig = configText;
+    [self publishRuntime];
     [self applyProxyPort:0];
     return;
   }
 
-  NSString* configText = ns(config);
   if (self.netService.dohPort > 0 && [self.netService.runningConfig isEqualToString:configText]) {
+    if (markApplied) self.appliedConfig = configText;
     [self publishRuntime];
     [self applyProxyPort:self.netService.proxyPort];
     return;
@@ -471,6 +483,7 @@ NSString* jsonEscape(id object) {
     [self applyProxyPort:0];
     return;
   }
+  if (markApplied) self.appliedConfig = configText;
   [self publishRuntime];
   [self applyProxyPort:self.netService.proxyPort];
 }
@@ -482,6 +495,7 @@ NSString* jsonEscape(id object) {
   runtime.proxyPort = static_cast<uint16_t>(self.netService.proxyPort);
   runtime.diagPort = static_cast<uint16_t>(self.netService.diagPort);
   runtime.spki = stdString(self.netService.spki);
+  runtime.appliedConfig = stdString(self.appliedConfig);
   if (_core) _core->setNetRuntime(runtime);
   NSLog(@"Liora: resolver runtime running=%d doh=%u proxy=%u", (int)runtime.running,
         (unsigned)runtime.dohPort, (unsigned)runtime.proxyPort);
@@ -760,7 +774,7 @@ NSString* jsonEscape(id object) {
 
   [self.netService stop];
   _core->setNetRuntime(liora::NetRuntime{});
-  [self refreshNetworkNow];
+  [self refreshNetworkNowMarkingApplied:YES];
 
   liora::KernelNetSetup setup = _core->applyNetwork(stdString(kernel));
 

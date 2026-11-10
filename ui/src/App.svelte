@@ -295,9 +295,9 @@
         case 'restartkernel':
           (window as unknown as { __lioraRestartKernel?: () => void }).__lioraRestartKernel?.();
           break;
-        case 'dnscycle': {
-          // Test hook: switch the DNS provider from the panel, then use the
-          // panel's restart action once the setting has been saved.
+        case 'dnschange': {
+          // Test hook: switch the DNS provider from the panel without
+          // restarting, so the pending-changes state can be inspected.
           const mode = [...document.querySelectorAll('button')].find(
             (button) => button.textContent.trim() === '选择提供商',
           );
@@ -307,13 +307,14 @@
               card.textContent?.includes('Quad9'),
             );
             quad9?.click();
-            setTimeout(() => {
-              const restart = [...document.querySelectorAll('button')].find((button) =>
-                button.textContent?.includes('重启'),
-              );
-              restart?.click();
-            }, 1200);
           }, 600);
+          break;
+        }
+        case 'restartnetwork': {
+          const restart = [...document.querySelectorAll('button')].find((button) =>
+            button.textContent?.includes('重启'),
+          );
+          restart?.click();
           break;
         }
         case 'pagedump': {
