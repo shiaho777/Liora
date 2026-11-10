@@ -70,6 +70,8 @@
       await loadBookmarks();
       await loadDownloadHistory();
       void refreshNetworkStatus();
+      // The shell's first-paint push can arrive before the bridge is ready.
+      notify('ui.runtime', {});
     })
     .catch((error) => toast(String(error?.message ?? error), 'error'));
 

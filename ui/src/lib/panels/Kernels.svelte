@@ -3,6 +3,7 @@
   import { call } from '../bridge';
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
+  import { cefReadiness } from '../kernel-signing';
   import { t } from '../i18n.svelte';
 
   interface Kernel {
@@ -30,6 +31,9 @@
 
   const selected = $derived(String(value('kernel.default') ?? 'system'));
   const rows = $derived(kernels.filter((kernel) => app.mode === 'advanced' || kernel.id === 'system' || kernel.available));
+  // Chromium validates helpers against the app's Team ID, so an ad-hoc build
+  // cannot run the CEF kernel even when the component is installed.
+  const cefState = $derived(cefReadiness(app.runtime.codeSigning, app.runtime.cefStatus));
 
   async function load(): Promise<void> {
     loading = true;
@@ -72,6 +76,16 @@
     <h1 class="settings__title">{t('kernels.title')}</h1>
     <p class="settings__lede">{t('kernels.lede')}</p>
   </header>
+
+  {#if app.runtime.codeSigning || app.runtime.cefStatus}
+    <div class="kernel-status">
+      <span>{t('kernels.signing')}</span>
+      <span class="mono">{app.runtime.codeSigning || t('kernels.unknown')}</span>
+      <span class="muted">·</span>
+      <span>CEF</span>
+      <span class="mono">{app.runtime.cefStatus || t('kernels.unknown')}</span>
+    </div>
+  {/if}
 
   {#if loading}
     <div class="empty">…</div>
@@ -118,6 +132,23 @@
               {/if}
             </div>
           </div>
+          {#if kernel.id === 'cef' && cefState.reason === 'failed'}
+            <div class="callout callout--danger" style="margin-top: 10px">
+              <span class="callout__icon"><Icon name="warning" size={14} /></span>
+              <span>
+                {t('kernels.cefFailed')}
+                <span class="mono">{app.runtime.cefStatus}</span>
+              </span>
+            </div>
+          {:else if kernel.id === 'cef' && cefState.reason === 'ad-hoc'}
+            <div class="callout callout--warning" style="margin-top: 10px">
+              <span class="callout__icon"><Icon name="warning" size={14} /></span>
+              <span>
+                {t('kernels.adHocWarning')}
+                <span class="mono">{app.runtime.codeSigning}</span>
+              </span>
+            </div>
+          {/if}
         </div>
       </div>
     {/each}

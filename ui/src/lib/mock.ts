@@ -903,6 +903,17 @@ export function createMockBackend(): MockBackend {
       // Shell-directed notifications: nothing to answer, but a failing URL can
       // be simulated so the error panel is reviewable in a browser.
       if (method.startsWith('ui.')) {
+        if (method === 'ui.runtime') {
+          respond({
+            jsonrpc: '2.0',
+            method: 'browser.runtime',
+            params: {
+              codeSigning: 'ad-hoc (no Team ID, io.liora.browser)',
+              cefStatus: 'not selected',
+            },
+          });
+          return;
+        }
         if (method === 'ui.restartKernel') {
           const plan = netPlan();
           mockAppliedConfig = JSON.stringify(plan.net);

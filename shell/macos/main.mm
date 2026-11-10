@@ -174,13 +174,7 @@ NSString* jsonEscape(id object) {
   // omits this cannot explain why Chromium's helper processes are rejected.
   if (!self.sentRuntimeInfo) {
     self.sentRuntimeInfo = YES;
-    NSString* signature = [self signingSummary];
-    NSLog(@"Liora: runtime info signing=%@ cef=%@", signature, self.cefStatus ?: @"not selected");
-    [self notifyInterface:@"browser.runtime"
-                   params:@{
-                     @"codeSigning" : signature,
-                     @"cefStatus" : self.cefStatus ?: @"not selected",
-                   }];
+    [self sendRuntimeInfo];
   }
 
   // Verification hooks for the command bridge. Several commands allow a test
@@ -811,6 +805,18 @@ NSString* jsonEscape(id object) {
   return @"ad-hoc (no Team ID)";
 }
 
+// Sent on first paint and on request. The push can race the interface's
+// __lioraDeliver registration, so the interface also asks for it explicitly.
+- (void)sendRuntimeInfo {
+  NSString* signature = [self signingSummary];
+  NSLog(@"Liora: runtime info signing=%@ cef=%@", signature, self.cefStatus ?: @"not selected");
+  [self notifyInterface:@"browser.runtime"
+                 params:@{
+                   @"codeSigning" : signature,
+                   @"cefStatus" : self.cefStatus ?: @"not selected",
+                 }];
+}
+
 - (void)notifyInterface:(NSString*)method params:(NSDictionary*)params {  NSDictionary* message = @{@"jsonrpc" : @"2.0", @"method" : method, @"params" : params ?: @{}};
   NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
   if (!data) return;
@@ -1011,6 +1017,11 @@ NSString* jsonEscape(id object) {
     NSLog(@"Liora: trashed %d diagnostics (%d failed)", deleted, failed);
     [self notifyInterface:@"browser.diagnosticsTrashed"
                    params:@{@"deleted" : @(deleted), @"failed" : @(failed)}];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.runtime"]) {
+    [self sendRuntimeInfo];
     return;
   }
 
