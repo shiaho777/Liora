@@ -133,7 +133,10 @@ export interface ProxyCheck {
   reported: string;
   /** Proxy the kernel would use now. */
   expected: string;
+  /** True only for a real configuration change, not an ephemeral port move. */
   stale: boolean;
+  /** Same host, different port: liora-net restarted and bound a new port. */
+  portOnlyChange: boolean;
   hostChanged: boolean;
   portChanged: boolean;
 }
@@ -175,12 +178,19 @@ export function checkProxy(
       : '';
   const before = proxyParts(reported);
   const now = proxyParts(expected);
+  const hostChanged = before.host !== now.host;
+  const portChanged = before.port !== now.port;
+  // The resolver binds a new ephemeral port on every start. A report that only
+  // differs by that port is from an earlier process, not misconfigured; only a
+  // host change or a proxy appearing/disappearing needs a kernel restart.
+  const portOnlyChange = Boolean(reported && expected && !hostChanged && portChanged);
   return {
     reported,
     expected,
-    stale: reported !== expected,
-    hostChanged: before.host !== now.host,
-    portChanged: before.port !== now.port,
+    stale: reported !== expected && !portOnlyChange,
+    portOnlyChange,
+    hostChanged,
+    portChanged,
   };
 }
 

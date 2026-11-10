@@ -336,6 +336,14 @@
     }
   }
 
+  function portOf(value: string): string {
+    try {
+      return new URL(value).port;
+    } catch {
+      return /:(\d+)\/?$/.exec(value)?.[1] ?? value;
+    }
+  }
+
   function appliedText(value: { provider?: string; protocol?: string; proxy?: string } | null): string {
     if (!value) return t('dns.deltaNone');
     const provider = value.provider || '—';
@@ -583,8 +591,16 @@
               </span>
             </span>
           </div>
-        {:else if configured && errored.length === 0}
+        {:else if configured && errored.length === 0 && !proxyCheck?.portOnlyChange}
           <div class="diag__note diag__note--ok">{t('restart.match')}</div>
+        {/if}
+        {#if proxyCheck?.portOnlyChange && !proxyCheck.stale}
+          <div class="diag__note">
+            {t('proxyStale.resolverRestarted', {
+              from: portOf(proxyCheck.reported),
+              to: portOf(proxyCheck.expected),
+            })}
+          </div>
         {/if}
         {#if errored.length > 0}
           <div class="diag__note">

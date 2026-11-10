@@ -96,6 +96,21 @@ describe('checkForcedOrigins', () => {
     expect(check.extra).toEqual(['old.example:443']);
   });
 
+  it('does not treat a proxy port move as restart-worthy', () => {
+    const proxy = checkProxy(
+      ['--proxy-server=http://127.0.0.1:5300'],
+      {
+        dohTemplates: '',
+        dnsMode: 'system',
+        proxy: 'http://127.0.0.1:62411',
+        usesNet: true,
+        netMissing: false,
+      },
+      null,
+    );
+    expect(staleItems(null, null, proxy)).toEqual([]);
+  });
+
   it('is clean when neither side forces anything', () => {
     const check = checkForcedOrigins([], [forceRule(['x.com'])], false);
     expect(check.stale).toBe(false);
@@ -204,13 +219,14 @@ describe('checkProxy', () => {
     expect(check.portChanged).toBe(false);
   });
 
-  it('flags the ephemeral port changing after liora-net restarts', () => {
+  it('treats an ephemeral port change as a resolver restart, not a config change', () => {
     const check = checkProxy(
       ['--proxy-server=http://127.0.0.1:5300'],
       setup('http://127.0.0.1:62411'),
       { running: true, proxyPort: 62411 },
     );
-    expect(check.stale).toBe(true);
+    expect(check.stale).toBe(false);
+    expect(check.portOnlyChange).toBe(true);
     expect(check.portChanged).toBe(true);
     expect(check.hostChanged).toBe(false);
     expect(check.reported).toBe('http://127.0.0.1:5300');
@@ -243,7 +259,8 @@ describe('checkProxy', () => {
       proxyPort: 62411,
     });
     expect(check.expected).toBe('http://127.0.0.1:62411');
-    expect(check.stale).toBe(true);
+    expect(check.stale).toBe(false);
+    expect(check.portOnlyChange).toBe(true);
   });
 
   it('does not use a stale port when the resolver is not running', () => {
@@ -285,8 +302,10 @@ describe('staleItems', () => {
       },
       null,
     );
+    // A different host is a real configuration change; a different port alone
+    // would not be included.
     const proxy = checkProxy(
-      ['--proxy-server=http://127.0.0.1:5300'],
+      ['--proxy-server=http://localhost:5300'],
       {
         dohTemplates: '',
         dnsMode: 'system',
