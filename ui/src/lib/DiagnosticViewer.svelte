@@ -1,9 +1,10 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { app, toast } from './state.svelte';
-  import { notify, onNotification } from './bridge';
+  import { call, notify, onNotification } from './bridge';
   import { parseDiagnosticReport, type DiagnosticReport } from './diagnostic-report';
   import { explainLimit, explainSwitch } from './kernel-explanations';
+  import { checkForcedOrigins, type ForcedOriginsCheck } from './kernel-switch-check';
   import { i18n, t } from './i18n.svelte';
 
   let report = $state<DiagnosticReport | null>(null);
@@ -11,6 +12,8 @@
   let fileName = $state('');
   let pasted = $state('');
   let pasteOpen = $state(false);
+  let ruleCheck = $state<ForcedOriginsCheck | null>(null);
+  let rulesError = $state('');
 
   // Turns generic switch/limit copy into statements about this report.
   const context = $derived({
@@ -49,6 +52,26 @@
     }
     report = result.report;
     error = '';
+    ruleCheck = null;
+    rulesError = '';
+    void loadRules(result.report);
+  }
+
+  // A running kernel keeps the switches it started with, so a report can list
+  // origins the current rules no longer produce. Compare against the rules that
+  // are active now and say so explicitly.
+  async function loadRules(parsed: DiagnosticReport): Promise<void> {
+    if (!parsed.switchesKnown) return;
+    try {
+      const listing = await call<{
+        rules: Array<{ name: string; enabled: boolean; domains: string[]; h3: string }>;
+        enabled: boolean;
+      }>('rules.list');
+      if (report?.raw !== parsed.raw) return;
+      ruleCheck = checkForcedOrigins(parsed.switches, listing.rules, listing.enabled !== false);
+    } catch {
+      if (report?.raw === parsed.raw) rulesError = t('stale.unavailable');
+    }
   }
 
   function pickFile(): void {
@@ -222,6 +245,27 @@
           {/if}
         </span>
       </div>
+      {#if !report.switchesKnown}
+        <div class="diag__note">{t('stale.unknown')}</div>
+      {:else if rulesError}
+        <div class="diag__note">{rulesError}</div>
+      {:else if ruleCheck?.stale}
+        <div class="callout callout--warning" style="margin-top: 2px">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span class="flag__copy">
+            <span class="flag__title">{t('stale.title')}</span>
+            <span class="flag__detail">{t('stale.body')}</span>
+            {#if ruleCheck.extra.length > 0}
+              <span class="flag__detail mono">{t('stale.extra')}: {ruleCheck.extra.join(', ')}</span>
+            {/if}
+            {#if ruleCheck.missing.length > 0}
+              <span class="flag__detail mono">{t('stale.missing')}: {ruleCheck.missing.join(', ')}</span>
+            {/if}
+          </span>
+        </div>
+      {:else if ruleCheck && ruleCheck.reported.length > 0}
+        <div class="diag__note diag__note--ok">{t('stale.match')}</div>
+      {/if}
       <div class="diag__row">
         <span class="diag__key">{t('diag.limits')}</span>
         <span class="diag__value diag__value--stack">
@@ -504,6 +548,16 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--text-muted);
+  }
+
+  .diag__note {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .diag__note--ok {
+    color: var(--success);
   }
 
   .diag__raw {

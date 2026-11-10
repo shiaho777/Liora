@@ -108,6 +108,7 @@ CEF: failed: process requirement -67030
     if (!result.ok) return;
 
     // A comma inside a switch value must not split it into two switches.
+    expect(result.report.switchesKnown).toBe(true);
     expect(result.report.switches).toEqual([
       '--enable-quic',
       '--origin-to-force-quic-on=x.com:443,twitter.com:443',
@@ -124,6 +125,7 @@ CEF: failed: process requirement -67030
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.report.switches).toEqual([]);
+    expect(result.report.switchesKnown).toBe(false);
     expect(result.report.limits).toEqual([]);
     expect(result.report.components).toEqual([]);
     expect(result.report.signature).toBeUndefined();

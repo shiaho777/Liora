@@ -32,6 +32,8 @@ export interface DiagnosticReport {
   kernel?: string;
   /** Chromium/Core switches handed to the kernel at start-up. */
   switches: string[];
+  /** False for reports written before start-up parameters were recorded. */
+  switchesKnown: boolean;
   /** Capabilities the kernel explicitly cannot apply. */
   limits: string[];
   /** Installed components, "id@version" with "*" for the active version. */
@@ -158,6 +160,7 @@ export function parseDiagnosticReport(text: string): ParseResult {
     errorReason: error.reason,
     kernel: fields.get('kernel'),
     switches: splitList(fields.get('switches'), ' '),
+    switchesKnown: fields.has('switches'),
     limits: splitList(fields.get('limits'), ','),
     components: splitList(fields.get('components'), ','),
     signature: fields.get('signature'),
