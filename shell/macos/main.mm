@@ -404,6 +404,20 @@ NSString* jsonEscape(id object) {
   [self startCefIfSelected];
 #endif
 
+  // Refresh the signed catalog in the background when the user opted in and
+  // configured a source. Components themselves are still installed explicitly.
+  liora::Json autoUpdate = _core->settings().get("components.autoUpdate");
+  liora::Json catalogUrl = _core->settings().get("components.catalogUrl");
+  if (autoUpdate.is_boolean() && autoUpdate.get<bool>() && catalogUrl.is_string() &&
+      !catalogUrl.get<std::string>().empty()) {
+    NSString* source = ns(catalogUrl.get<std::string>());
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+                   dispatch_get_main_queue(), ^{
+                     NSLog(@"Liora: checking component catalog automatically");
+                     [self refreshComponentCatalog:source];
+                   });
+  }
+
   __weak LioraController* weakSelf = self;
   _core->setNotificationSink([weakSelf](const liora::Json& message) {
     NSString* text = ns(message.dump());

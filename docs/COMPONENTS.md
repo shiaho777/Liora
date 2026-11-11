@@ -65,6 +65,8 @@ python3 scripts/sign-components.py components.json --in-place
 
 签名错误、网络错误或格式错误都会拒绝更新并保留旧目录。目录 URL 也保存在 `components.catalogUrl`，下次启动仍可使用。
 
+当 `components.autoUpdate` 为真且配置了目录 URL 时，应用启动 2 秒后会自动检查一次目录（只刷新目录，不自动安装组件）；组件仍需用户确认后更新。
+
 ### 覆盖与开发
 
 - `LIORA_UPDATE_KEY`（hex/base64）覆盖内置公钥；
