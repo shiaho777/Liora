@@ -530,6 +530,32 @@ a {
   background: var(--bg);
 }
 
+/* Find-in-page sits above the native view so CEF cannot cover it. */
+.findbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.findbar__input {
+  height: 28px;
+  max-width: 280px;
+}
+
+.findbar__count {
+  min-width: 52px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.findbar__count--empty {
+  color: var(--danger);
+}
+
 /* The native kernel view is placed here by the shell. */
 .content--native {
   background: transparent;

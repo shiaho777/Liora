@@ -39,6 +39,13 @@
   let activeId = $state(firstTab.id);
   let addressValue = $state('');
   let addressFocused = $state(false);
+  let findOpen = $state(false);
+  let findText = $state('');
+  let findMatches = $state(0);
+  let findActive = $state(0);
+  let findInputEl = $state<HTMLInputElement | null>(null);
+  let findTabId = $state(0);
+  let findAutoAdvanced = $state(false);
   let contentEl = $state<HTMLDivElement | null>(null);
   let addressEl = $state<HTMLInputElement | null>(null);
   let siteCardOpen = $state(false);
@@ -267,6 +274,21 @@
       toast(params.message || t('error.saveFailed'), 'error');
       return;
     }
+    if (message.method === 'browser.findResult' && message.params) {
+      const params = message.params as { tab?: number; matches?: number; active?: number };
+      if (Number(params.tab) === activeId && findOpen) {
+        findMatches = Math.max(0, Number(params.matches ?? 0));
+        findActive = Math.max(0, Number(params.active ?? 0));
+        if (Number(params.active ?? 0) > 0) {
+          findAutoAdvanced = true;
+        } else if (findMatches > 0 && !findAutoAdvanced) {
+          // Chromium reports the match count before selecting the first one.
+          findAutoAdvanced = true;
+          notify('ui.find', { tab: activeId, text: findText, forward: true, matchCase: false });
+        }
+      }
+      return;
+    }
     if (message.method === 'browser.history' && message.params) {
       const params = message.params as { tab?: number; canBack?: boolean; canForward?: boolean };
       const tab = tabs.find((entry) => entry.id === Number(params.tab));
@@ -435,6 +457,7 @@
   $effect(() => {
     notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error && !active?.download });
     siteCardOpen = false;
+    if (findOpen && findTabId !== activeId) closeFind();
   });
 
   // Used by the shell's menu shortcuts, which work regardless of which view
@@ -450,12 +473,24 @@
         navigate(name.slice('open:'.length));
         return;
       }
+      if (name.startsWith('find:')) {
+        findOpen = true;
+        findTabId = activeId;
+        findAutoAdvanced = false;
+        findText = name.slice('find:'.length);
+        setTimeout(() => runFind(true), 50);
+        return;
+      }
       switch (name) {
         case 'newTab': newTab(); break;
         case 'closeTab': closeTab(activeId); break;
         case 'reload': navigate(active.url); break;
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
+        case 'find': openFind(); break;
+        case 'findnext': runFind(true); break;
+        case 'findprev': runFind(false); break;
+        case 'findclose': closeFind(); break;
         case 'devTools': notify('ui.devTools', { tab: activeId }); break;
         case 'back': goBack(); break;
         case 'forward': goForward(); break;
@@ -753,6 +788,50 @@
     notify('ui.navigate', { url, tab: activeId });
   }
 
+  function openFind(): void {
+    if (active.page !== 'web') return;
+    findOpen = true;
+    findTabId = activeId;
+    findAutoAdvanced = false;
+    setTimeout(() => findInputEl?.focus(), 0);
+  }
+
+  function runFind(forward: boolean): void {
+    if (!findOpen) return;
+    const text = findText.trim();
+    if (!text) {
+      findMatches = 0;
+      findActive = 0;
+      notify('ui.stopFind', { tab: activeId });
+      return;
+    }
+    notify('ui.find', { tab: activeId, text, forward, matchCase: false });
+  }
+
+  function closeFind(): void {
+    if (!findOpen) return;
+    findOpen = false;
+    findMatches = 0;
+    findActive = 0;
+    findAutoAdvanced = false;
+    notify('ui.stopFind', { tab: activeId });
+  }
+
+  function findLabel(): string {
+    if (!findText.trim()) return '';
+    return findMatches > 0 ? `${findActive}/${findMatches}` : t('find.none');
+  }
+
+  function onFindKey(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      runFind(!event.shiftKey);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFind();
+    }
+  }
+
   function goBack(): void {
     if (active.page !== 'web' || !active.canBack) return;
     notify('ui.back', { tab: activeId });
@@ -811,6 +890,11 @@
     if (!mod) return;
     const key = event.key.toLowerCase();
 
+    if (key === 'f') {
+      event.preventDefault();
+      openFind();
+      return;
+    }
     if (key === 'l') {
       event.preventDefault();
       addressEl?.focus();
@@ -1055,6 +1139,29 @@
         {t('nav.history')}
       </button>
     </div>
+
+    {#if findOpen && active.page === 'web'}
+      <div class="findbar">
+        <input
+          class="input input--mono findbar__input"
+          bind:this={findInputEl}
+          bind:value={findText}
+          oninput={() => {
+            findAutoAdvanced = false;
+            runFind(true);
+          }}
+          onkeydown={onFindKey}
+          placeholder={t('find.placeholder')}
+          spellcheck="false"
+        />
+        <span class="findbar__count" class:findbar__count--empty={findMatches === 0}>
+          {findLabel()}
+        </span>
+        <button class="icon-button" title={t('find.previous')} onclick={() => runFind(false)}>↑</button>
+        <button class="icon-button" title={t('find.next')} onclick={() => runFind(true)}>↓</button>
+        <button class="icon-button" title={t('find.close')} onclick={closeFind}>✕</button>
+      </div>
+    {/if}
 
     <div class="content" class:content--native={active.page === 'web'} bind:this={contentEl}>
       {#if active.page === 'newtab'}

@@ -12,6 +12,7 @@
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_display_handler.h"
 #include "include/cef_download_handler.h"
+#include "include/cef_find_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_permission_handler.h"
@@ -110,7 +111,8 @@ class KernelClient : public CefClient,
                      public CefDisplayHandler,
                      public CefDownloadHandler,
                      public CefPermissionHandler,
-                     public CefContextMenuHandler {
+                     public CefContextMenuHandler,
+                     public CefFindHandler {
  public:
   KernelClient(std::shared_ptr<Bridge> bridge, const ViewOptions& options)
       : bridge_(std::move(bridge)), options_(options) {}
@@ -121,6 +123,18 @@ class KernelClient : public CefClient,
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+  CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+
+  void OnFindResult(CefRefPtr<CefBrowser> browser,
+                    int identifier,
+                    int count,
+                    const CefRect& selection_rect,
+                    int active_match_ordinal,
+                    bool final_update) override {
+    if (bridge_ && bridge_->alive && bridge_->events.onFindResult) {
+      bridge_->events.onFindResult(count, active_match_ordinal);
+    }
+  }
 
   enum MenuCommand {
     kMenuBack = 1000,
@@ -476,6 +490,24 @@ class CefView final : public IKernelView {
     applyVisible();
   }
 
+  void find(const std::string& text, bool forward, bool matchCase) override {
+    auto b = this->browser();
+    if (!b) return;
+    if (text.empty()) {
+      b->GetHost()->StopFinding(true);
+      return;
+    }
+    const bool findNext = text == lastFindText_ && matchCase == lastMatchCase_;
+    lastFindText_ = text;
+    lastMatchCase_ = matchCase;
+    b->GetHost()->Find(CefString(text.c_str()), forward, matchCase, findNext);
+  }
+
+  void stopFinding(bool clearSelection) override {
+    if (auto b = this->browser()) b->GetHost()->StopFinding(clearSelection);
+    lastFindText_.clear();
+  }
+
   void openDevTools() override {
     if (auto b = this->browser()) {
       CefWindowInfo info;
@@ -548,6 +580,8 @@ class CefView final : public IKernelView {
   }
 
   std::string pendingUrl_;
+  std::string lastFindText_;
+  bool lastMatchCase_ = false;
   bool hasBounds_ = false;
   int boundsX_ = 0;
   int boundsY_ = 0;

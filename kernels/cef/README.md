@@ -32,6 +32,7 @@
 - `CefDownloadHandler` 把附件保存到 `downloads.dir`（默认下载目录，重名自动编号；`downloads.ask` 打开时询问位置），进度与完成事件复用现有下载页、历史记录与 toast。
 - `target="_blank"` / `window.open` 通过 `OnBeforePopup` 交给界面新建标签；壳返回 `true` 后 Chromium 不再创建自己的弹出窗口。
 - 站点卡片对 CEF 的 HTTPS 页面显示“CEF 内核暂不提供证书摘要；Chromium 仍会校验证书”，而不是误报“未建立 TLS”。
+- 页内查找（Cmd+F / View → 查找…）通过 `CefFindHandler` 返回匹配总数与当前序号；查找条位于工具栏层，不会被 CEF 视图遮住。
 - View 菜单的“开发者工具”（Cmd+Option+I）打开 Chromium DevTools；CEF 验证窗口标题为 `DevTools - example.com/`。
 - 右键菜单通过 `CefContextMenuHandler` 提供后退/前进/重新加载/复制/粘贴/全选/开发者工具，由 CEF 原生菜单渲染。
 - 摄像头/麦克风请求通过 `CefPermissionHandler`（`OnShowPermissionPrompt` 与 `OnRequestMediaAccessPermission`）回到主线程弹出与系统 WebView 相同的授权框，并沿用“记住这个决定”。其他权限类型暂交给 CEF 默认处理。

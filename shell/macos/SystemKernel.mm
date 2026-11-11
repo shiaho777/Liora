@@ -448,6 +448,29 @@ class WebViewKernelView final : public IKernelView {
   void setVisible(bool visible) override { view_.hidden = !visible; }
   void setZoom(double percent) override { view_.pageZoom = percent / 100.0; }
 
+  void find(const std::string& text, bool forward, bool matchCase) override {
+    if (text.empty()) return;
+    WKFindConfiguration* configuration = [[WKFindConfiguration alloc] init];
+    configuration.backwards = !forward;
+    configuration.caseSensitive = matchCase;
+    configuration.wraps = YES;
+    auto events = events_;
+    [view_ findString:toNSString(text)
+        withConfiguration:configuration
+      completionHandler:^(WKFindResult* result) {
+        if (events && events->onFindResult) {
+          const int matches = result.matchFound ? 1 : 0;
+          events->onFindResult(matches, matches);
+        }
+      }];
+  }
+
+  void stopFinding(bool clearSelection) override {
+    if (!clearSelection) return;
+    [view_ evaluateJavaScript:@"window.getSelection().removeAllRanges()"
+            completionHandler:nil];
+  }
+
   void postMessage(const std::string& json) override {
     NSString* script = [NSString
         stringWithFormat:@"window.__lioraKernelDeliver && window.__lioraKernelDeliver(%@);",

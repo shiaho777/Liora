@@ -137,6 +137,8 @@ struct ViewEvents {
   // The kernel view is now attached and can be laid out. Kernels that create
   // their native view asynchronously use this to request a fresh layout.
   std::function<void()> onReady;
+  // Find-in-page result: total matches and the active match (1-based, 0 none).
+  std::function<void(int matches, int active)> onFindResult;
 };
 
 class IKernelView {
@@ -153,6 +155,8 @@ class IKernelView {
   virtual void setZoom(double percent) = 0;
   // Opens the kernel's developer tools when it has them. No-op otherwise.
   virtual void openDevTools() {}
+  virtual void find(const std::string& text, bool forward, bool matchCase) {}
+  virtual void stopFinding(bool clearSelection) {}
   virtual void postMessage(const std::string& json) = 0;
   virtual void* nativeHandle() const = 0;
 };

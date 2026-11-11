@@ -289,6 +289,7 @@ NSString* jsonEscape(id object) {
   [view addItemWithTitle:@"关闭标签页" action:@selector(closeTabCommand:) keyEquivalent:@"w"];
   [view addItemWithTitle:@"重新加载" action:@selector(reloadCommand:) keyEquivalent:@"r"];
   [view addItem:[NSMenuItem separatorItem]];
+  [view addItemWithTitle:@"查找…" action:@selector(findCommand:) keyEquivalent:@"f"];
   [view addItemWithTitle:@"聚焦地址栏" action:@selector(focusAddressCommand:) keyEquivalent:@"l"];
   [view addItem:[NSMenuItem separatorItem]];
   [view addItemWithTitle:@"放大" action:@selector(zoomInCommand:) keyEquivalent:@"="];
@@ -361,6 +362,7 @@ NSString* jsonEscape(id object) {
 - (void)closeTabCommand:(id)sender { [self sendUICommand:@"closeTab"]; }
 - (void)reloadCommand:(id)sender { [self sendUICommand:@"reload"]; }
 - (void)focusAddressCommand:(id)sender { [self sendUICommand:@"focusAddress"]; }
+- (void)findCommand:(id)sender { [self sendUICommand:@"find"]; }
 - (void)openSettingsCommand:(id)sender { [self sendUICommand:@"settings"]; }
 - (void)zoomInCommand:(id)sender { [self sendUICommand:@"zoomIn"]; }
 - (void)zoomOutCommand:(id)sender { [self sendUICommand:@"zoomOut"]; }
@@ -743,6 +745,12 @@ NSString* jsonEscape(id object) {
     NSString* text = ns(url);
     dispatch_async(dispatch_get_main_queue(), ^{
       [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
+    });
+  };
+  events.onFindResult = [weakSelf, tab](int matches, int active) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.findResult"
+                         params:@{@"tab" : @(tab), @"matches" : @(matches), @"active" : @(active)}];
     });
   };
   events.onHistory = [weakSelf, tab](bool canBack, bool canForward) {
@@ -1346,6 +1354,21 @@ NSString* jsonEscape(id object) {
       NSView* native = (__bridge NSView*)entry->second->nativeHandle();
       [native removeFromSuperview];
       _views.erase(entry);
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.find"] || [method isEqualToString:@"ui.stopFind"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (!view) return;
+    if ([method isEqualToString:@"ui.stopFind"]) {
+      view->stopFinding(true);
+    } else {
+      NSString* text = params[@"text"] ?: @"";
+      bool forward = [params[@"forward"] boolValue];
+      bool matchCase = [params[@"matchCase"] boolValue];
+      view->find(stdString(text), forward, matchCase);
     }
     return;
   }
