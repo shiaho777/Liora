@@ -629,6 +629,10 @@
           document.querySelectorAll<HTMLElement>('.tab')[2]?.click();
           break;
         }
+        case 'refreshcatalog': {
+          document.querySelector<HTMLElement>('.catalog-refresh')?.click();
+          break;
+        }
         case 'updatecomponent': {
           document.querySelector<HTMLElement>('.component-update')?.click();
           break;

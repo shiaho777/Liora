@@ -60,6 +60,7 @@ std::vector<SettingDef> buildSchema() {
   add("extensions.enabled", true, kScopeGlobal, {}, true);
   add("components.autoUpdate", true, kScopeGlobal, {}, true);
   add("components.channel", "stable", kScopeGlobal, {"stable", "beta"}, true);
+  add("components.catalogUrl", "", kScopeGlobal, {}, true);
   add("diagnostics.crashReports", false);
   return s;
 }

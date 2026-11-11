@@ -82,6 +82,7 @@ example.com  → 原样转发，未做任何改写
 - 构建内置 `data/update-key.pub` 作为默认更新公钥；私钥保存在仓库外（默认 `~/.config/liora/update-key.ed25519`，权限 0600）。`scripts/generate-update-key.py` 生成密钥，`scripts/sign-components.py` 签名目录；覆盖公钥用 `LIORA_UPDATE_KEY`，本地无签名目录可用 `LIORA_DISABLE_COMPONENT_SIGNATURES=1` 临时放行（仅开发）。
 - Ed25519 实现使用公有领域的 TweetNaCl（`third_party/tweetnacl`），签名格式、密钥保管与轮换见 `docs/COMPONENTS.md`。
 - 安装成功后组件出现在“可下载”列表并显示版本；当前构建若没有对应的内核适配层，会明确标注“组件已安装，但当前构建未启用该内核”。
+- 组件页可配置签名目录 URL（`components.catalogUrl`）并“检查更新”：壳下载目录，Core 校验内置更新公钥的 Ed25519 签名后保存到 `components.json`；更新列表会显示新版本，可直接安装。
 
 ### 数据与迁移
 

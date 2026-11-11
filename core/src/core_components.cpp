@@ -125,9 +125,29 @@ void Core::registerComponentMethods() {
   });
 
   rpc_.add("components.reloadCatalog", [this](const Json& params) {
-    std::string path = params::string(params, "path");
-    if (auto error = components_.loadCatalogFile(utf8ToPath(path))) rpcFail(kRpcInvalidParams, *error);
-    return Json{{"ok", true}};
+    // The shell normally sends the downloaded document itself; a path is kept
+    // for local tooling. Both forms are verified before anything is replaced,
+    // and a valid catalog is persisted for the next launch.
+    std::string text;
+    if (params.contains("catalog") && params["catalog"].is_string()) {
+      text = params["catalog"].get<std::string>();
+      if (text.empty()) rpcFail(kRpcInvalidParams, "the catalog is empty");
+      if (auto error = components_.loadCatalog(text)) rpcFail(kRpcInvalidParams, *error);
+    } else {
+      std::string path = params::string(params, "path");
+      auto data = readFile(utf8ToPath(path));
+      if (!data) rpcFail(kRpcInvalidParams, "cannot read " + path);
+      if (auto error = components_.loadCatalog(*data)) rpcFail(kRpcInvalidParams, *error);
+      text = *data;
+    }
+
+    std::string error;
+    if (!writeFileAtomic(paths().root / "components.json", text, &error)) {
+      rpcFail(kRpcInternalError,
+              error.empty() ? "cannot save the component catalog" : error);
+    }
+    rpc_.notify("components.changed", {{"id", "*"}});
+    return components_.describe();
   });
 }
 

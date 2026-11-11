@@ -28,6 +28,8 @@
   let components = $state<Component[]>([]);
   let updates = $state<string[]>([]);
   let updating = $state('');
+  let catalogUrl = $state(String(value('components.catalogUrl') ?? ''));
+  let catalogBusy = $state(false);
   let loading = $state(true);
   let busy = $state('');
   let installing = $state('');
@@ -108,6 +110,20 @@
         void load();
         return;
       }
+      if (message.method === 'browser.catalogUpdated') {
+        const params = (message.params ?? {}) as { count?: number };
+        catalogBusy = false;
+        toast(t('kernels.catalogUpdated', { count: params.count ?? 0 }));
+        void load();
+        return;
+      }
+      if (message.method === 'browser.catalogFailed') {
+        const params = (message.params ?? {}) as { message?: string };
+        catalogBusy = false;
+        toast(params.message || t('kernels.catalogFailed'), 'error');
+        void load();
+        return;
+      }
       if (message.method === 'components.changed') {
         void load();
       }
@@ -157,6 +173,22 @@
 
   function updateAvailable(component: Component): boolean {
     return Boolean(component.installedVersion) && updates.includes(component.id);
+  }
+
+  async function refreshCatalog(): Promise<void> {
+    const url = catalogUrl.trim();
+    if (!url) {
+      toast(t('kernels.catalogUrlMissing'), 'error');
+      return;
+    }
+    catalogBusy = true;
+    try {
+      await set('components.catalogUrl', url);
+      notify('ui.refreshCatalog', { url });
+    } catch (error: any) {
+      catalogBusy = false;
+      toast(String(error?.message ?? error), 'error');
+    }
   }
 
   function updateComponent(component: Component): void {
@@ -314,6 +346,27 @@
           </div>
         </div>
         <div class="card__body">
+          <div class="row catalog-row">
+            <div class="row__main">
+              <div class="row__title">{t('kernels.catalogSource')}</div>
+              <input
+                class="input input--mono"
+                bind:value={catalogUrl}
+                placeholder="https://…/components.json"
+                spellcheck="false"
+              />
+              <div class="row__desc">{t('kernels.catalogHint')}</div>
+            </div>
+            <div class="row__control">
+              <button
+                class="button button--sm button--primary catalog-refresh"
+                disabled={catalogBusy}
+                onclick={refreshCatalog}
+              >
+                {catalogBusy ? t('kernels.catalogChecking') : t('kernels.catalogCheck')}
+              </button>
+            </div>
+          </div>
           {#each components as component (component.id)}
             <div class="row">
               <div class="row__main">

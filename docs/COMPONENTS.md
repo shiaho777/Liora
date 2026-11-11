@@ -54,6 +54,17 @@ python3 scripts/sign-components.py components.json --in-place
 
 生成脚本会把公钥写入 `data/update-key.pub`，重新构建后生效。轮换时应同时更新目录签名并重新发布客户端。
 
+### 远程目录更新
+
+设置 → 内核（高级模式）的“目录来源”可填写签名目录 URL，点击“检查更新”：
+
+1. 壳通过 `NSURLSession` 下载目录（上限 4 MB）；
+2. 壳调用 `components.reloadCatalog`，Core 用内置更新公钥验证 Ed25519 签名；
+3. 校验通过后 Core 将目录写入 `components.json` 并刷新内存目录；
+4. 界面重新读取 `components.updates`，已安装且有新版本的组件显示“可更新”。
+
+签名错误、网络错误或格式错误都会拒绝更新并保留旧目录。目录 URL 也保存在 `components.catalogUrl`，下次启动仍可使用。
+
 ### 覆盖与开发
 
 - `LIORA_UPDATE_KEY`（hex/base64）覆盖内置公钥；

@@ -1094,6 +1094,90 @@ NSString* jsonEscape(id object) {
                  params:@{@"id" : componentId ?: @"", @"message" : message ?: @""}];
 }
 
+// Downloads a signed catalog, asks Core to verify/load/persist it, and reports
+// the result. Catalog files are small; cap the response defensively.
+- (void)refreshComponentCatalog:(NSString*)urlText {
+  if (!_core || !urlText.length) return;
+  NSURL* url = [NSURL URLWithString:urlText];
+  if (!url || !url.scheme.length ||
+      (![url.scheme isEqualToString:@"https"] && ![url.scheme isEqualToString:@"http"])) {
+    [self notifyInterface:@"browser.catalogFailed"
+                   params:@{@"message" : @"the catalog URL must use http or https"}];
+    return;
+  }
+
+  [self notifyInterface:@"browser.catalogProgress" params:@{@"state" : @"downloading"}];
+  __weak LioraController* weakSelf = self;
+  NSURLSessionDataTask* task = [[NSURLSession sharedSession]
+      dataTaskWithURL:url
+        completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+          LioraController* strongSelf = weakSelf;
+          if (!strongSelf) return;
+          if (error || !data) {
+            NSString* message = error.localizedDescription ?: @"catalog download failed";
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf notifyInterface:@"browser.catalogFailed" params:@{@"message" : message}];
+            });
+            return;
+          }
+          if ([response isKindOfClass:[NSHTTPURLResponse class]] &&
+              ((NSHTTPURLResponse*)response).statusCode != 200) {
+            NSInteger status = ((NSHTTPURLResponse*)response).statusCode;
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf notifyInterface:@"browser.catalogFailed"
+                                     params:@{
+                                       @"message" : [NSString
+                                           stringWithFormat:@"the server returned %ld", (long)status]
+                                     }];
+            });
+            return;
+          }
+          if (data.length > 4 * 1024 * 1024) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf notifyInterface:@"browser.catalogFailed"
+                                     params:@{@"message" : @"the catalog is larger than 4 MB"}];
+            });
+            return;
+          }
+          NSString* text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+          if (!text.length) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+              [strongSelf notifyInterface:@"browser.catalogFailed"
+                                     params:@{@"message" : @"the catalog is empty"}];
+            });
+            return;
+          }
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf applyComponentCatalog:text];
+          });
+        }];
+  [task resume];
+}
+
+- (void)applyComponentCatalog:(NSString*)text {
+  if (!_core) return;
+  [self notifyInterface:@"browser.catalogProgress" params:@{@"state" : @"verifying"}];
+  liora::Json response = _core->handleJson(liora::Json{
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "components.reloadCatalog"},
+      {"params", {{"catalog", stdString(text)}}}});
+  auto result = response.find("result");
+  if (result == response.end() || !result->is_array()) {
+    std::string message = "cannot load the component catalog";
+    auto failure = response.find("error");
+    if (failure != response.end() && failure->is_object()) {
+      message = failure->value("message", message);
+    }
+    NSLog(@"Liora: component catalog rejected: %s", message.c_str());
+    [self notifyInterface:@"browser.catalogFailed" params:@{@"message" : ns(message)}];
+    return;
+  }
+
+  NSLog(@"Liora: component catalog updated (%zu entries)", result->size());
+  [self notifyInterface:@"browser.catalogUpdated" params:@{@"count" : @(result->size())}];
+}
+
 - (void)installComponent:(NSString*)componentId version:(NSString*)version {
   if (!_core || !componentId.length) return;
 
@@ -1309,6 +1393,11 @@ NSString* jsonEscape(id object) {
     NSLog(@"Liora: trashed %d diagnostics (%d failed)", deleted, failed);
     [self notifyInterface:@"browser.diagnosticsTrashed"
                    params:@{@"deleted" : @(deleted), @"failed" : @(failed)}];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.refreshCatalog"]) {
+    [self refreshComponentCatalog:params[@"url"]];
     return;
   }
 
