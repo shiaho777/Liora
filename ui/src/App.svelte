@@ -111,7 +111,10 @@
       activeId = restored.some((tab) => tab.id === session.active) ? session.active! : restored[0].id;
       // Load every page tab; the shell keeps background views hidden.
       for (const tab of restored) {
-        if (tab.page === 'web') notify('ui.navigate', { url: tab.url, tab: tab.id });
+        if (tab.page === 'web') {
+          notify('ui.navigate', { url: tab.url, tab: tab.id });
+          void applyStoredZoom(tab.url, tab.id);
+        }
       }
     } catch {
       /* a damaged session file must not block startup */
@@ -307,6 +310,7 @@
       if (tab && tab.page === 'web' && !tab.download && !tab.error) {
         tab.url = url;
         tabs = [...tabs];
+        void applyStoredZoom(url, tab.id);
       }
       return;
     }
@@ -402,6 +406,7 @@
     }
     updateTab(activeId, { error: undefined });
     notify('ui.navigate', { url, tab: activeId });
+    void applyStoredZoom(url, activeId);
   }
 
   async function toggleBookmark(): Promise<void> {    if (active.page !== 'web') return;
@@ -792,6 +797,7 @@
       download: undefined,
     });
     notify('ui.navigate', { url, tab: activeId });
+    void applyStoredZoom(url, activeId);
   }
 
   function openFind(): void {
@@ -875,6 +881,25 @@
       return new URL(url).hostname;
     } catch {
       return '';
+    }
+  }
+
+  // Page zoom is stored per site; re-apply it after navigation because a
+  // kernel view starts at 100% for each new document.
+  async function applyStoredZoom(url: string, tab: number): Promise<void> {
+    const site = siteOf(url);
+    if (!site) return;
+    try {
+      const current = Number(
+        (await call<Record<string, number>>('settings.get', { key: 'content.zoom', site }))[
+          'content.zoom'
+        ] ?? 100,
+      );
+      if (Number.isFinite(current) && current !== 100) {
+        notify('ui.setZoom', { tab, percent: current });
+      }
+    } catch {
+      /* zoom is optional */
     }
   }
 

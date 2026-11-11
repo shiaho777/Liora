@@ -523,11 +523,9 @@ class CefView final : public IKernelView {
   }
 
   void setZoom(double percent) override {
-    if (auto b = this->browser()) {
-      // Chromium zoom levels are logarithmic with a 1.2 step.
-      const double level = std::log(percent / 100.0) / std::log(1.2);
-      b->GetHost()->SetZoomLevel(level);
-    }
+    pendingZoom_ = percent;
+    hasZoom_ = true;
+    applyZoom();
   }
 
   void postMessage(const std::string& json) override {
@@ -572,9 +570,19 @@ class CefView final : public IKernelView {
     }
   }
 
+  void applyZoom() {
+    if (!hasZoom_) return;
+    if (auto b = this->browser()) {
+      // Chromium zoom levels are logarithmic with a 1.2 step.
+      const double level = std::log(pendingZoom_ / 100.0) / std::log(1.2);
+      b->GetHost()->SetZoomLevel(level);
+    }
+  }
+
   void flushPendingState() {
     applyBounds();
     applyVisible();
+    applyZoom();
   }
 
   void flushPendingUrl() {
@@ -586,6 +594,8 @@ class CefView final : public IKernelView {
   }
 
   std::string pendingUrl_;
+  double pendingZoom_ = 100.0;
+  bool hasZoom_ = false;
   std::string lastFindText_;
   bool lastMatchCase_ = false;
   bool hasBounds_ = false;
