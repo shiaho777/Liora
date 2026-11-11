@@ -151,6 +151,8 @@ class IKernelView {
   virtual void setBounds(int x, int y, int width, int height) = 0;
   virtual void setVisible(bool visible) = 0;
   virtual void setZoom(double percent) = 0;
+  // Opens the kernel's developer tools when it has them. No-op otherwise.
+  virtual void openDevTools() {}
   virtual void postMessage(const std::string& json) = 0;
   virtual void* nativeHandle() const = 0;
 };

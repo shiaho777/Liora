@@ -456,6 +456,7 @@
         case 'reload': navigate(active.url); break;
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
+        case 'devTools': notify('ui.devTools', { tab: activeId }); break;
         case 'back': goBack(); break;
         case 'forward': goForward(); break;
         case 'zoomIn': void changeZoom(10); break;

@@ -9,6 +9,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_context_menu_handler.h"
 #include "include/cef_display_handler.h"
 #include "include/cef_download_handler.h"
 #include "include/cef_life_span_handler.h"
@@ -108,7 +109,8 @@ class KernelClient : public CefClient,
                      public CefLoadHandler,
                      public CefDisplayHandler,
                      public CefDownloadHandler,
-                     public CefPermissionHandler {
+                     public CefPermissionHandler,
+                     public CefContextMenuHandler {
  public:
   KernelClient(std::shared_ptr<Bridge> bridge, const ViewOptions& options)
       : bridge_(std::move(bridge)), options_(options) {}
@@ -118,6 +120,70 @@ class KernelClient : public CefClient,
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
+  CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+
+  enum MenuCommand {
+    kMenuBack = 1000,
+    kMenuForward,
+    kMenuReload,
+    kMenuCopy,
+    kMenuPaste,
+    kMenuSelectAll,
+    kMenuDevTools,
+  };
+
+  void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
+                           CefRefPtr<CefFrame> frame,
+                           CefRefPtr<CefContextMenuParams> params,
+                           CefRefPtr<CefMenuModel> model) override {
+    if (!model) return;
+    model->Clear();
+    model->AddItem(kMenuBack, "后退");
+    model->AddItem(kMenuForward, "前进");
+    model->AddItem(kMenuReload, "重新加载");
+    model->AddSeparator();
+    model->AddItem(kMenuCopy, "复制");
+    model->AddItem(kMenuPaste, "粘贴");
+    model->AddItem(kMenuSelectAll, "全选");
+    model->AddSeparator();
+    model->AddItem(kMenuDevTools, "开发者工具");
+  }
+
+  bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
+                            CefRefPtr<CefFrame> frame,
+                            CefRefPtr<CefContextMenuParams> params,
+                            int command_id,
+                            EventFlags event_flags) override {
+    switch (command_id) {
+      case kMenuBack:
+        if (browser) browser->GoBack();
+        return true;
+      case kMenuForward:
+        if (browser) browser->GoForward();
+        return true;
+      case kMenuReload:
+        if (browser) browser->Reload();
+        return true;
+      case kMenuCopy:
+        if (frame) frame->Copy();
+        return true;
+      case kMenuPaste:
+        if (frame) frame->Paste();
+        return true;
+      case kMenuSelectAll:
+        if (frame) frame->SelectAll();
+        return true;
+      case kMenuDevTools:
+        if (browser) {
+          CefWindowInfo info;
+          CefBrowserSettings settings;
+          browser->GetHost()->ShowDevTools(info, nullptr, settings, CefPoint());
+        }
+        return true;
+      default:
+        return false;
+    }
+  }
 
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,
                               uint64_t prompt_id,
@@ -408,6 +474,14 @@ class CefView final : public IKernelView {
     visible_ = visible;
     hasVisible_ = true;
     applyVisible();
+  }
+
+  void openDevTools() override {
+    if (auto b = this->browser()) {
+      CefWindowInfo info;
+      CefBrowserSettings settings;
+      b->GetHost()->ShowDevTools(info, nullptr, settings, CefPoint());
+    }
   }
 
   void setZoom(double percent) override {

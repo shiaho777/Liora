@@ -294,6 +294,10 @@ NSString* jsonEscape(id object) {
   [view addItemWithTitle:@"放大" action:@selector(zoomInCommand:) keyEquivalent:@"="];
   [view addItemWithTitle:@"缩小" action:@selector(zoomOutCommand:) keyEquivalent:@"-"];
   [view addItemWithTitle:@"实际大小" action:@selector(zoomResetCommand:) keyEquivalent:@"0"];
+  NSMenuItem* devTools = [view addItemWithTitle:@"开发者工具"
+                                         action:@selector(devToolsCommand:)
+                                  keyEquivalent:@"i"];
+  devTools.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
   [view addItemWithTitle:@"下载" action:@selector(showDownloadsCommand:) keyEquivalent:@"J"];
   [view addItemWithTitle:@"设置…" action:@selector(openSettingsCommand:) keyEquivalent:@","];
   viewItem.submenu = view;
@@ -361,6 +365,7 @@ NSString* jsonEscape(id object) {
 - (void)zoomInCommand:(id)sender { [self sendUICommand:@"zoomIn"]; }
 - (void)zoomOutCommand:(id)sender { [self sendUICommand:@"zoomOut"]; }
 - (void)zoomResetCommand:(id)sender { [self sendUICommand:@"zoomReset"]; }
+- (void)devToolsCommand:(id)sender { [self sendUICommand:@"devTools"]; }
 - (void)showDownloadsCommand:(id)sender { [self sendUICommand:@"downloads"]; }
 
 - (void)startCore {
@@ -1342,6 +1347,13 @@ NSString* jsonEscape(id object) {
       [native removeFromSuperview];
       _views.erase(entry);
     }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.devTools"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (view) view->openDevTools();
     return;
   }
 
