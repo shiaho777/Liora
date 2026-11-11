@@ -583,6 +583,10 @@
           document.querySelectorAll<HTMLElement>('.tab')[2]?.click();
           break;
         }
+        case 'updatecomponent': {
+          document.querySelector<HTMLElement>('.component-update')?.click();
+          break;
+        }
         case 'cefdownload': {
           const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
             item.textContent?.includes('Chromium (CEF)'),

@@ -26,6 +26,8 @@
 
   let kernels = $state<Kernel[]>([]);
   let components = $state<Component[]>([]);
+  let updates = $state<string[]>([]);
+  let updating = $state('');
   let loading = $state(true);
   let busy = $state('');
   let installing = $state('');
@@ -42,8 +44,14 @@
   async function load(): Promise<void> {
     loading = true;
     try {
-      kernels = await call<Kernel[]>('kernels.list');
-      components = await call<Component[]>('components.catalog');
+      const [kernelList, componentList, updateList] = await Promise.all([
+        call<Kernel[]>('kernels.list'),
+        call<Component[]>('components.catalog'),
+        call<string[]>('components.updates'),
+      ]);
+      kernels = kernelList;
+      components = componentList;
+      updates = Array.isArray(updateList) ? updateList : [];
     } catch (error: any) {
       toast(String(error?.message ?? error), 'error');
     } finally {
@@ -87,6 +95,7 @@
         const params = (message.params ?? {}) as { id?: string; version?: string };
         const kernel = kernels.find((item) => item.component === params.id);
         installing = '';
+        updating = '';
         toast(t('kernels.installDone', { name: kernel?.name ?? params.id ?? '' }));
         void load();
         return;
@@ -94,6 +103,7 @@
       if (message.method === 'browser.componentFailed') {
         const params = (message.params ?? {}) as { message?: string };
         installing = '';
+        updating = '';
         toast(params.message || t('kernels.installFailed'), 'error');
         void load();
         return;
@@ -143,6 +153,16 @@
 
   function capLabel(cap: string): string {
     return t(`kernels.cap.${cap}`);
+  }
+
+  function updateAvailable(component: Component): boolean {
+    return Boolean(component.installedVersion) && updates.includes(component.id);
+  }
+
+  function updateComponent(component: Component): void {
+    if (updating) return;
+    updating = component.id;
+    notify('ui.installComponent', { id: component.id, version: '' });
   }
 
   function installedComponentVersion(kernel: Kernel): string {
@@ -301,6 +321,16 @@
                 <div class="row__desc">{component.description}</div>
               </div>
               <div class="row__control">
+                {#if updateAvailable(component)}
+                  <span class="badge badge--accent">{t('kernels.updateAvailable')}</span>
+                  <button
+                    class="button button--primary button--sm component-update"
+                    disabled={updating === component.id}
+                    onclick={() => updateComponent(component)}
+                  >
+                    {updating === component.id ? t('kernels.updating') : t('kernels.update')}
+                  </button>
+                {/if}
                 <span class="badge" class:badge--success={!!component.installedVersion}>
                   {component.installedVersion ?? t('kernels.notInstalled')}
                 </span>

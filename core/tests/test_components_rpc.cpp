@@ -146,6 +146,31 @@ LIORA_TEST(components_reject_tampered_or_incomplete_packages) {
   CHECK(manager.commit(escape).has_value());
 }
 
+LIORA_TEST(components_describe_prefers_current_version) {
+  TempDir dir;
+  ComponentManager manager(dir / "components");
+  Json catalog = Json::parse(catalogWithHash(sha256Hex("aa")), nullptr, false);
+  Json second = catalog["components"][0]["versions"][0];
+  second["version"] = "2.0.0";
+  second["builds"][0]["files"][0]["sha256"] = sha256Hex("bb");
+  catalog["components"][0]["versions"].push_back(second);
+  CHECK(!manager.loadCatalog(catalog.dump()).has_value());
+
+  auto install = [&](const std::string& version, const std::string& payload) {
+    std::string error;
+    auto plan = manager.plan("kernel-cef", version, "macos", "arm64", &error);
+    CHECK(plan.has_value());
+    fs::create_directories(plan->stagingDir / "cef");
+    CHECK(writeFileAtomic(plan->stagingDir / "cef" / "libcef.dylib", payload));
+    CHECK(!manager.commit(*plan).has_value());
+  };
+  install("1.0.0", "aa");
+  install("2.0.0", "bb");
+
+  Json described = manager.describe();
+  CHECK_EQ(described[0]["installedVersion"].get<std::string>(), std::string("2.0.0"));
+}
+
 LIORA_TEST(components_unknown_platform_has_no_plan) {
   TempDir dir;
   ComponentManager manager(dir / "components");

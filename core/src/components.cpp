@@ -275,8 +275,9 @@ Json ComponentManager::describe() const {
     Json item = e.toJson();
     for (const auto& inst : installed_) {
       if (inst.id != e.id) continue;
+      // Several versions can be installed after an update; show the active one.
       item["installedVersion"] = inst.version;
-      break;
+      if (inst.current) break;
     }
     out.push_back(std::move(item));
   }
