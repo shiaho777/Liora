@@ -1,14 +1,16 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import Segmented from './Segmented.svelte';
   import { call } from './bridge';
   import { t } from './i18n.svelte';
 
   interface Props {
     kind: 'bookmarks' | 'history';
     onnavigate?: (url: string) => void;
+    onopen?: (page: string) => void;
   }
 
-  let { kind, onnavigate }: Props = $props();
+  let { kind, onnavigate, onopen }: Props = $props();
 
   interface BookmarkNode {
     id: number;
@@ -53,11 +55,13 @@
     void load();
   });
 
-  let bookmarkCount = $derived((function count(node: BookmarkNode | null): number {
-    if (!node) return 0;
-    if (node.type === 'url') return 1;
-    return (node.children ?? []).reduce((sum, child) => sum + count(child), 0);
-  })(tree));
+  let bookmarkCount = $derived(
+    (function count(node: BookmarkNode | null): number {
+      if (!node) return 0;
+      if (node.type === 'url') return 1;
+      return (node.children ?? []).reduce((sum, child) => sum + count(child), 0);
+    })(tree),
+  );
 
   function flatten(node: BookmarkNode | null, out: BookmarkNode[] = []): BookmarkNode[] {
     if (!node) return out;
@@ -99,29 +103,48 @@
       return url;
     }
   }
+
+  const tabs = $derived([
+    { value: 'bookmarks', label: t('nav.bookmarks') },
+    { value: 'history', label: t('nav.history') },
+  ]);
+
+  const count = $derived(kind === 'bookmarks' ? bookmarkCount : history.length);
 </script>
 
 <div class="library">
   <header class="library__header">
-    <h1>{kind === 'bookmarks' ? t('nav.bookmarks') : t('nav.history')}</h1>
-    <div class="library__count">
-      {#if kind === 'bookmarks'}
-        {bookmarkCount} {t('data.count')}
-      {:else}
-        {history.length} {t('data.count')}
-      {/if}
+    <div class="library__heading">
+      <span class="library__icon">
+        <Icon name={kind === 'bookmarks' ? 'star' : 'history'} size={17} />
+      </span>
+      <div class="library__title-wrap">
+        <h1 class="library__title">
+          {kind === 'bookmarks' ? t('nav.bookmarks') : t('nav.history')}
+        </h1>
+        <div class="library__subtitle">{count} {t('data.count')}</div>
+      </div>
     </div>
+
+    <Segmented
+      value={kind}
+      options={tabs}
+      ariaLabel={t('library.tabs')}
+      onchange={(next) => onopen?.(next)}
+    />
+
     <div class="library__actions">
       {#if kind === 'history'}
         <input
           class="input library__search"
           bind:value={query}
           oninput={() => load()}
-          placeholder={t('address.placeholder')}
+          placeholder={t('history.search')}
+          aria-label={t('history.search')}
         />
-      {/if}
-      {#if kind === 'history'}
-        <button class="button button--sm" onclick={clearHistory}>{t('history.clear')}</button>
+        {#if history.length > 0}
+          <button class="button button--sm" onclick={clearHistory}>{t('history.clear')}</button>
+        {/if}
       {/if}
       <button class="icon-button" title={t('nav.reload')} onclick={() => load()}>
         <Icon name="refresh" />
@@ -131,76 +154,101 @@
 
   <div class="library__body">
     {#if loading}
-      <div class="empty">…</div>
+      <div class="library-loading" aria-busy="true">
+        {#each Array(4) as _, index (index)}
+          <span class="skeleton-row"></span>
+        {/each}
+      </div>
     {:else if kind === 'bookmarks'}
       {#if items.length === 0}
-        <div class="empty">{t('rules.empty')}</div>
+        <div class="empty-state library-empty">
+          <span class="empty-state__icon"><Icon name="star" size={19} /></span>
+          <div class="empty-state__title">{t('bookmarks.empty')}</div>
+          <p class="empty-state__body">{t('bookmarks.emptyHint')}</p>
+          <button class="button button--primary button--sm" onclick={() => onopen?.('newtab')}>
+            {t('bookmarks.emptyAction')}
+          </button>
+        </div>
       {:else}
-        {#each items as item (item.id)}
+        <div class="entries">
+          {#each items as item (item.id)}
+            <div
+              class="entry"
+              role="button"
+              tabindex="0"
+              onclick={() => item.url && onnavigate?.(item.url)}
+              onkeydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  item.url && onnavigate?.(item.url);
+                }
+              }}
+            >
+              <span class="entry__icon entry__icon--star"><Icon name="star" size={12} /></span>
+              <span class="entry__main">
+                <span class="entry__title">{item.title || item.url}</span>
+                <span class="entry__url mono">{item.url}</span>
+              </span>
+              <button
+                class="icon-button entry__remove"
+                title={t('bookmarks.remove')}
+                aria-label={t('bookmarks.remove')}
+                onclick={(event) => {
+                  event.stopPropagation();
+                  void removeBookmark(item.id);
+                }}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else if history.length === 0}
+      <div class="empty-state library-empty">
+        <span class="empty-state__icon"><Icon name="history" size={19} /></span>
+        <div class="empty-state__title">
+          {query.trim() ? t('history.noResults') : t('history.empty')}
+        </div>
+        <p class="empty-state__body">
+          {query.trim() ? t('history.noResultsHint') : t('history.emptyHint')}
+        </p>
+      </div>
+    {:else}
+      <div class="entries">
+        {#each history as item (item.url)}
           <div
             class="entry"
             role="button"
             tabindex="0"
-            onclick={() => item.url && onnavigate?.(item.url)}
+            onclick={() => onnavigate?.(item.url)}
             onkeydown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                item.url && onnavigate?.(item.url);
+                onnavigate?.(item.url);
               }
             }}
           >
-            <span class="entry__icon"><Icon name="star" size={12} /></span>
+            <span class="entry__icon"><Icon name="globe" size={12} /></span>
             <span class="entry__main">
-              <span class="entry__title">{item.title || item.url}</span>
+              <span class="entry__title">{item.title || host(item.url)}</span>
               <span class="entry__url mono">{item.url}</span>
             </span>
+            <span class="entry__time">{when(item.lastVisit)}</span>
             <button
-              class="icon-button"
+              class="icon-button entry__remove"
               title={t('rules.delete')}
+              aria-label={t('rules.delete')}
               onclick={(event) => {
                 event.stopPropagation();
-                void removeBookmark(item.id);
+                void removeHistory(item.url);
               }}
             >
               <Icon name="trash" size={14} />
             </button>
           </div>
         {/each}
-      {/if}
-    {:else if history.length === 0}
-      <div class="empty">{t('data.backup.empty')}</div>
-    {:else}
-      {#each history as item (item.url)}
-        <div
-          class="entry"
-          role="button"
-          tabindex="0"
-          onclick={() => onnavigate?.(item.url)}
-          onkeydown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onnavigate?.(item.url);
-            }
-          }}
-        >
-          <span class="entry__icon"><Icon name="globe" size={12} /></span>
-          <span class="entry__main">
-            <span class="entry__title">{item.title || host(item.url)}</span>
-            <span class="entry__url mono">{item.url}</span>
-          </span>
-          <span class="entry__time">{when(item.lastVisit)}</span>
-          <button
-            class="icon-button"
-            title={t('rules.delete')}
-            onclick={(event) => {
-              event.stopPropagation();
-              void removeHistory(item.url);
-            }}
-          >
-            <Icon name="trash" size={14} />
-          </button>
-        </div>
-      {/each}
+      </div>
     {/if}
   </div>
 </div>
@@ -211,55 +259,90 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: var(--bg);
   }
 
   .library__header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 18px 22px 12px;
+    gap: 14px;
+    padding: 18px 24px;
     border-bottom: 1px solid var(--border);
+    background: var(--surface);
   }
 
-  .library__header h1 {
+  .library__heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .library__icon {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .library__title {
     margin: 0;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 650;
     letter-spacing: -0.01em;
   }
 
-  .library__count {
-    font-size: 12px;
+  .library__subtitle {
+    margin-top: 1px;
+    font-size: 11px;
     color: var(--text-muted);
   }
 
   .library__actions {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
   .library__search {
-    width: 220px;
+    width: 210px;
     height: 30px;
   }
 
   .library__body {
     flex: 1;
+    min-height: 0;
     overflow: auto;
-    padding: 8px 14px 28px;
+    padding: 18px 24px 40px;
+  }
+
+  .entries {
+    max-width: 860px;
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
   }
 
   .entry {
     display: flex;
     align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 9px 10px;
-    border-radius: var(--radius-sm);
-    text-align: left;
+    gap: 11px;
+    min-height: 50px;
+    padding: 8px 12px;
     cursor: pointer;
+    transition: background var(--fast) var(--ease);
+  }
+
+  .entry + .entry {
+    border-top: 1px solid var(--border);
   }
 
   .entry:hover {
@@ -267,14 +350,19 @@
   }
 
   .entry__icon {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     flex: none;
-    border-radius: 8px;
     display: grid;
     place-items: center;
+    border-radius: 8px;
+    color: var(--text-secondary);
     background: var(--bg-sunken);
-    color: var(--text-muted);
+  }
+
+  .entry__icon--star {
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 
   .entry__main {
@@ -282,16 +370,19 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 1px;
   }
 
   .entry__title {
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 550;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .entry__url {
+    font-size: 10.5px;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -300,7 +391,77 @@
 
   .entry__time {
     flex: none;
-    font-size: 11.5px;
+    font-size: 10.5px;
     color: var(--text-muted);
+  }
+
+  .entry__remove {
+    opacity: 0;
+    transition: opacity var(--fast) var(--ease);
+  }
+
+  .entry:hover .entry__remove {
+    opacity: 1;
+  }
+
+  .library-empty {
+    max-width: 560px;
+    margin: 40px auto;
+    padding: 34px 24px;
+  }
+
+  .library-loading {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-width: 860px;
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .skeleton-row {
+    height: 50px;
+    background: linear-gradient(90deg, var(--bg-sunken), var(--surface), var(--bg-sunken));
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .library__header {
+      flex-wrap: wrap;
+      padding: 14px 16px;
+    }
+
+    .library__heading {
+      width: 100%;
+    }
+
+    .library__actions {
+      width: 100%;
+    }
+
+    .library__search {
+      flex: 1;
+      width: auto;
+    }
+
+    .library__body {
+      padding: 16px;
+    }
+
+    .entry__remove {
+      opacity: 1;
+    }
   }
 </style>

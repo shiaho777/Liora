@@ -1,5 +1,6 @@
 import { call, describeSettings, setSetting as rpcSetSetting, start } from './bridge';
 import { setLocale } from './i18n.svelte';
+import { settingsStore } from './settings-store.svelte';
 
 export interface ToastAction {
   label: string;
@@ -84,6 +85,8 @@ export async function boot(): Promise<void> {
 
   // Load the handful of settings the shell itself needs before first paint.
   const description = await describeSettings();
+  settingsStore.items = description.items;
+  settingsStore.loaded = true;
   const values = new Map(description.items.map((item) => [item.key, item.value]));
 
   applyMode(String(values.get('ui.mode') ?? 'simple'));

@@ -118,6 +118,33 @@
     { value: 'doq', label: 'DoQ' },
   ];
 
+  const modeChoices = $derived([
+    {
+      id: 'auto',
+      icon: 'shield',
+      title: t('dns.mode.auto'),
+      desc: t('dns.mode.auto.desc'),
+    },
+    {
+      id: 'provider',
+      icon: 'globe',
+      title: t('dns.mode.provider'),
+      desc: t('dns.mode.provider.desc'),
+    },
+    {
+      id: 'custom',
+      icon: 'server',
+      title: t('dns.mode.custom'),
+      desc: t('dns.mode.custom.desc'),
+    },
+    {
+      id: 'off',
+      icon: 'settings',
+      title: t('dns.mode.off'),
+      desc: t('dns.mode.off.desc'),
+    },
+  ]);
+
   async function load(): Promise<void> {
     loading = true;
     try {
@@ -141,14 +168,14 @@
   async function refreshPlan(): Promise<void> {
     const [plan, current, kernelSetup, kernelList, config, applied, resolver] =
       await Promise.allSettled([
-      call<ActivePlan>('dns.plan'),
-      call<Runtime>('net.runtime'),
-      call<KernelSetup>('kernels.setup', {}),
-      call<KernelInfo[]>('kernels.list'),
-      call<{ config: unknown }>('net.config', {}),
-      call<LastApplied>('net.lastApplied'),
-      call<ResolverStatus>('net.resolverStatus'),
-    ]);
+        call<ActivePlan>('dns.plan'),
+        call<Runtime>('net.runtime'),
+        call<KernelSetup>('kernels.setup', {}),
+        call<KernelInfo[]>('kernels.list'),
+        call<{ config: unknown }>('net.config', {}),
+        call<LastApplied>('net.lastApplied'),
+        call<ResolverStatus>('net.resolverStatus'),
+      ]);
     if (plan.status === 'fulfilled') active = plan.value;
     if (current.status === 'fulfilled') runtime = current.value;
     if (kernelSetup.status === 'fulfilled') setup = kernelSetup.value;
@@ -277,10 +304,57 @@
   const resolverMissing = $derived(needsResolver && runtime?.running === false);
 
   const status = $derived.by(() => {
-    if (mode === 'off') return { kind: 'muted', text: t('dns.status.system') };
-    if (resolverMissing) return { kind: 'warning', text: t('dns.status.resolverDown') };
-    if (mode === 'auto') return { kind: 'muted', text: t('dns.status.auto') };
-    return { kind: 'success', text: t('dns.status.secure') };
+    if (mode === 'off') {
+      return {
+        kind: 'muted' as const,
+        title: t('dns.status.system'),
+        detail: t('dns.status.systemHint'),
+        badge: t('dns.status.systemBadge'),
+      };
+    }
+    if (resolverMissing) {
+      return {
+        kind: 'warning' as const,
+        title: t('dns.status.resolverDown'),
+        detail: t('dns.status.resolverDownHint'),
+        badge: t('dns.notRunning'),
+      };
+    }
+    if (mode === 'auto') {
+      return {
+        kind: 'muted' as const,
+        title: t('dns.status.autoTitle'),
+        detail: t('dns.status.autoHint'),
+        badge: t('dns.mode.auto'),
+      };
+    }
+    return {
+      kind: 'success' as const,
+      title: t('dns.status.secure'),
+      detail: active?.endpoint
+        ? `${active.endpoint.protocol.toUpperCase()} · ${active.endpoint.name}`
+        : t('dns.status.secureHint'),
+      badge: t('dns.status.encrypted'),
+    };
+  });
+
+  const modeLabel = $derived(
+    modes.find((item) => item.value === mode)?.label ?? t('dns.mode.auto'),
+  );
+
+  const resolverValue = $derived.by(() => {
+    if (mode === 'off' || !needsResolver) return t('dns.notNeeded');
+    if (runtime?.running) return t('dns.runtime.running');
+    return t('dns.notRunning');
+  });
+
+  const resolverHint = $derived.by(() => {
+    if (mode === 'off' || !needsResolver) return '';
+    if (runtime?.running) {
+      const proxy = runtime.proxyPort ? ` · ${t('dns.runtime.proxy')} :${runtime.proxyPort}` : '';
+      return `DoH :${runtime.dohPort}${proxy}`;
+    }
+    return needsResolver ? t('dns.status.resolverDownHint') : '';
   });
 
   function capLabel(cap: string): string {
@@ -322,7 +396,9 @@
     addError = '';
     if (!address.trim()) return;
     try {
-      const result = await call<{ valid: boolean; error?: string }>('dns.validate', { address });
+      const result = await call<{ valid: boolean; error?: string }>('dns.validate', {
+        address: address,
+      });
       if (!result.valid) {
         addError = result.error || t('dns.custom.invalid');
         return;
@@ -356,165 +432,204 @@
     <p class="settings__lede">{t('dns.lede')}</p>
   </header>
 
-  <div class="card">
+  <section class="card status">
+    <div class="status__hero">
+      <span
+        class="status__icon"
+        class:status__icon--success={status.kind === 'success'}
+        class:status__icon--warning={status.kind === 'warning'}
+      >
+        <Icon name={status.kind === 'warning' ? 'warning' : 'shield'} size={20} />
+      </span>
+      <div class="status__main">
+        <div class="status__eyebrow">{t('dns.current')}</div>
+        <div class="status__title">{status.title}</div>
+        <div class="status__detail">{status.detail}</div>
+      </div>
+      <span
+        class="pill"
+        class:pill--success={status.kind === 'success'}
+        class:pill--warning={status.kind === 'warning'}
+      >
+        <span class="dot"></span>
+        {status.badge}
+      </span>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="metric__label">{t('dns.mode')}</span>
+        <span class="metric__value">{modeLabel}</span>
+      </div>
+      <div class="metric">
+        <span class="metric__label">{t('dns.upstream')}</span>
+        <span class="metric__value">
+          {#if active?.endpoint}
+            {active.endpoint.protocol.toUpperCase()} · {active.endpoint.name}
+          {:else}
+            {mode === 'off'
+              ? t('dns.systemResolver')
+              : mode === 'auto'
+                ? t('dns.autoUpstream')
+                : t('dns.deltaNone')}
+          {/if}
+        </span>
+      </div>
+      <div class="metric">
+        <span class="metric__label">{t('dns.resolver')}</span>
+        <span class="metric__value" class:metric__value--muted={mode === 'off'}>
+          {resolverValue}
+        </span>
+        {#if resolverHint}<span class="metric__hint mono">{resolverHint}</span>{/if}
+      </div>
+      <div class="metric">
+        <span class="metric__label">{t('dns.lastAppliedLabel')}</span>
+        <span class="metric__value">
+          {lastApplied
+            ? new Date(lastApplied.at).toLocaleTimeString()
+            : t('dns.neverApplied')}
+        </span>
+        {#if lastApplied?.provider}
+          <span class="metric__hint">{lastApplied.provider}</span>
+        {/if}
+      </div>
+    </div>
+
+    {#if resolverStatus}
+      <div class="status__note">
+        {t('dns.resolverRestarted', {
+          time: new Date(resolverStatus.at).toLocaleTimeString(),
+          count: resolverStatus.count,
+        })}
+      </div>
+    {/if}
+
+    {#if resolverMissing}
+      <div class="callout callout--warning status__notice">
+        <span class="callout__icon"><Icon name="warning" size={14} /></span>
+        <span>{t('dns.status.resolverDownHint')}</span>
+      </div>
+    {/if}
+
+    {#if setup && setup.unsupported.length > 0}
+      <div class="callout status__notice">
+        <span class="callout__icon"><Icon name="info" size={14} /></span>
+        <span>{t('dns.unsupported')}: {setup.unsupported.map(capLabel).join('、')}</span>
+      </div>
+    {/if}
+
+    {#if hasPendingChanges}
+      <div class="pending">
+        <span class="pending__icon"><Icon name="refresh" size={15} /></span>
+        <div class="pending__main">
+          <div class="pending__title">{t('dns.pendingTitle')}</div>
+          <div class="pending__desc">
+            {restartRequired ? t('dns.pendingKernelHint') : t('dns.pendingResolverHint')}
+          </div>
+          {#if delta.length > 0}
+            <div class="pending__delta">
+              {#each delta as item, index (item.kind)}
+                {#if index > 0}<span class="pending__sep">·</span>{/if}
+                <span>{deltaLabel(item.kind)}</span>
+                <code>{deltaValue(item.kind, item.from)} → {deltaValue(item.kind, item.to)}</code>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <button
+          class="button button--sm"
+          class:button--primary={restartRequired}
+          disabled={restarting}
+          onclick={restartKernel}
+        >
+          <Icon name="refresh" size={12} />
+          {restarting
+            ? t('restart.working')
+            : restartRequired
+              ? t('restart.action')
+              : t('restart.panelResolverAction')}
+        </button>
+      </div>
+    {/if}
+  </section>
+
+  <section class="card">
     <div class="card__header">
-      <div class="card__main">
-        <div class="card__title">{t('dns.current')}</div>
+      <div>
+        <div class="card__title">{t('dns.modeTitle')}</div>
+        <div class="card__subtitle">{t('dns.modeSubtitle')}</div>
       </div>
     </div>
     <div class="card__body">
-      <div class="status">
-        <span
-          class="badge"
-          class:badge--success={status.kind === 'success'}
-          class:badge--warning={status.kind === 'warning'}
-        >
-          <span class="dot"></span>
-          {status.text}
-        </span>
-        {#if active?.endpoint}
-          <span class="mono muted">{active.endpoint.protocol.toUpperCase()} · {active.endpoint.name}</span>
-        {/if}
+      <div class="modes">
+        {#each modeChoices as choice (choice.id)}
+          <button
+            class="mode"
+            class:mode--active={mode === choice.id}
+            onclick={() => chooseMode(choice.id)}
+          >
+            <span class="mode__top">
+              <span class="mode__icon"><Icon name={choice.icon} size={15} /></span>
+              <span class="mode__radio" class:mode__radio--on={mode === choice.id}>
+                {#if mode === choice.id}<Icon name="check" size={10} />{/if}
+              </span>
+            </span>
+            <span class="mode__title">{choice.title}</span>
+            <span class="mode__desc">{choice.desc}</span>
+          </button>
+        {/each}
       </div>
-
-      {#if mode !== 'off'}
-        <div class="row" style:margin-top="6px">
-          <div class="row__main">
-            <div class="row__title">{t('dns.mode')}</div>
-            <div class="row__desc">
-              {mode === 'auto' ? t('dns.mode.auto.desc') : mode === 'off' ? t('dns.mode.off.desc') : active?.summary}
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      {#if lastApplied && lastApplied.at > 0}
-        <div class="applied-line">
-          {t('dns.lastApplied', { time: new Date(lastApplied.at).toLocaleTimeString() })}
-          {#if lastApplied.provider}
-            · {lastApplied.provider}{#if lastApplied.protocol}{' ('}{lastApplied.protocol}){/if}
-          {/if}
-          {#if lastApplied.proxy}
-            · {t('dns.runtime.proxy')} :{proxyPort(lastApplied.proxy)}
-          {/if}
-        </div>
-        {#if delta.length > 0}
-          <div class="applied-line applied-line--delta">
-            {t('dns.delta')}:
-            {#each delta as item, index (item.kind)}
-              {#if index > 0}{' · '}{/if}
-              {deltaLabel(item.kind)}
-              {deltaValue(item.kind, item.from)} → {deltaValue(item.kind, item.to)}
-            {/each}
-          </div>
-        {/if}
-      {/if}
-
-      {#if resolverStatus}
-        <div class="applied-line">
-          {t('dns.resolverRestarted', {
-            time: new Date(resolverStatus.at).toLocaleTimeString(),
-            count: resolverStatus.count,
-          })}
-        </div>
-      {/if}
-
-      {#if runtime?.running}
-        <div class="cluster" style:margin-top="10px">
-          <span class="badge badge--success">
-            <span class="dot"></span>
-            {t('dns.runtime.running')}
-          </span>
-          <span class="mono muted">DoH :{runtime.dohPort} · {t('dns.runtime.proxy')} :{runtime.proxyPort}</span>
-        </div>
-      {:else if resolverMissing}
-        <div class="callout callout--warning" style:margin-top="10px">
-          <span class="callout__icon"><Icon name="warning" size={14} /></span>
-          <span>{t('dns.status.resolverDownHint')}</span>
-        </div>
-      {/if}
-
-      {#if setup && setup.unsupported.length > 0}
-        <div class="callout" style:margin-top="10px">
-          <span class="callout__icon"><Icon name="info" size={14} /></span>
-          <span>{t('dns.unsupported')}: {setup.unsupported.map(capLabel).join('、')}</span>
-        </div>
-      {/if}
-
-      {#if hasPendingChanges}
-        <div class="row" style:margin-top="10px">
-          <div class="row__main">
-            <div class="row__title">{t('dns.pendingTitle')}</div>
-            <div class="row__desc">
-              {restartRequired ? t('dns.pendingKernelHint') : t('dns.pendingResolverHint')}
-            </div>
-          </div>
-          <div class="row__control">
-            <button
-              class="button button--sm"
-              class:button--primary={restartRequired}
-              disabled={restarting}
-              onclick={restartKernel}
-            >
-              <Icon name="refresh" size={12} />
-              {restarting
-                ? t('restart.working')
-                : restartRequired
-                  ? t('restart.action')
-                  : t('restart.panelResolverAction')}
-            </button>
-          </div>
-        </div>
-      {/if}
-
-      <div class="row">
-        <div class="row__control" style:flex-wrap="wrap">
-          <Segmented value={mode} options={modes} ariaLabel={t('dns.mode')} onchange={chooseMode} />
-        </div>
-      </div>
-
-      {#if mode === 'off'}
-        <div class="callout" style:margin-top="10px">
-          <span class="callout__icon"><Icon name="info" size={14} /></span>
-          <span>{t('dns.mode.off.desc')}</span>
-        </div>
-      {/if}
     </div>
-  </div>
+  </section>
 
   {#if mode === 'provider'}
-    <div class="card">
+    <section class="card">
       <div class="card__header">
-        <div>
-          <div class="card__title">{t('dns.mode.provider')}</div>
+        <div class="card__main">
+          <div class="card__title">{t('dns.providerTitle')}</div>
           <div class="card__subtitle">{t('dns.protocol')}</div>
         </div>
-        <div style:margin-left="auto">
-          <Segmented
-            value={protocol}
-            options={protocols.filter((item) =>
-              selectedVariant ? selectedVariant.protocols.includes(item.value) : true,
-            )}
-            ariaLabel={t('dns.protocol')}
-            onchange={chooseProtocol}
-          />
-        </div>
+        <Segmented
+          value={protocol}
+          options={protocols.filter((item) =>
+            selectedVariant ? selectedVariant.protocols.includes(item.value) : true,
+          )}
+          ariaLabel={t('dns.protocol')}
+          onchange={chooseProtocol}
+        />
       </div>
 
       <div class="card__body">
-        <div class="cluster" style:margin-bottom="12px">
-          <button class="chip" class:chip--active={category === 'all'} onclick={() => (category = 'all')}>
+        <div class="chips">
+          <button
+            class="chip"
+            class:chip--active={category === 'all'}
+            onclick={() => (category = 'all')}
+          >
             {t('dns.category.all')}
           </button>
           {#each categories as item (item.id)}
-            <button class="chip" class:chip--active={category === item.id} onclick={() => (category = item.id)}>
+            <button
+              class="chip"
+              class:chip--active={category === item.id}
+              onclick={() => (category = item.id)}
+            >
               {categoryLabel(item)}
             </button>
           {/each}
         </div>
 
         {#if loading}
-          <div class="empty">…</div>
+          <div class="providers providers--loading" aria-busy="true">
+            {#each Array(6) as _, index (index)}
+              <span class="provider-skeleton"></span>
+            {/each}
+          </div>
+        {:else if visible.length === 0}
+          <div class="empty-state empty-state--compact">
+            <span class="empty-state__icon"><Icon name="globe" size={18} /></span>
+            <div class="empty-state__title">{t('dns.providersEmpty')}</div>
+          </div>
         {:else}
           <div class="providers">
             {#each visible as variant (variant.id)}
@@ -523,13 +638,13 @@
                 class:provider--active={variant.id === providerId}
                 onclick={() => chooseVariant(variant)}
               >
-                <span class="provider__name">
-                  {variant.provider ?? ''}
-                  {#if variant.id === providerId}
-                    <Icon name="check" size={13} />
-                  {/if}
+                <span class="provider__check" class:provider__check--on={variant.id === providerId}>
+                  {#if variant.id === providerId}<Icon name="check" size={10} />{/if}
                 </span>
-                <span class="provider__desc">{localized(variant.label)} · {localized(variant.desc)}</span>
+                <span class="provider__name">{variant.provider ?? ''}</span>
+                <span class="provider__desc">
+                  {localized(variant.label)} · {localized(variant.desc)}
+                </span>
                 <span class="provider__tags">
                   {#each variant.protocols as item (item)}
                     <span class="badge">{item.toUpperCase()}</span>
@@ -540,59 +655,90 @@
           </div>
         {/if}
       </div>
-    </div>
+    </section>
   {/if}
 
   {#if mode === 'custom'}
-    <div class="card">
+    <section class="card">
       <div class="card__header">
         <div>
           <div class="card__title">{t('dns.custom.title')}</div>
-          <div class="card__subtitle">{t('dns.custom.placeholder')}</div>
+          <div class="card__subtitle">{t('dns.custom.hint')}</div>
         </div>
       </div>
       <div class="card__body">
         {#if custom.length === 0}
-          <div class="empty">{t('dns.custom.empty')}</div>
+          <div class="empty-state empty-state--compact">
+            <span class="empty-state__icon"><Icon name="server" size={18} /></span>
+            <div class="empty-state__title">{t('dns.custom.empty')}</div>
+            <p class="empty-state__body">{t('dns.custom.emptyHint')}</p>
+          </div>
         {:else}
-          {#each custom as entry (entry.id)}
-            <div class="row">
-              <div class="row__main">
-                <div class="row__title">
-                  {entry.name}
-                  {#if entry.id === customId}
-                    <span class="badge badge--accent">{t('dns.current')}</span>
-                  {/if}
+          <div class="custom-list">
+            {#each custom as entry (entry.id)}
+              <div class="custom-row">
+                <span class="custom-row__icon"><Icon name="server" size={15} /></span>
+                <div class="custom-row__main">
+                  <div class="custom-row__title">
+                    {entry.name}
+                    {#if entry.id === customId}
+                      <span class="badge badge--accent">{t('dns.current')}</span>
+                    {/if}
+                  </div>
+                  <div class="custom-row__address mono">{entry.address}</div>
                 </div>
-                <div class="row__desc mono">{entry.address}</div>
+                <div class="custom-row__control">
+                  {#if entry.id === customId}
+                    <span class="badge badge--success">{t('dns.custom.inUse')}</span>
+                  {:else}
+                    <button class="button button--sm" onclick={() => chooseCustom(entry)}>
+                      {t('dns.custom.use')}
+                    </button>
+                  {/if}
+                  <button
+                    class="icon-button"
+                    title={t('dns.custom.remove')}
+                    aria-label={t('dns.custom.remove')}
+                    onclick={() => removeCustom(entry)}
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
               </div>
-              <div class="row__control">
-                <button class="button button--sm" onclick={() => chooseCustom(entry)}>{t('dns.protocol')}</button>
-                <button class="icon-button" title={t('dns.custom.remove')} onclick={() => removeCustom(entry)}>
-                  <Icon name="trash" size={14} />
-                </button>
-              </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
         {/if}
 
-        <div class="divider" style:margin="12px 0"></div>
-
-        <div class="stack">
-          <input class="input input--mono" bind:value={address} placeholder={t('dns.custom.placeholder')} />
-          <div class="cluster">
-            <input class="input" bind:value={name} placeholder={t('dns.custom.name')} style:flex="1" />
-            <button class="button button--primary" onclick={addCustom}>{t('dns.custom.add')}</button>
+        <div class="form-panel">
+          <div class="form-panel__title">{t('dns.custom.formTitle')}</div>
+          <label class="field">
+            <span class="field__label">{t('dns.custom.address')}</span>
+            <input
+              class="input input--mono"
+              bind:value={address}
+              placeholder={t('dns.custom.placeholder')}
+              spellcheck="false"
+            />
+          </label>
+          <div class="form-panel__row">
+            <label class="field field--grow">
+              <span class="field__label">{t('dns.custom.nameLabel')}</span>
+              <input class="input" bind:value={name} placeholder={t('dns.custom.name')} />
+            </label>
+            <button class="button button--primary" onclick={addCustom}>
+              <Icon name="plus" size={13} />
+              {t('dns.custom.add')}
+            </button>
           </div>
           {#if addError}
-            <div class="callout callout--danger">
+            <div class="callout callout--danger form-panel__error">
               <span class="callout__icon"><Icon name="warning" size={14} /></span>
               <span>{addError}</span>
             </div>
           {/if}
         </div>
       </div>
-    </div>
+    </section>
   {/if}
 
   {#if app.mode === 'advanced' || mode === 'provider'}
@@ -601,24 +747,452 @@
 </div>
 
 <style>
-  .applied-line {
-    margin-top: 8px;
-    font-size: 11.5px;
+  .status__hero {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    padding: 18px 18px 15px;
+  }
+
+  .status__icon {
+    width: 42px;
+    height: 42px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .status__icon--success {
+    color: var(--success);
+    background: var(--success-soft);
+  }
+
+  .status__icon--warning {
+    color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .status__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .status__eyebrow {
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--text-muted);
   }
 
-  .applied-line--delta {
+  .status__title {
+    margin-top: 2px;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .status__detail {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .pill {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+    white-space: nowrap;
+  }
+
+  .pill--success {
+    color: var(--success);
+    background: var(--success-soft);
+  }
+
+  .pill--warning {
+    color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0 18px 16px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--border);
+    border: 1px solid var(--border);
+  }
+
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 10px 12px;
+    background: var(--bg-sunken);
+  }
+
+  .metric__label {
+    font-size: 10px;
+    font-weight: 550;
+    color: var(--text-muted);
+  }
+
+  .metric__value {
+    font-size: 12px;
+    font-weight: 550;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric__value--muted {
+    color: var(--text-muted);
+  }
+
+  .metric__hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status__note {
+    margin: 0 18px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .status__notice {
+    margin: 0 18px 14px;
+  }
+
+  .pending {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0 18px 16px;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    background: var(--warning-soft);
     color: var(--warning);
   }
 
-  .status {
+  .pending__icon {
+    flex: none;
+    margin-top: 1px;
+  }
+
+  .pending__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pending__title {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .pending__desc {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .pending__delta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .pending__delta code {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--warning);
+  }
+
+  .pending__sep {
+    color: var(--text-muted);
+  }
+
+  .modes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mode {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 12px 13px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    text-align: left;
+    transition:
+      border-color var(--fast) var(--ease),
+      background var(--fast) var(--ease),
+      box-shadow var(--fast) var(--ease);
+  }
+
+  .mode:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+  }
+
+  .mode--active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .mode__top {
+    width: 100%;
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    margin-bottom: 5px;
+  }
+
+  .mode__icon {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .mode--active .mode__icon {
+    color: var(--accent);
+    background: var(--surface);
+  }
+
+  .mode__radio {
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    color: #fff;
+  }
+
+  .mode__radio--on {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .mode__title {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .mode__desc {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
   }
 
   .card__main {
     flex: 1;
+    min-width: 0;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+
+  .providers--loading {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+    gap: 10px;
+  }
+
+  .provider-skeleton {
+    height: 86px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  .provider {
+    padding-right: 34px;
+  }
+
+  .provider__check {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    color: #fff;
+  }
+
+  .provider__check--on {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .custom-list {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 4px;
+  }
+
+  .custom-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 0;
+  }
+
+  .custom-row + .custom-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .custom-row__icon {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .custom-row__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .custom-row__title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+
+  .custom-row__address {
+    margin-top: 1px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .custom-row__control {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .form-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 13px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    border: 1px solid var(--border);
+  }
+
+  .form-panel__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .form-panel__row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .field--grow {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .field__label {
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--text-muted);
+  }
+
+  .form-panel__error {
+    margin-top: 2px;
+  }
+
+  @media (max-width: 720px) {
+    .status__hero {
+      flex-wrap: wrap;
+    }
+
+    .metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .modes {
+      grid-template-columns: 1fr;
+    }
+
+    .pending {
+      flex-wrap: wrap;
+    }
   }
 </style>

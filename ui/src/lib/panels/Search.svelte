@@ -25,6 +25,7 @@
       <div class="row">
         <div class="row__main">
           <div class="row__title">{t('search.engine')}</div>
+          <div class="row__desc">{t('search.engine.desc')}</div>
         </div>
         <div class="row__control">
           <select
@@ -56,6 +57,7 @@
       <div class="row">
         <div class="row__main">
           <div class="row__title">{t('search.startup')}</div>
+          <div class="row__desc">{t('search.startup.desc')}</div>
         </div>
         <div class="row__control">
           <Toggle

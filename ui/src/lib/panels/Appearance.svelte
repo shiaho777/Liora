@@ -46,17 +46,13 @@
           <div class="row__title">{t('appearance.mode')}</div>
           <div class="row__desc">{t('appearance.mode.desc')}</div>
         </div>
-      </div>
-      <div class="row">
-        <div class="row__main">
-          <div class="cluster">
-            <Segmented
-              value={app.mode}
-              options={modes}
-              ariaLabel={t('appearance.mode')}
-              onchange={(value) => updateSetting('ui.mode', value)}
-            />
-          </div>
+        <div class="row__control">
+          <Segmented
+            value={app.mode}
+            options={modes}
+            ariaLabel={t('appearance.mode')}
+            onchange={(value) => updateSetting('ui.mode', value)}
+          />
         </div>
       </div>
     </div>

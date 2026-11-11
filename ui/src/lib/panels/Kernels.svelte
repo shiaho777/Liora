@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
@@ -28,20 +29,72 @@
   let components = $state<Component[]>([]);
   let updates = $state<string[]>([]);
   let updating = $state('');
+  let installing = $state('');
+  let installingComponent = $state('');
   let catalogUrl = $state(String(value('components.catalogUrl') ?? ''));
+  let autoUpdate = $state(value('components.autoUpdate') !== false);
   let catalogBusy = $state(false);
   let loading = $state(true);
   let busy = $state('');
-  let installing = $state('');
   // CEF actions on an ad-hoc build need an explicit acknowledgement first.
   let pending = $state<{ kind: 'download' | 'select'; kernelId: string } | null>(null);
 
   const selected = $derived(String(value('kernel.default') ?? 'system'));
-  const rows = $derived(kernels.filter((kernel) => app.mode === 'advanced' || kernel.id === 'system' || kernel.available));
+  const rows = $derived(
+    kernels.filter(
+      (kernel) => app.mode === 'advanced' || kernel.id === 'system' || kernel.available,
+    ),
+  );
   // Chromium validates helpers against the app's Team ID, so an ad-hoc build
   // cannot run the CEF kernel even when the component is installed.
   const cefState = $derived(cefReadiness(app.runtime.codeSigning, app.runtime.cefStatus));
   const compat = $derived(value('kernel.cef.singleProcess') === true);
+
+  const signature = $derived.by(() => {
+    const raw = (app.runtime.codeSigning ?? '').trim();
+    if (!raw) {
+      return {
+        tone: 'muted',
+        label: t('kernels.unknown'),
+        detail: t('kernels.signatureUnknown'),
+        raw: '',
+      };
+    }
+    if (/ad-?hoc|unsigned/i.test(raw)) {
+      return {
+        tone: 'warning',
+        label: t('kernels.signatureAdHoc'),
+        detail: t('kernels.signatureAdHocHint'),
+        raw,
+      };
+    }
+    if (/developer id/i.test(raw)) {
+      return {
+        tone: 'success',
+        label: t('kernels.signatureDeveloperId'),
+        detail: t('kernels.signatureDeveloperIdHint'),
+        raw,
+      };
+    }
+    return { tone: 'muted', label: raw, detail: '', raw: '' };
+  });
+
+  const helper = $derived.by(() => {
+    const raw = (app.runtime.cefStatus ?? '').trim();
+    if (!raw) {
+      return { tone: 'muted', label: t('kernels.helperUnknown'), detail: '', raw: '' };
+    }
+    if (/^ready/i.test(raw)) {
+      return { tone: 'success', label: t('kernels.helperReady'), detail: '', raw };
+    }
+    if (/^failed/i.test(raw)) {
+      return { tone: 'danger', label: t('kernels.helperFailed'), detail: '', raw };
+    }
+    if (/not selected|not-selected/i.test(raw)) {
+      return { tone: 'muted', label: t('kernels.helperNotSelected'), detail: '', raw: '' };
+    }
+    return { tone: 'muted', label: raw, detail: '', raw: '' };
+  });
 
   async function load(): Promise<void> {
     loading = true;
@@ -96,9 +149,15 @@
       if (message.method === 'browser.componentInstalled') {
         const params = (message.params ?? {}) as { id?: string; version?: string };
         const kernel = kernels.find((item) => item.component === params.id);
+        const component = components.find((item) => item.id === params.id);
         installing = '';
         updating = '';
-        toast(t('kernels.installDone', { name: kernel?.name ?? params.id ?? '' }));
+        installingComponent = '';
+        toast(
+          t('kernels.installDone', {
+            name: kernel?.name ?? component?.name ?? params.id ?? '',
+          }),
+        );
         void load();
         return;
       }
@@ -106,6 +165,7 @@
         const params = (message.params ?? {}) as { message?: string };
         installing = '';
         updating = '';
+        installingComponent = '';
         toast(params.message || t('kernels.installFailed'), 'error');
         void load();
         return;
@@ -167,6 +227,16 @@
     }
   }
 
+  async function toggleAutoUpdate(): Promise<void> {
+    autoUpdate = !autoUpdate;
+    try {
+      await set('components.autoUpdate', autoUpdate);
+    } catch (error: any) {
+      autoUpdate = !autoUpdate;
+      toast(String(error?.message ?? error), 'error');
+    }
+  }
+
   function capLabel(cap: string): string {
     return t(`kernels.cap.${cap}`);
   }
@@ -197,9 +267,23 @@
     notify('ui.installComponent', { id: component.id, version: '' });
   }
 
+  function installComponent(component: Component): void {
+    if (installingComponent) return;
+    installingComponent = component.id;
+    notify('ui.installComponent', { id: component.id, version: '' });
+  }
+
   function installedComponentVersion(kernel: Kernel): string {
     if (!kernel.component) return '';
     return components.find((item) => item.id === kernel.component)?.installedVersion ?? '';
+  }
+
+  function kernelDescription(kernel: Kernel): string {
+    return kernel.id === 'system' ? t('kernels.systemDesc') : t('kernels.cefDesc');
+  }
+
+  function kernelKind(kernel: Kernel): string {
+    return kernel.id === 'system' ? t('kernels.builtIn') : t('kernels.componentKind');
   }
 </script>
 
@@ -209,63 +293,94 @@
     <p class="settings__lede">{t('kernels.lede')}</p>
   </header>
 
-  {#if app.runtime.codeSigning || app.runtime.cefStatus}
-    <div class="kernel-status">
-      <span>{t('kernels.signing')}</span>
-      <span class="mono">{app.runtime.codeSigning || t('kernels.unknown')}</span>
-      <span class="muted">·</span>
-      <span>CEF</span>
-      <span class="mono">{app.runtime.cefStatus || t('kernels.unknown')}</span>
+  <section class="card runtime">
+    <div class="card__header">
+      <div>
+        <div class="card__title">{t('kernels.runtime')}</div>
+        <div class="card__subtitle">{t('kernels.runtimeDesc')}</div>
+      </div>
     </div>
-  {/if}
+    <div class="card__body runtime__body">
+      <div class="runtime__row">
+        <span class="runtime__icon"><Icon name="shield" size={15} /></span>
+        <div class="runtime__main">
+          <div class="runtime__label">{t('kernels.signature')}</div>
+          <div class="runtime__detail">{signature.detail}</div>
+          {#if signature.raw && signature.raw !== signature.label}
+            <div class="runtime__code mono">{signature.raw}</div>
+          {/if}
+        </div>
+        <span class="pill" class:pill--success={signature.tone === 'success'} class:pill--warning={signature.tone === 'warning'}>
+          <span class="dot"></span>
+          {signature.label}
+        </span>
+      </div>
+      <div class="runtime__row">
+        <span class="runtime__icon"><Icon name="puzzle" size={15} /></span>
+        <div class="runtime__main">
+          <div class="runtime__label">{t('kernels.helper')}</div>
+          <div class="runtime__detail">
+            {helper.tone === 'success'
+              ? t('kernels.helperReadyHint')
+              : helper.tone === 'danger'
+                ? t('kernels.helperFailedHint')
+                : t('kernels.helperIdleHint')}
+          </div>
+          {#if helper.raw && helper.tone === 'danger'}
+            <div class="runtime__code mono">{helper.raw}</div>
+          {/if}
+        </div>
+        <span class="pill" class:pill--success={helper.tone === 'success'} class:pill--danger={helper.tone === 'danger'}>
+          <span class="dot"></span>
+          {helper.label}
+        </span>
+      </div>
+    </div>
+  </section>
 
   {#if loading}
-    <div class="empty">…</div>
+    <section class="card loading-card" aria-busy="true">
+      <span class="skeleton skeleton--title"></span>
+      <span class="skeleton skeleton--line"></span>
+      <span class="skeleton skeleton--line skeleton--short"></span>
+    </section>
   {:else}
     {#each rows as kernel (kernel.id)}
-      <div class="card">
-        <div class="card__body">
-          <div class="row">
-            <div class="row__main">
-              <div class="row__title">
+      <article class="card kernel" class:kernel--active={selected === kernel.id}>
+        <div class="kernel__body">
+          <div class="kernel__head">
+            <span class="kernel__icon" class:kernel__icon--accent={kernel.id !== 'system'}>
+              <Icon name={kernel.id === 'system' ? 'globe' : 'puzzle'} size={18} />
+            </span>
+            <div class="kernel__identity">
+              <div class="kernel__name">
                 {kernel.name}
-                {#if selected === kernel.id}
-                  <span class="badge badge--accent">{t('kernels.default')}</span>
-                {/if}
                 {#if !kernel.available}
                   <span class="badge">{t('kernels.notInstalled')}</span>
                 {/if}
               </div>
-              <div class="row__desc">
-                {#if kernel.version}v{kernel.version}{/if}
-                {#if kernel.component} · {kernel.component}{/if}
-              </div>
-              {#if !kernel.available && installedComponentVersion(kernel)}
-                <div class="row__desc kernel-note">
-                  {t('kernels.componentInstalledUnavailable', {
-                    version: installedComponentVersion(kernel),
-                  })}
-                </div>
-              {/if}
-              <div class="rule__meta">
-                {#each kernel.caps as cap (cap)}
-                  <span class="badge">{capLabel(cap)}</span>
-                {/each}
+              <div class="kernel__meta">
+                {kernelKind(kernel)}
+                {#if kernel.version}· v{kernel.version}{/if}
+                {#if kernel.component}· {kernel.component}{/if}
               </div>
             </div>
-            <div class="row__control">
+            <div class="kernel__action">
               {#if kernel.available}
-                <button
-                  class="button"
-                  class:button--primary={selected !== kernel.id}
-                  disabled={selected === kernel.id || busy === kernel.id}
-                  onclick={() => requestSelect(kernel)}
-                >
-                  {selected === kernel.id ? t('kernels.installed') : t('kernels.default')}
-                </button>
+                {#if selected === kernel.id}
+                  <span class="badge badge--accent">{t('kernels.default')}</span>
+                {:else}
+                  <button
+                    class="button button--primary button--sm"
+                    disabled={busy === kernel.id}
+                    onclick={() => requestSelect(kernel)}
+                  >
+                    {t('kernels.makeDefault')}
+                  </button>
+                {/if}
               {:else}
                 <button
-                  class="button button--ghost"
+                  class="button button--ghost button--sm"
                   disabled={installing === kernel.id}
                   onclick={() => requestDownload(kernel)}
                 >
@@ -275,8 +390,17 @@
               {/if}
             </div>
           </div>
+
+          <p class="kernel__desc">{kernelDescription(kernel)}</p>
+
+          <div class="kernel__caps">
+            {#each kernel.caps as cap (cap)}
+              <span class="badge">{capLabel(cap)}</span>
+            {/each}
+          </div>
+
           {#if kernel.id === 'cef' && cefState.reason === 'failed'}
-            <div class="callout callout--danger" style="margin-top: 10px">
+            <div class="callout callout--danger kernel__notice">
               <span class="callout__icon"><Icon name="warning" size={14} /></span>
               <span>
                 {t('kernels.cefFailed')}
@@ -284,114 +408,546 @@
               </span>
             </div>
           {:else if kernel.id === 'cef' && cefState.reason === 'ad-hoc'}
-            <div class="callout callout--warning" style="margin-top: 10px">
+            <div class="callout callout--warning kernel__notice">
               <span class="callout__icon"><Icon name="warning" size={14} /></span>
+              <span>{t('kernels.adHocWarning')}</span>
+            </div>
+          {/if}
+
+          {#if !kernel.available && installedComponentVersion(kernel)}
+            <div class="callout kernel__notice">
+              <span class="callout__icon"><Icon name="info" size={14} /></span>
               <span>
-                {t('kernels.adHocWarning')}
-                <span class="mono">{app.runtime.codeSigning}</span>
+                {t('kernels.componentInstalledUnavailable', {
+                  version: installedComponentVersion(kernel),
+                })}
               </span>
             </div>
           {/if}
 
           {#if kernel.id === 'cef'}
-            <div class="compat">
-              <div class="compat__main">
-                <div class="row__title">{t('kernels.compatTitle')}</div>
-                <div class="row__desc">{t('kernels.compatBody')}</div>
+            <div class="kernel__setting">
+              <div class="kernel__setting-main">
+                <div class="kernel__setting-title">{t('kernels.compatTitle')}</div>
+                <div class="kernel__setting-desc">{t('kernels.compatBody')}</div>
               </div>
-              <button
-                class="button button--ghost button--sm"
+              <Toggle
+                checked={compat}
+                label={t('kernels.compatTitle')}
                 disabled={busy === 'compat'}
-                onclick={toggleCompat}
-              >
-                {compat ? t('kernels.compatOn') : t('kernels.compatOff')}
-              </button>
+                onchange={toggleCompat}
+              />
             </div>
           {/if}
 
           {#if pending?.kernelId === kernel.id}
             <div class="confirm">
-              <div class="confirm__title">
-                {pending.kind === 'download'
-                  ? t('kernels.confirmDownloadTitle')
-                  : t('kernels.confirmSelectTitle')}
-              </div>
-              <p class="confirm__body">
-                {pending.kind === 'download'
-                  ? t('kernels.confirmDownloadBody')
-                  : t('kernels.confirmSelectBody')}
-              </p>
-              <div class="cluster">
-                <button class="button button--ghost button--sm" onclick={() => (pending = null)}>
-                  {pending.kind === 'select' ? t('kernels.keepSystem') : t('kernels.cancel')}
-                </button>
-                <button class="button button--primary button--sm" onclick={confirmPending}>
+              <div class="confirm__icon"><Icon name="warning" size={15} /></div>
+              <div class="confirm__main">
+                <div class="confirm__title">
                   {pending.kind === 'download'
-                    ? t('kernels.confirmDownloadAction')
-                    : t('kernels.confirmSelectAction')}
-                </button>
+                    ? t('kernels.confirmDownloadTitle')
+                    : t('kernels.confirmSelectTitle')}
+                </div>
+                <p class="confirm__body">
+                  {pending.kind === 'download'
+                    ? t('kernels.confirmDownloadBody')
+                    : t('kernels.confirmSelectBody')}
+                </p>
+                <div class="cluster">
+                  <button class="button button--ghost button--sm" onclick={() => (pending = null)}>
+                    {pending.kind === 'select' ? t('kernels.keepSystem') : t('kernels.cancel')}
+                  </button>
+                  <button class="button button--primary button--sm" onclick={confirmPending}>
+                    {pending.kind === 'download'
+                      ? t('kernels.confirmDownloadAction')
+                      : t('kernels.confirmSelectAction')}
+                  </button>
+                </div>
               </div>
             </div>
           {/if}
         </div>
-      </div>
+      </article>
     {/each}
 
-    {#if app.mode === 'advanced' && components.length > 0}
-      <div class="card">
+    {#if app.mode === 'advanced'}
+      <section class="card catalog">
         <div class="card__header">
-          <div>
-            <div class="card__title">{t('kernels.available')}</div>
-            <div class="card__subtitle">{t('kernels.lede')}</div>
+          <div class="card__main">
+            <div class="card__title">{t('kernels.catalogTitle')}</div>
+            <div class="card__subtitle">{t('kernels.catalogDesc')}</div>
           </div>
+          <button
+            class="button button--sm catalog-refresh"
+            disabled={catalogBusy}
+            onclick={refreshCatalog}
+          >
+            <Icon name="refresh" size={13} />
+            {catalogBusy ? t('kernels.catalogChecking') : t('kernels.catalogCheck')}
+          </button>
         </div>
+
         <div class="card__body">
-          <div class="row catalog-row">
-            <div class="row__main">
-              <div class="row__title">{t('kernels.catalogSource')}</div>
-              <input
-                class="input input--mono"
-                bind:value={catalogUrl}
-                placeholder="https://…/components.json"
-                spellcheck="false"
-              />
-              <div class="row__desc">{t('kernels.catalogHint')}</div>
+          <label class="field">
+            <span class="field__label">{t('kernels.catalogSource')}</span>
+            <input
+              class="input input--mono"
+              bind:value={catalogUrl}
+              placeholder="https://…/components.json"
+              spellcheck="false"
+            />
+          </label>
+          <p class="field__hint">{t('kernels.catalogHint')}</p>
+
+          <div class="setting-line">
+            <div class="setting-line__main">
+              <div class="setting-line__title">{t('kernels.autoUpdateTitle')}</div>
+              <div class="setting-line__desc">{t('kernels.autoUpdateDesc')}</div>
             </div>
-            <div class="row__control">
-              <button
-                class="button button--sm button--primary catalog-refresh"
-                disabled={catalogBusy}
-                onclick={refreshCatalog}
-              >
-                {catalogBusy ? t('kernels.catalogChecking') : t('kernels.catalogCheck')}
-              </button>
-            </div>
+            <Toggle
+              checked={autoUpdate}
+              label={t('kernels.autoUpdateTitle')}
+              onchange={toggleAutoUpdate}
+            />
           </div>
-          {#each components as component (component.id)}
-            <div class="row">
-              <div class="row__main">
-                <div class="row__title">{component.name}</div>
-                <div class="row__desc">{component.description}</div>
-              </div>
-              <div class="row__control">
-                {#if updateAvailable(component)}
-                  <span class="badge badge--accent">{t('kernels.updateAvailable')}</span>
-                  <button
-                    class="button button--primary button--sm component-update"
-                    disabled={updating === component.id}
-                    onclick={() => updateComponent(component)}
-                  >
-                    {updating === component.id ? t('kernels.updating') : t('kernels.update')}
-                  </button>
-                {/if}
-                <span class="badge" class:badge--success={!!component.installedVersion}>
-                  {component.installedVersion ?? t('kernels.notInstalled')}
-                </span>
-              </div>
+
+          <div class="divider catalog__divider"></div>
+
+          {#if components.length === 0}
+            <div class="empty-state empty-state--compact">
+              <span class="empty-state__icon"><Icon name="puzzle" size={18} /></span>
+              <div class="empty-state__title">{t('kernels.catalogEmptyTitle')}</div>
+              <p class="empty-state__body">{t('kernels.catalogEmptyBody')}</p>
             </div>
-          {/each}
+          {:else}
+            <div class="component-list">
+              {#each components as component (component.id)}
+                <div class="component-row">
+                  <span class="component-row__icon"><Icon name="puzzle" size={15} /></span>
+                  <div class="component-row__main">
+                    <div class="component-row__title">
+                      {component.name}
+                      {#if updateAvailable(component)}
+                        <span class="badge badge--accent">{t('kernels.updateAvailable')}</span>
+                      {/if}
+                    </div>
+                    <div class="component-row__desc">{component.description}</div>
+                  </div>
+                  <div class="component-row__control">
+                    {#if component.installedVersion}
+                      <span class="badge badge--success">v{component.installedVersion}</span>
+                      {#if updateAvailable(component)}
+                        <button
+                          class="button button--primary button--sm component-update"
+                          disabled={updating === component.id}
+                          onclick={() => updateComponent(component)}
+                        >
+                          {updating === component.id ? t('kernels.updating') : t('kernels.update')}
+                        </button>
+                      {/if}
+                    {:else}
+                      <button
+                        class="button button--sm"
+                        disabled={installingComponent === component.id}
+                        onclick={() => installComponent(component)}
+                      >
+                        <Icon name="download" size={13} />
+                        {installingComponent === component.id
+                          ? t('kernels.installing')
+                          : t('kernels.install')}
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
-      </div>
+      </section>
     {/if}
   {/if}
 </div>
+
+<style>
+  .runtime__body {
+    display: flex;
+    flex-direction: column;
+    padding-top: 6px;
+  }
+
+  .runtime__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 11px 0;
+  }
+
+  .runtime__row + .runtime__row {
+    border-top: 1px solid var(--border);
+  }
+
+  .runtime__icon {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    margin-top: 1px;
+    border-radius: 9px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .runtime__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .runtime__label {
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+
+  .runtime__detail {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  .runtime__code {
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    word-break: break-all;
+  }
+
+  .pill {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+    white-space: nowrap;
+  }
+
+  .pill--success {
+    color: var(--success);
+    background: var(--success-soft);
+  }
+
+  .pill--warning {
+    color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .pill--danger {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
+
+  .kernel {
+    overflow: hidden;
+  }
+
+  .kernel__body {
+    padding: 16px 18px;
+  }
+
+  .kernel__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .kernel__icon {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .kernel__icon--accent {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .kernel__identity {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .kernel__name {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  .kernel__meta {
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+
+  .kernel__action {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 2px;
+  }
+
+  .kernel__desc {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-width: 66ch;
+  }
+
+  .kernel__caps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+  }
+
+  .kernel__notice {
+    margin-top: 12px;
+  }
+
+  .kernel__setting {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px solid var(--border);
+  }
+
+  .kernel__setting-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .kernel__setting-title {
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+
+  .kernel__setting-desc {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    max-width: 68ch;
+  }
+
+  .confirm {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    background: var(--warning-soft);
+    color: var(--warning);
+  }
+
+  .confirm__icon {
+    flex: none;
+    margin-top: 1px;
+  }
+
+  .confirm__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .confirm__title {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .confirm__body {
+    margin: 3px 0 10px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .catalog .card__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .field__label {
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--text-secondary);
+  }
+
+  .field__hint {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  .setting-line {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px solid var(--border);
+  }
+
+  .setting-line__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .setting-line__title {
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+
+  .setting-line__desc {
+    margin-top: 2px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  .catalog__divider {
+    margin: 14px 0 4px;
+  }
+
+  .component-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .component-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 0;
+  }
+
+  .component-row + .component-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .component-row__icon {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .component-row__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .component-row__title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+
+  .component-row__desc {
+    margin-top: 1px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .component-row__control {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .loading-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+  }
+
+  .skeleton {
+    display: block;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  .skeleton--title {
+    width: 132px;
+    height: 15px;
+  }
+
+  .skeleton--line {
+    width: 100%;
+  }
+
+  .skeleton--short {
+    width: 62%;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .runtime__row,
+    .kernel__head,
+    .component-row {
+      flex-wrap: wrap;
+    }
+
+    .kernel__action,
+    .component-row__control {
+      width: 100%;
+      justify-content: flex-end;
+    }
+  }
+</style>

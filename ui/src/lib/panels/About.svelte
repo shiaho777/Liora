@@ -15,6 +15,16 @@
 
   let info = $state<Info | null>(null);
 
+  function netSummaryLabel(summary: string): string {
+    if (!summary) return '—';
+    if (summary === 'system resolver') return t('dns.systemResolver');
+    if (summary === 'automatic') return t('dns.mode.auto');
+    if (summary.startsWith('automatic (selected server unavailable)')) {
+      return t('dns.autoUnavailable');
+    }
+    return summary;
+  }
+
   $effect(() => {
     call<Info>('core.info')
       .then((value) => (info = value))
@@ -25,18 +35,22 @@
 <div class="section">
   <header class="settings__header">
     <h1 class="settings__title">{t('about.title')}</h1>
-    <p class="settings__lede">{t('about.lede')}</p>
   </header>
+
+  <div class="card hero-card">
+    <span class="hero-card__mark">L</span>
+    <div class="hero-card__main">
+      <div class="hero-card__name">
+        Liora
+        <span class="badge mono">v{info?.version ?? app.version}</span>
+      </div>
+      <div class="hero-card__tagline">{t('about.lede')}</div>
+    </div>
+    <span class="badge">{t('about.license')} · Apache-2.0</span>
+  </div>
 
   <div class="card">
     <div class="card__body">
-      <div class="row">
-        <div class="row__main">
-          <div class="row__title">{t('about.version')}</div>
-          <div class="row__desc mono">Liora {info?.version ?? app.version}</div>
-        </div>
-      </div>
-
       <div class="row">
         <div class="row__main">
           <div class="row__title">{t('about.platform')}</div>
@@ -59,7 +73,7 @@
       <div class="row">
         <div class="row__main">
           <div class="row__title">{t('dns.current')}</div>
-          <div class="row__desc">{info?.netSummary ?? '—'}</div>
+          <div class="row__desc">{netSummaryLabel(info?.netSummary ?? '')}</div>
         </div>
         <div class="row__control">
           {#if info?.netNeedsNet}
@@ -90,3 +104,54 @@
     </div>
   </div>
 </div>
+
+
+<style>
+  .hero-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .hero-card__mark {
+    width: 48px;
+    height: 48px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    color: #fff;
+    font-size: 23px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    box-shadow: 0 10px 28px var(--accent-soft);
+  }
+
+  .hero-card__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .hero-card__name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-card__tagline {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 640px) {
+    .hero-card {
+      flex-wrap: wrap;
+    }
+  }
+</style>

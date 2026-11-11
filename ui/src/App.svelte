@@ -20,6 +20,7 @@
   import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
   import { call, describeSettings, notify, onNotification } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
+  import { settingsStore } from './lib/settings-store.svelte';
 
   interface Tab {
     id: number;
@@ -62,7 +63,10 @@
     baidu: 'https://www.baidu.com/s?wd=',
     sogou: 'https://www.sogou.com/web?query=',
   };
-  let searchEngine = $state('duckduckgo');
+  const searchEngine = $derived.by(() => {
+    const item = settingsStore.items.find((entry) => entry.key === 'search.engine');
+    return typeof item?.value === 'string' ? item.value : 'duckduckgo';
+  });
   let bookmarks = $state<Array<{ id: number; title: string; url: string }>>([]);
   let sessionReady = $state(false);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -70,9 +74,6 @@
   boot()
     .then(async () => {
       const description = await describeSettings();
-      const engine = description.items.find((item) => item.key === 'search.engine');
-      if (engine && typeof engine.value === 'string') searchEngine = engine.value;
-
       const restore = description.items.find((item) => item.key === 'startup.restore');
       if (restore?.value !== false) await restoreSession();
       sessionReady = true;
@@ -142,6 +143,10 @@
       bookmarks = [];
     }
   }
+
+  const activeBookmarked = $derived(
+    active.page === 'web' && bookmarks.some((entry) => entry.url === active.url),
+  );
 
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
@@ -478,6 +483,24 @@
         navigate(name.slice('open:'.length));
         return;
       }
+      if (name.startsWith('suggest:')) {
+        const input = document.querySelector<HTMLInputElement>('.search input');
+        if (input) {
+          input.value = name.slice('suggest:'.length);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+        }
+        return;
+      }
+      if (name.startsWith('filtersettings:')) {
+        const input = document.querySelector<HTMLInputElement>('.settings__search input');
+        if (input) {
+          input.value = name.slice('filtersettings:'.length);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+        }
+        return;
+      }
       if (name.startsWith('find:')) {
         findOpen = true;
         findTabId = activeId;
@@ -633,6 +656,20 @@
           document.querySelector<HTMLElement>('.catalog-refresh')?.click();
           break;
         }
+        case 'rulesadd': {
+          const add = [...document.querySelectorAll('button')].find(
+            (button) => button.textContent?.trim() === '添加规则',
+          );
+          add?.click();
+          break;
+        }
+        case 'rulespreset': {
+          const preset = [...document.querySelectorAll('button')].find((button) =>
+            button.textContent?.includes('Twitter'),
+          );
+          preset?.click();
+          break;
+        }
         case 'updatecomponent': {
           document.querySelector<HTMLElement>('.component-update')?.click();
           break;
@@ -704,12 +741,32 @@
           }, 1500);
           break;
         }
+        case 'scrollsettings': {
+          const main = document.querySelector<HTMLElement>('.settings__main');
+          if (main) main.scrollTop = main.scrollHeight;
+          break;
+        }
+        case 'scrollrules':
+          document.querySelector('.rules')?.scrollIntoView({ block: 'start' });
+          break;
         case 'pagedump': {
           const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
           const content = document.querySelector('.content');
           const badge = document.querySelector<HTMLElement>('.network-pending');
           (window as unknown as { __lioraPageText?: string }).__lioraPageText = [
             document.body.innerText,
+            '-- active nav --',
+            document.querySelector('.nav-item--active')?.textContent?.trim() ?? 'none',
+            '-- nav states --',
+            JSON.stringify(
+              [...document.querySelectorAll('.nav-item')].map((item) => ({
+                text: item.textContent?.trim(),
+                active: item.classList.contains('nav-item--active'),
+                background: getComputedStyle(item).backgroundColor,
+              })),
+            ),
+            '-- pane title --',
+            document.querySelector('.settings__title')?.textContent?.trim() ?? 'none',
             '-- badge --',
             badge
               ? JSON.stringify({ text: badge.textContent?.trim(), title: badge.title })
@@ -781,13 +838,21 @@
     return template + encodeURIComponent(value);
   }
 
+  function internalTitle(page: string): string {
+    if (page === 'settings') return t('nav.settings');
+    if (page === 'bookmarks') return t('nav.bookmarks');
+    if (page === 'history') return t('nav.history');
+    if (page === 'diagnostics') return t('nav.diagnostics');
+    return t('tab.new');
+  }
+
   function navigate(raw: string): void {
     siteCardOpen = false;
     const url = resolveInput(raw);
     const internal = internalPageFor(url);
 
     if (internal) {
-      updateTab(activeId, { url, page: internal as Tab['page'], title: t('tab.new') });
+      updateTab(activeId, { url, page: internal as Tab['page'], title: internalTitle(internal) });
       if (internal === 'settings') app.settingsSection = app.settingsSection || 'appearance';
       notify('ui.setPage', { page: internal, url });
       return;
@@ -995,66 +1060,72 @@
 
 <svelte:window onkeydown={onKeydown} />
 
+{#snippet tabstrip()}
+  <div class="tabstrip">
+    <div class="tabstrip__rail">
+      {#each tabs as tab (tab.id)}
+        <div
+          class="tab"
+          class:tab--active={tab.id === activeId}
+          role="tab"
+          tabindex="0"
+          aria-selected={tab.id === activeId}
+          onclick={() => (activeId = tab.id)}
+          onkeydown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              activeId = tab.id;
+            }
+          }}
+          ondblclick={() => newTab()}
+          title={tab.title}
+        >
+          <span class="tab__favicon">
+            {#if tab.page === 'settings'}
+              <Icon name="settings" size={10} />
+            {:else if tab.page === 'newtab'}
+              L
+            {:else}
+              <Icon name="globe" size={10} />
+            {/if}
+          </span>
+          <span class="tab__title">{tab.title}</span>
+          <button
+            class="tab__close"
+            title={t('tab.close')}
+            aria-label={t('tab.close')}
+            onclick={(event) => {
+              event.stopPropagation();
+              closeTab(tab.id);
+            }}
+          >
+            <Icon name="close" size={10} />
+          </button>
+        </div>
+      {/each}
+    </div>
+    <button class="icon-button" title={t('tab.new')} onclick={() => newTab()}>
+      <Icon name="plus" />
+    </button>
+  </div>
+{/snippet}
+
 {#if !app.ready}
   <div class="boot">
-    <div class="newtab__mark">L</div>
+    <div class="boot__mark">L</div>
   </div>
 {:else}
   <div class="app">
     {#if app.platform === 'macos'}
-      <div class="titlebar titlebar--mac">
-        <span class="titlebar__title">{t('app.name')}</span>
+      <div class="titlebar titlebar--mac" class:titlebar--tabs={showTabs}>
+        {#if showTabs}
+          {@render tabstrip()}
+        {:else}
+          <span class="titlebar__title">{t('app.name')}</span>
+        {/if}
       </div>
-    {/if}
-
-    {#if showTabs}
-      <div class="tabstrip">
-        <div class="tabstrip__rail">
-          {#each tabs as tab (tab.id)}
-            <div
-              class="tab"
-              class:tab--active={tab.id === activeId}
-              role="tab"
-              tabindex="0"
-              aria-selected={tab.id === activeId}
-              onclick={() => (activeId = tab.id)}
-              onkeydown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  activeId = tab.id;
-                }
-              }}
-              ondblclick={() => newTab()}
-              title={tab.title}
-            >
-              <span class="tab__favicon">
-                {#if tab.page === 'settings'}
-                  <Icon name="settings" size={10} />
-                {:else if tab.page === 'newtab'}
-                  L
-                {:else}
-                  <Icon name="globe" size={10} />
-                {/if}
-              </span>
-              <span class="tab__title">{tab.title}</span>
-              <button
-                class="tab__close"
-                title={t('tab.close')}
-                aria-label={t('tab.close')}
-                onclick={(event) => {
-                  event.stopPropagation();
-                  closeTab(tab.id);
-                }}
-              >
-                <Icon name="close" size={10} />
-              </button>
-            </div>
-          {/each}
-        </div>
-        <button class="icon-button" title={t('tab.new')} onclick={() => newTab()}>
-          <Icon name="plus" />
-        </button>
-      </div>
+    {:else if showTabs}
+      {@render tabstrip()}
     {/if}
 
     <div class="toolbar">
@@ -1127,6 +1198,24 @@
         {/if}
         <button
           class="icon-button"
+          title={t('nav.bookmarks')}
+          onclick={() => navigate('liora://bookmarks')}
+        >
+          <Icon name="folder" />
+        </button>
+        {#if active.page === 'web'}
+          <button
+            class="icon-button"
+            class:icon-button--active={activeBookmarked}
+            title={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
+            aria-label={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
+            onclick={toggleBookmark}
+          >
+            <Icon name="star" />
+          </button>
+        {/if}
+        <button
+          class="icon-button"
           class:icon-button--active={downloads.open}
           title={t('downloads.title')}
           onclick={() => (downloads.open = !downloads.open)}
@@ -1159,21 +1248,19 @@
       />
     {/if}
 
-    <div class="bookmarksbar">
-      <button class="bookmark-chip" onclick={() => navigate('liora://bookmarks')}>
-        <Icon name="star" size={12} />
-        {t('bookmarks.bar')}
-      </button>
-      {#each bookmarks as entry (entry.id)}
-        <button class="bookmark-chip" title={entry.url} onclick={() => navigate(entry.url)}>
-          {entry.title}
-        </button>
-      {/each}
-      <button class="bookmark-chip" onclick={() => navigate('liora://history')}>
-        <Icon name="history" size={12} />
-        {t('nav.history')}
-      </button>
-    </div>
+    {#if bookmarks.length > 0}
+      <div class="bookmarksbar">
+        <span class="bookmarksbar__label">
+          <Icon name="star" size={11} />
+          {t('bookmarks.bar')}
+        </span>
+        {#each bookmarks as entry (entry.id)}
+          <button class="bookmark-chip" title={entry.url} onclick={() => navigate(entry.url)}>
+            {entry.title}
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     {#if findOpen && active.page === 'web'}
       <div class="findbar">
@@ -1200,13 +1287,21 @@
 
     <div class="content" class:content--native={active.page === 'web'} bind:this={contentEl}>
       {#if active.page === 'newtab'}
-        <NewTab onnavigate={(url) => navigate(url)} onopen={(page) => navigate(`liora://${page}`)} />
+        <NewTab
+          onnavigate={(url) => navigate(url)}
+          onopen={(page) => navigate(`liora://${page}`)}
+          onpanel={(section) => openSettings(section)}
+        />
       {:else if active.page === 'settings'}
         <Settings />
       {:else if active.page === 'diagnostics'}
         <DiagnosticsPage />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
-        <Library kind={active.page} onnavigate={(url) => navigate(url)} />
+        <Library
+          kind={active.page}
+          onnavigate={(url) => navigate(url)}
+          onopen={(page) => navigate(`liora://${page}`)}
+        />
       {:else if active.download}
         <DownloadPage item={active.download} />
       {:else if active.page === 'web'}
@@ -1265,6 +1360,20 @@
     place-items: center;
     background: var(--bg);
     animation: fade 240ms var(--ease);
+  }
+
+  .boot__mark {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    box-shadow: 0 12px 34px var(--accent-soft);
   }
 
   @keyframes fade {
