@@ -487,6 +487,12 @@
         case 'reload': navigate(active.url); break;
         case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
         case 'settings': openSettings(); break;
+        case 'fullscreen':
+          notify('ui.testFullscreen', { fullscreen: true });
+          break;
+        case 'unfullscreen':
+          notify('ui.testFullscreen', { fullscreen: false });
+          break;
         case 'find': openFind(); break;
         case 'findnext': runFind(true); break;
         case 'findprev': runFind(false); break;

@@ -116,6 +116,8 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, assign) int64_t activeTab;
 @property(nonatomic, assign) BOOL refreshPending;
 @property(nonatomic, assign) BOOL openedLaunchUrl;
+@property(nonatomic, assign) BOOL kernelFullscreen;
+@property(nonatomic, assign) int64_t fullscreenTab;
 @property(nonatomic, assign) BOOL sentRuntimeInfo;
 @property(nonatomic, copy) NSString* cefStatus;
 @property(nonatomic, copy) NSString* appliedConfig;
@@ -460,6 +462,9 @@ NSString* jsonEscape(id object) {
     startup.switches.push_back("--in-process-gpu");
     startup.switches.push_back("--disable-gpu");
     startup.switches.push_back("--enable-features=NetworkServiceInProcess");
+    // Avoid the login-keychain prompt for Chromium's Safe Storage in this
+    // unsigned development mode.
+    startup.switches.push_back("--use-mock-keychain");
   }
   if (getenv("LIORA_CEF_NO_SANDBOX")) startup.switches.push_back("--no-sandbox");
   // Test hook: window.open without a gesture is normally popup-blocked.
@@ -745,6 +750,11 @@ NSString* jsonEscape(id object) {
     NSString* text = ns(url);
     dispatch_async(dispatch_get_main_queue(), ^{
       [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
+    });
+  };
+  events.onFullscreen = [weakSelf, tab](bool fullscreen) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf setKernelFullscreen:fullscreen tab:tab];
     });
   };
   events.onFindResult = [weakSelf, tab](int matches, int active) {
@@ -1358,6 +1368,11 @@ NSString* jsonEscape(id object) {
     return;
   }
 
+  if ([method isEqualToString:@"ui.testFullscreen"]) {
+    [self setKernelFullscreen:[params[@"fullscreen"] boolValue] tab:self.activeTab];
+    return;
+  }
+
   if ([method isEqualToString:@"ui.find"] || [method isEqualToString:@"ui.stopFind"]) {
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
     liora::IKernelView* view = [self viewForTab:tab];
@@ -1514,6 +1529,25 @@ NSString* jsonEscape(id object) {
 
 // ---- Layout ---------------------------------------------------------------
 
+- (void)setKernelFullscreen:(BOOL)fullscreen tab:(int64_t)tab {
+  if (fullscreen) {
+    self.kernelFullscreen = YES;
+    self.fullscreenTab = tab;
+    self.activeTab = tab;
+    self.contentVisible = YES;
+    [self layoutContent];
+    if (!(self.window.styleMask & NSWindowStyleMaskFullScreen)) {
+      [self.window toggleFullScreen:nil];
+    }
+  } else {
+    self.kernelFullscreen = NO;
+    [self layoutContent];
+    if (self.window.styleMask & NSWindowStyleMaskFullScreen) {
+      [self.window toggleFullScreen:nil];
+    }
+  }
+}
+
 - (void)layoutContent {
   CGFloat height = self.container.bounds.size.height;
   CGRect rect = self.pendingContentRect;
@@ -1527,6 +1561,12 @@ NSString* jsonEscape(id object) {
     bool active = entry.first == self.activeTab && self.contentVisible;
     if (!active) {
       view->setVisible(false);
+      continue;
+    }
+    if (self.kernelFullscreen && entry.first == self.fullscreenTab) {
+      view->setBounds(0, 0, static_cast<int>(self.container.bounds.size.width),
+                      static_cast<int>(height));
+      view->setVisible(true);
       continue;
     }
     // The interface reports CSS pixels with a top-left origin; the kernel view

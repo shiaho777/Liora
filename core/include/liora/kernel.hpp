@@ -139,6 +139,8 @@ struct ViewEvents {
   std::function<void()> onReady;
   // Find-in-page result: total matches and the active match (1-based, 0 none).
   std::function<void(int matches, int active)> onFindResult;
+  // The page entered or left HTML fullscreen.
+  std::function<void(bool fullscreen)> onFullscreen;
 };
 
 class IKernelView {

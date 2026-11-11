@@ -265,6 +265,12 @@ class KernelClient : public CefClient,
     fireTitle(bridge_, title.ToString());
   }
 
+  void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
+    if (bridge_ && bridge_->alive && bridge_->events.onFullscreen) {
+      bridge_->events.onFullscreen(fullscreen);
+    }
+  }
+
   void OnAddressChange(CefRefPtr<CefBrowser> browser,
                        CefRefPtr<CefFrame> frame,
                        const CefString& url) override {
