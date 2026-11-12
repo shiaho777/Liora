@@ -8,6 +8,8 @@
 
 #include "SystemKernel.h"
 
+#include "liora/reader_script.hpp"
+
 using liora::DownloadEvent;
 using liora::DownloadState;
 using liora::IKernelView;
@@ -469,6 +471,18 @@ class WebViewKernelView final : public IKernelView {
     if (!clearSelection) return;
     [view_ evaluateJavaScript:@"window.getSelection().removeAllRanges()"
             completionHandler:nil];
+  }
+
+  void extractReader(std::function<void(const std::string&)> done) override {
+    auto callback = std::make_shared<std::function<void(const std::string&)>>(std::move(done));
+    [view_ evaluateJavaScript:toNSString(liora::kReaderScript)
+            completionHandler:^(id result, NSError* error) {
+              std::string json;
+              if (!error && [result isKindOfClass:[NSString class]]) {
+                json = toStdString((NSString*)result);
+              }
+              if (callback && *callback) (*callback)(json);
+            }];
   }
 
   void postMessage(const std::string& json) override {

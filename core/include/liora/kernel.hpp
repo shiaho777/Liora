@@ -159,6 +159,11 @@ class IKernelView {
   virtual void openDevTools() {}
   virtual void find(const std::string& text, bool forward, bool matchCase) {}
   virtual void stopFinding(bool clearSelection) {}
+  // Extracts a reader-mode JSON document from the current page. The callback
+  // runs on the platform's UI thread and receives an empty string on failure.
+  virtual void extractReader(std::function<void(const std::string&)> done) {
+    if (done) done(std::string());
+  }
   virtual void postMessage(const std::string& json) = 0;
   virtual void* nativeHandle() const = 0;
 };

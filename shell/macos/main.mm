@@ -1491,6 +1491,31 @@ NSString* jsonEscape(id object) {
     return;
   }
 
+  if ([method isEqualToString:@"ui.reader"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (!view) {
+      [self notifyInterface:@"browser.readerFailed" params:@{@"tab" : @(tab)}];
+      return;
+    }
+    __weak LioraController* weakSelf = self;
+    view->extractReader([weakSelf, tab](const std::string& json) {
+      NSString* text = ns(json);
+      const bool failed = json.empty() || json.find("\"error\"") != std::string::npos;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        LioraController* strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (failed) {
+          [strongSelf notifyInterface:@"browser.readerFailed" params:@{@"tab" : @(tab)}];
+        } else {
+          [strongSelf notifyInterface:@"browser.reader"
+                                params:@{@"tab" : @(tab), @"data" : text ?: @""}];
+        }
+      });
+    });
+    return;
+  }
+
   if ([method isEqualToString:@"ui.devTools"]) {
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
     liora::IKernelView* view = [self viewForTab:tab];

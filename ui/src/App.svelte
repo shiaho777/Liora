@@ -3,6 +3,8 @@
   import NewTab from './lib/NewTab.svelte';
   import Settings from './lib/Settings.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
+  import ReaderView from './lib/ReaderView.svelte';
+  import { parseReaderData, type ReaderData } from './lib/reader';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
   import SiteCard from './lib/SiteCard.svelte';
@@ -66,10 +68,16 @@
   let closedTabs = $state<Array<{ title: string; url: string; page: Tab['page']; groupId?: string }>>(
     [],
   );
+  let reader = $state<ReaderData | null>(null);
+  let readerTab = $state(0);
+  let readerUrl = $state('');
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
   const verticalTabs = $derived(app.tabsPosition === 'vertical');
+  const readerActive = $derived(
+    Boolean(reader && readerTab === activeId && readerUrl === active.url),
+  );
 
   const searchTemplates: Record<string, string> = {
     duckduckgo: 'https://duckduckgo.com/?q=',
@@ -210,6 +218,7 @@
     ...(active.page === 'web'
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
+          { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⇧R' },
           { id: 'copylink', label: t('palette.copyClean'), icon: 'external' },
         ]
       : []),
@@ -426,6 +435,23 @@
       }
       return;
     }
+    if (message.method === 'browser.reader' && message.params) {
+      const params = message.params as { tab?: number; data?: string };
+      if (Number(params.tab) !== activeId) return;
+      const parsed = parseReaderData(params.data ?? '');
+      if (!parsed) {
+        toast(t('reader.unavailable'), 'error');
+        return;
+      }
+      reader = parsed;
+      readerTab = activeId;
+      readerUrl = active.url;
+      return;
+    }
+    if (message.method === 'browser.readerFailed') {
+      toast(t('reader.unavailable'), 'error');
+      return;
+    }
     if (message.method === 'browser.download' && message.params) {
       const params = message.params as {
         id: string;
@@ -520,12 +546,16 @@
         y: Math.round(rect.y),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        visible: active?.page === 'web' && !active?.error,
+        visible: !readerActive && active?.page === 'web' && !active?.error,
         tab: active?.id,
       });
     });
     observer.observe(contentEl);
     return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    if (reader && !readerActive) reader = null;
   });
 
   $effect(() => {
@@ -535,7 +565,10 @@
 
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
-    notify('ui.showTab', { tab: activeId, visible: !paletteOpen && active?.page === 'web' && !active?.error });
+    notify('ui.showTab', {
+      tab: activeId,
+      visible: !paletteOpen && !readerActive && active?.page === 'web' && !active?.error,
+    });
     siteCardOpen = false;
     if (findOpen && findTabId !== activeId) closeFind();
   });
@@ -603,6 +636,8 @@
         case 'zoomReset': void changeZoom(0); break;
         case 'downloads': openDownloads(); break;
         case 'palette': openPalette(); break;
+        case 'reader': requestReader(); break;
+        case 'readerclose': closeReader(); break;
         case 'newgroup': createGroup(); break;
         case 'reopentab': reopenClosedTab(); break;
         case 'grouptab':
@@ -868,6 +903,12 @@
                 scrollTop: document.querySelector('.settings__main')?.scrollTop,
               });
             })(),
+            '-- active icons --',
+            JSON.stringify(
+              [...document.querySelectorAll('.toolbar .icon-button--active')].map(
+                (item) => item.getAttribute('aria-label') || item.getAttribute('title'),
+              ),
+            ),
             '-- badge --',
             badge
               ? JSON.stringify({ text: badge.textContent?.trim(), title: badge.title })
@@ -978,6 +1019,7 @@
 
   function navigate(raw: string): void {
     siteCardOpen = false;
+    reader = null;
     const url = resolveInput(raw);
     const internal = internalPageFor(url);
 
@@ -999,7 +1041,7 @@
   }
 
   function openFind(): void {
-    if (active.page !== 'web') return;
+    if (active.page !== 'web' || readerActive) return;
     findOpen = true;
     findTabId = activeId;
     findAutoAdvanced = false;
@@ -1044,11 +1086,13 @@
 
   function goBack(): void {
     if (active.page !== 'web' || !active.canBack) return;
+    reader = null;
     notify('ui.back', { tab: activeId });
   }
 
   function goForward(): void {
     if (active.page !== 'web' || !active.canForward) return;
+    reader = null;
     notify('ui.forward', { tab: activeId });
   }
 
@@ -1160,6 +1204,19 @@
     }
   }
 
+  function closeReader(): void {
+    reader = null;
+  }
+
+  function requestReader(): void {
+    if (active.page !== 'web' || active.error) {
+      toast(t('reader.onlyWeb'), 'error');
+      return;
+    }
+    toast(t('reader.extracting'));
+    notify('ui.reader', { tab: activeId });
+  }
+
   function openPalette(): void {
     siteCardOpen = false;
     paletteOpen = true;
@@ -1228,6 +1285,7 @@
     else if (id === 'close') closeTab(activeId);
     else if (id === 'reopen') reopenClosedTab();
     else if (id === 'copylink') void copyCleanLink();
+    else if (id === 'reader') requestReader();
   }
 
   function openPaletteTab(id: number): void {
@@ -1347,6 +1405,11 @@
     if (key === 'w') {
       event.preventDefault();
       closeTab(activeId);
+      return;
+    }
+    if (key === 'r' && event.shiftKey) {
+      event.preventDefault();
+      requestReader();
       return;
     }
     if (key === 'r') {
@@ -1813,6 +1876,15 @@
         {#if active.page === 'web'}
           <button
             class="icon-button"
+            class:icon-button--active={readerActive}
+            title={t('reader.open')}
+            aria-label={t('reader.open')}
+            onclick={requestReader}
+          >
+            <Icon name="book" />
+          </button>
+          <button
+            class="icon-button"
             class:icon-button--active={activeBookmarked}
             title={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
             aria-label={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
@@ -1910,7 +1982,9 @@
           onopen={(page) => navigate(`liora://${page}`)}
         />
       {:else if active.page === 'web'}
-        {#if active.error}
+        {#if readerActive && reader}
+          <ReaderView data={reader} onclose={closeReader} />
+        {:else if active.error}
           <ErrorPanel
             url={active.error.url}
             message={active.error.message}

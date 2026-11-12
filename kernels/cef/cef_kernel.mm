@@ -1,7 +1,10 @@
 #include "liora/cef_kernel.hpp"
 
+#include "liora/reader_script.hpp"
+
 #include <atomic>
 #include <cmath>
+#include <functional>
 #include <mutex>
 
 #import <Cocoa/Cocoa.h>
@@ -82,6 +85,7 @@ NSURL* uniqueFileURL(NSURL* url) {
 // Shared with the client so callbacks never touch a destroyed view.
 struct Bridge {
   ViewEvents events;
+  std::function<void(const std::string&)> onReader;
   std::atomic<bool> alive{true};
 
   ~Bridge() { alive = false; }
@@ -265,6 +269,22 @@ class KernelClient : public CefClient,
     fireTitle(bridge_, title.ToString());
   }
 
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser,
+                        cef_log_severity_t level,
+                        const CefString& message,
+                        const CefString& source,
+                        int line) override {
+    if (!bridge_ || !bridge_->alive) return false;
+    const std::string text = message.ToString();
+    static const std::string prefix = "__LIORA_READER__";
+    if (text.find(prefix) == std::string::npos) return false;
+    NSLog(@"Liora: CEF reader console message (%zu bytes)", text.size());
+    if (!bridge_->onReader) return false;
+    const auto at = text.find(prefix);
+    bridge_->onReader(text.substr(at + prefix.size()));
+    return true;
+  }
+
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
     if (bridge_ && bridge_->alive && bridge_->events.onFullscreen) {
       bridge_->events.onFullscreen(fullscreen);
@@ -435,6 +455,12 @@ class CefView final : public IKernelView {
   CefView(const ViewOptions& options, ViewEvents events) {
     bridge_ = std::make_shared<Bridge>();
     bridge_->events = std::move(events);
+    bridge_->onReader = [this](const std::string& json) {
+      if (!readerCallback_) return;
+      auto callback = std::move(readerCallback_);
+      readerCallback_ = nullptr;
+      callback(json);
+    };
     client_ = new KernelClient(bridge_, options);
     client_->onCreated = [this]() {
       flushPendingState();
@@ -452,7 +478,10 @@ class CefView final : public IKernelView {
 
   ~CefView() override {
     if (client_) client_->onCreated = nullptr;
-    if (bridge_) bridge_->alive = false;
+    if (bridge_) {
+      bridge_->onReader = nullptr;
+      bridge_->alive = false;
+    }
     if (auto browser = client_ ? client_->browser() : nullptr) {
       browser->GetHost()->CloseBrowser(true);
     }
@@ -512,6 +541,20 @@ class CefView final : public IKernelView {
   void stopFinding(bool clearSelection) override {
     if (auto b = this->browser()) b->GetHost()->StopFinding(clearSelection);
     lastFindText_.clear();
+  }
+
+  void extractReader(std::function<void(const std::string&)> done) override {
+    readerCallback_ = std::move(done);
+    if (auto frame = mainFrame()) {
+      NSLog(@"Liora: CEF reader extracting on %s", frame->GetURL().ToString().c_str());
+      frame->ExecuteJavaScript(CefString(liora::kReaderScript), frame->GetURL(), 0);
+      return;
+    }
+    if (readerCallback_) {
+      auto callback = std::move(readerCallback_);
+      readerCallback_ = nullptr;
+      callback(std::string());
+    }
   }
 
   void openDevTools() override {
@@ -598,6 +641,7 @@ class CefView final : public IKernelView {
   bool hasZoom_ = false;
   std::string lastFindText_;
   bool lastMatchCase_ = false;
+  std::function<void(const std::string&)> readerCallback_;
   bool hasBounds_ = false;
   int boundsX_ = 0;
   int boundsY_ = 0;
