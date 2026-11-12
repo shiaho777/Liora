@@ -17,6 +17,11 @@
     { value: 'compact', label: t('appearance.density.compact') },
   ]);
 
+  const tabPositions = $derived([
+    { value: 'strip', label: t('appearance.tabs.strip') },
+    { value: 'vertical', label: t('appearance.tabs.vertical') },
+  ]);
+
   const languages = [
     { value: 'auto', label: t('appearance.language.auto') },
     { value: 'zh', label: '简体中文' },
@@ -59,6 +64,20 @@
             options={densities}
             ariaLabel={t('appearance.density')}
             onchange={(value) => updateSetting('ui.density', value)}
+          />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('appearance.tabs')}</div>
+        </div>
+        <div class="row__control">
+          <Segmented
+            value={app.tabsPosition}
+            options={tabPositions}
+            ariaLabel={t('appearance.tabs')}
+            onchange={(value) => updateSetting('ui.tabs', value)}
           />
         </div>
       </div>
@@ -110,15 +129,26 @@
         class:preview--compact={app.density === 'compact'}
         aria-hidden="true"
       >
+        {#if app.tabsPosition === 'vertical'}
+          <div class="preview__rail">
+            <span class="preview__tab preview__tab--active">
+              <span class="preview__dot"></span>Liora
+            </span>
+            <span class="preview__tab">{t('tab.new')}</span>
+            <span class="preview__tab">Example</span>
+          </div>
+        {/if}
         <div class="preview__main">
           <div class="preview__chrome">
-            <div class="preview__tabs">
-              <span class="preview__tab preview__tab--active">
-                <span class="preview__dot"></span>Liora
-              </span>
-              <span class="preview__tab">{t('tab.new')}</span>
-              <span class="preview__plus">+</span>
-            </div>
+            {#if app.tabsPosition !== 'vertical'}
+              <div class="preview__tabs">
+                <span class="preview__tab preview__tab--active">
+                  <span class="preview__dot"></span>Liora
+                </span>
+                <span class="preview__tab">{t('tab.new')}</span>
+                <span class="preview__plus">+</span>
+              </div>
+            {/if}
             <div class="preview__toolbar">
               <span class="preview__nav"></span>
               <span class="preview__address">example.com</span>
@@ -295,4 +325,28 @@
   .preview--compact .preview__page {
     gap: 5px;
   }
+
+  .preview__rail {
+    width: 112px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 7px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+
+  .preview__rail .preview__tab {
+    height: 23px;
+    border-radius: var(--radius-xs);
+    padding: 0 8px;
+  }
+
+  .preview__rail .preview__tab--active {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    border: none;
+  }
+
 </style>

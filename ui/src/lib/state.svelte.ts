@@ -99,8 +99,9 @@ export async function boot(): Promise<void> {
   applyMode(String(values.get('ui.mode') ?? 'simple'));
   app.theme = String(values.get('ui.theme') ?? 'system') as typeof app.theme;
   app.density = String(values.get('ui.density') ?? 'comfortable') as typeof app.density;
-  // Tab placement is not user-configurable yet; always use the titlebar strip.
-  app.tabsPosition = 'strip';
+  // Hidden tabs are no longer offered; legacy profiles fall back to the strip.
+  const tabs = String(values.get('ui.tabs') ?? 'strip');
+  app.tabsPosition = (tabs === 'vertical' ? 'vertical' : 'strip') as typeof app.tabsPosition;
   app.language = String(values.get('ui.language') ?? 'auto');
   setLocale(app.language);
   applyAppearance();

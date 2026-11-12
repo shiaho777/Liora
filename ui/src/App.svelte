@@ -2,6 +2,7 @@
   import Icon from './lib/Icon.svelte';
   import NewTab from './lib/NewTab.svelte';
   import Settings from './lib/Settings.svelte';
+  import CommandPalette from './lib/CommandPalette.svelte';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
   import SiteCard from './lib/SiteCard.svelte';
@@ -47,9 +48,12 @@
   let contentEl = $state<HTMLDivElement | null>(null);
   let addressEl = $state<HTMLInputElement | null>(null);
   let siteCardOpen = $state(false);
+  let tabQuery = $state('');
+  let paletteOpen = $state(false);
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
+  const verticalTabs = $derived(app.tabsPosition === 'vertical');
 
   const searchTemplates: Record<string, string> = {
     duckduckgo: 'https://duckduckgo.com/?q=',
@@ -144,6 +148,31 @@
   const activeBookmarked = $derived(
     active.page === 'web' && bookmarks.some((entry) => entry.url === active.url),
   );
+
+  const visibleTabs = $derived.by(() => {
+    const query = tabQuery.trim().toLowerCase();
+    if (!query) return tabs;
+    return tabs.filter((tab) =>
+      `${tab.title} ${tab.url}`.toLowerCase().includes(query),
+    );
+  });
+
+  const paletteCommands = $derived([
+    { id: 'newtab', label: t('tab.new'), icon: 'plus', hint: '⌘T' },
+    { id: 'settings', label: t('nav.settings'), icon: 'settings', hint: '⌘,' },
+    { id: 'downloads', label: t('nav.downloads'), icon: 'download' },
+    { id: 'bookmarks', label: t('nav.bookmarks'), icon: 'star' },
+    { id: 'history', label: t('nav.history'), icon: 'history' },
+    { id: 'dns', label: t('nav.dns'), icon: 'shield' },
+    ...(active.page === 'web'
+      ? [
+          { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
+          { id: 'copylink', label: t('palette.copyClean'), icon: 'external' },
+        ]
+      : []),
+    { id: 'reload', label: t('nav.reload'), icon: 'reload', hint: '⌘R' },
+    { id: 'close', label: t('tab.close'), icon: 'close', hint: '⌘W' },
+  ]);
 
   // A failed load is reported by the kernel; show the diagnosis panel instead
   // of a blank page.
@@ -455,7 +484,7 @@
 
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
-    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error });
+    notify('ui.showTab', { tab: activeId, visible: !paletteOpen && active?.page === 'web' && !active?.error });
     siteCardOpen = false;
     if (findOpen && findTabId !== activeId) closeFind();
   });
@@ -522,6 +551,8 @@
         case 'zoomOut': void changeZoom(-10); break;
         case 'zoomReset': void changeZoom(0); break;
         case 'downloads': openDownloads(); break;
+        case 'palette': openPalette(); break;
+        case 'paletteclose': closePalette(); break;
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
         case 'copyreport':
           (window as unknown as { __lioraCopyReport?: () => void }).__lioraCopyReport?.();
@@ -963,6 +994,83 @@
     form.querySelector('input')?.blur();
   }
 
+  function openPalette(): void {
+    siteCardOpen = false;
+    paletteOpen = true;
+  }
+
+  function closePalette(): void {
+    paletteOpen = false;
+  }
+
+  function cleanShareUrl(): string {
+    try {
+      const url = new URL(active.url);
+      const drop = new Set([
+        'fbclid',
+        'gclid',
+        'dclid',
+        'msclkid',
+        'mc_cid',
+        'mc_eid',
+        'igshid',
+        'ref',
+        'ref_src',
+        'si',
+      ]);
+      for (const key of [...url.searchParams.keys()]) {
+        if (key.toLowerCase().startsWith('utm_') || drop.has(key.toLowerCase())) {
+          url.searchParams.delete(key);
+        }
+      }
+      return url.toString();
+    } catch {
+      return active.url;
+    }
+  }
+
+  async function copyCleanLink(): Promise<void> {
+    const text = cleanShareUrl();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(t('palette.cleanCopied'));
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      toast(copied ? t('palette.cleanCopied') : t('palette.cleanCopyFailed'), copied ? 'info' : 'error');
+    }
+  }
+
+  function runPaletteCommand(id: string): void {
+    closePalette();
+    if (id === 'newtab') newTab();
+    else if (id === 'settings') openSettings();
+    else if (id === 'downloads') openDownloads();
+    else if (id === 'bookmarks') navigate('liora://bookmarks');
+    else if (id === 'history') navigate('liora://history');
+    else if (id === 'dns') openSettings('dns');
+    else if (id === 'find') openFind();
+    else if (id === 'reload') navigate(active.url);
+    else if (id === 'close') closeTab(activeId);
+    else if (id === 'copylink') void copyCleanLink();
+  }
+
+  function openPaletteTab(id: number): void {
+    closePalette();
+    activeId = id;
+  }
+
+  function paletteQuery(query: string): void {
+    closePalette();
+    navigate(query);
+  }
+
   function openDownloads(): void {
     const existing = tabs.find((tab) => tab.page === 'downloads');
     if (existing) {
@@ -1038,6 +1146,13 @@
     const mod = event.metaKey || event.ctrlKey;
     if (!mod) return;
     const key = event.key.toLowerCase();
+
+    if (key === 'k' || (key === 'a' && event.shiftKey)) {
+      event.preventDefault();
+      paletteOpen = !paletteOpen;
+      return;
+    }
+    if (paletteOpen) return;
 
     if (key === 'f') {
       event.preventDefault();
@@ -1166,17 +1281,111 @@
 {:else}
   <div class="app">
     {#if app.platform === 'macos'}
-      <div class="titlebar titlebar--mac" class:titlebar--tabs={showTabs}>
-        {#if showTabs}
+      <div class="titlebar titlebar--mac" class:titlebar--tabs={showTabs && !verticalTabs}>
+        {#if verticalTabs}
+          <span class="titlebar__title">{t('app.name')}</span>
+        {:else if showTabs}
           {@render tabstrip()}
         {:else}
           <span class="titlebar__title">{t('app.name')}</span>
         {/if}
       </div>
-    {:else if showTabs}
+    {:else if showTabs && !verticalTabs}
       {@render tabstrip()}
     {/if}
 
+    <div class="workbench">
+      {#if verticalTabs}
+        <aside class="tabrail" aria-label={t('tabs.label')}>
+          <div class="tabrail__head">
+            <span class="tabrail__label">
+              {t('tabs.label')}
+              <span class="tabrail__count">{tabs.length}</span>
+            </span>
+            <button
+              class="icon-button"
+              title={t('tab.new')}
+              aria-label={t('tab.new')}
+              onclick={() => {
+                tabQuery = '';
+                newTab();
+              }}
+            >
+              <Icon name="plus" />
+            </button>
+          </div>
+
+          <label class="tabrail__search">
+            <Icon name="search" size={12} />
+            <input
+              bind:value={tabQuery}
+              placeholder={t('tabs.search')}
+              aria-label={t('tabs.search')}
+              spellcheck="false"
+            />
+            {#if tabQuery}
+              <button
+                class="tabrail__clear"
+                title={t('tabs.clear')}
+                aria-label={t('tabs.clear')}
+                onclick={() => (tabQuery = '')}
+              >
+                <Icon name="close" size={9} />
+              </button>
+            {/if}
+          </label>
+
+          <div class="tabrail__list">
+            {#if visibleTabs.length === 0}
+              <div class="tabrail__empty">{t('tabs.none')}</div>
+            {:else}
+              {#each visibleTabs as tab (tab.id)}
+                <div
+                  class="tabrow"
+                  class:tabrow--active={tab.id === activeId}
+                  role="tab"
+                  tabindex="0"
+                  aria-selected={tab.id === activeId}
+                  onclick={() => (activeId = tab.id)}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      activeId = tab.id;
+                    }
+                  }}
+                  title={tab.url}
+                >
+                  <span class="tabrow__favicon">
+                    {#if tab.page === 'web'}
+                      <Icon name="globe" size={11} />
+                    {:else if tab.page === 'newtab'}
+                      L
+                    {:else}
+                      <Icon name={internalIcon(tab.page)} size={11} />
+                    {/if}
+                  </span>
+                  <span class="tabrow__title">{tab.title}</span>
+                  <button
+                    class="tabrow__close"
+                    title={t('tab.close')}
+                    aria-label={t('tab.close')}
+                    onclick={(event) => {
+                      event.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                  >
+                    <Icon name="close" size={9} />
+                  </button>
+                </div>
+              {/each}
+            {/if}
+          </div>
+
+          <div class="tabrail__foot">{t('tabs.count', { count: tabs.length })}</div>
+        </aside>
+      {/if}
+
+      <div class="maincolumn">
     <div class="toolbar">
       <div class="toolbar__group">
         <button class="icon-button" title={t('nav.back')} disabled={!active.canBack} onclick={goBack}>
@@ -1251,6 +1460,14 @@
                   : t('network.pending')}
           </button>
         {/if}
+        <button
+          class="icon-button"
+          title={t('palette.shortcut')}
+          aria-label={t('palette.shortcut')}
+          onclick={openPalette}
+        >
+          <span class="command-glyph">⌘</span>
+        </button>
         <button
           class="icon-button"
           title={t('nav.bookmarks')}
@@ -1386,6 +1603,20 @@
         {/if}
       {/if}
     </div>
+      </div>
+    </div>
+
+    {#if paletteOpen}
+      <CommandPalette
+        {tabs}
+        {activeId}
+        commands={paletteCommands}
+        onclose={closePalette}
+        onopentab={openPaletteTab}
+        oncommand={runPaletteCommand}
+        onquery={paletteQuery}
+      />
+    {/if}
 
     <div class="toasts">
       {#each app.toasts as item (item.id)}
@@ -1413,6 +1644,12 @@
     place-items: center;
     background: var(--bg);
     animation: fade 240ms var(--ease);
+  }
+
+  .command-glyph {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1;
   }
 
   .boot__mark {
