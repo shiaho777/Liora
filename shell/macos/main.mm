@@ -112,6 +112,7 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, strong) NSView* container;
 @property(nonatomic, strong) LioraNetService* netService;
 @property(nonatomic, assign) CGRect pendingContentRect;
+@property(nonatomic, strong) NSArray<NSDictionary*>* contentLayout;
 @property(nonatomic, assign) BOOL contentVisible;
 @property(nonatomic, assign) int64_t activeTab;
 @property(nonatomic, assign) BOOL refreshPending;
@@ -1436,18 +1437,36 @@ NSString* jsonEscape(id object) {
     return;
   }
 
+  if ([method isEqualToString:@"ui.contentLayout"]) {
+    self.contentLayout = params[@"rects"] ?: @[];
+    if (params[@"focused"]) self.activeTab = [params[@"focused"] longLongValue];
+    self.contentVisible = self.contentLayout.count > 0;
+    [self layoutContent];
+    return;
+  }
+
   if ([method isEqualToString:@"ui.contentRect"]) {
+    // Legacy single-pane path; keep it working for local tooling.
     NSDictionary* rect = params;
     self.pendingContentRect =
         CGRectMake([rect[@"x"] doubleValue], [rect[@"y"] doubleValue], [rect[@"width"] doubleValue],
                    [rect[@"height"] doubleValue]);
     self.contentVisible = [rect[@"visible"] boolValue];
     if (rect[@"tab"]) self.activeTab = [rect[@"tab"] longLongValue];
+    self.contentLayout = @[ @{
+      @"tab" : @(self.activeTab),
+      @"x" : @(self.pendingContentRect.origin.x),
+      @"y" : @(self.pendingContentRect.origin.y),
+      @"width" : @(self.pendingContentRect.size.width),
+      @"height" : @(self.pendingContentRect.size.height),
+      @"visible" : @(self.contentVisible),
+    } ];
     [self layoutContent];
     return;
   }
 
   if ([method isEqualToString:@"ui.setPage"]) {
+    self.contentLayout = @[];
     self.contentVisible = NO;
     [self layoutContent];
     return;
@@ -1678,25 +1697,37 @@ NSString* jsonEscape(id object) {
 
 - (void)layoutContent {
   CGFloat height = self.container.bounds.size.height;
-  CGRect rect = self.pendingContentRect;
+  NSArray<NSDictionary*>* layout = self.contentLayout ?: @[];
   if (getenv("LIORA_DEBUG_LAYOUT")) {
-    NSLog(@"Liora: layout container=%.0fx%.0f rect=(%.0f,%.0f %.0fx%.0f) tab=%lld visible=%d",
-          self.container.bounds.size.width, height, rect.origin.x, rect.origin.y, rect.size.width,
-          rect.size.height, (long long)self.activeTab, (int)self.contentVisible);
+    NSLog(@"Liora: layout container=%.0fx%.0f panes=%lu tab=%lld visible=%d",
+          self.container.bounds.size.width, height, (unsigned long)layout.count,
+          (long long)self.activeTab, (int)self.contentVisible);
   }
   for (auto& entry : _views) {
     liora::IKernelView* view = entry.second.get();
-    bool active = entry.first == self.activeTab && self.contentVisible;
-    if (!active) {
+    NSDictionary* pane = nil;
+    for (NSDictionary* item in layout) {
+      if ([item[@"tab"] longLongValue] == entry.first && [item[@"visible"] boolValue]) {
+        pane = item;
+        break;
+      }
+    }
+    if (!pane) {
       view->setVisible(false);
       continue;
     }
-    if (self.kernelFullscreen && entry.first == self.fullscreenTab) {
+    if (self.kernelFullscreen) {
+      if (entry.first != self.fullscreenTab) {
+        view->setVisible(false);
+        continue;
+      }
       view->setBounds(0, 0, static_cast<int>(self.container.bounds.size.width),
                       static_cast<int>(height));
       view->setVisible(true);
       continue;
     }
+    CGRect rect = CGRectMake([pane[@"x"] doubleValue], [pane[@"y"] doubleValue],
+                             [pane[@"width"] doubleValue], [pane[@"height"] doubleValue]);
     // The interface reports CSS pixels with a top-left origin; the kernel view
     // lives in this container, which uses a bottom-left origin.
     view->setBounds(static_cast<int>(rect.origin.x),

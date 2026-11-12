@@ -42,6 +42,11 @@
     collapsed: boolean;
   }
 
+  interface SplitState {
+    primary: number;
+    secondary: number;
+  }
+
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
   let tabSeq = 2;
   let tabs = $state<Tab[]>([firstTab]);
@@ -71,6 +76,11 @@
   let reader = $state<ReaderData | null>(null);
   let readerTab = $state(0);
   let readerUrl = $state('');
+  let split = $state<SplitState | null>(null);
+  let splitRatio = $state(0.5);
+  let splitDragging = $state(false);
+  let splitEl = $state<HTMLDivElement | null>(null);
+  let layoutFrame = 0;
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -78,6 +88,11 @@
   const readerActive = $derived(
     Boolean(reader && readerTab === activeId && readerUrl === active.url),
   );
+  const splitPrimary = $derived(split ? (tabs.find((tab) => tab.id === split!.primary) ?? null) : null);
+  const splitSecondary = $derived(
+    split ? (tabs.find((tab) => tab.id === split!.secondary) ?? null) : null,
+  );
+  const webTabCount = $derived(tabs.filter((tab) => tab.page === 'web').length);
 
   const searchTemplates: Record<string, string> = {
     duckduckgo: 'https://duckduckgo.com/?q=',
@@ -120,6 +135,7 @@
       const session = await call<{
         tabs?: Array<{ url: string; title: string; page: string; group?: string }>;
         groups?: Array<{ id: string; name: string; color: string; collapsed?: boolean }>;
+        split?: { primary?: number; secondary?: number; ratio?: number } | null;
         active?: number;
       }>('session.load');
       if (!session.tabs?.length) return;
@@ -147,6 +163,16 @@
       tabs = restored;
       tabSeq = restored.length + 1;
       activeId = restored.some((tab) => tab.id === session.active) ? session.active! : restored[0].id;
+      if (session.split) {
+        const primary = restored.find((tab) => tab.id === Number(session.split!.primary));
+        const secondary = restored.find((tab) => tab.id === Number(session.split!.secondary));
+        if (primary?.page === 'web' && secondary?.page === 'web') {
+          split = { primary: primary.id, secondary: secondary.id };
+          const ratio = Number(session.split.ratio);
+          if (Number.isFinite(ratio)) splitRatio = Math.min(0.8, Math.max(0.2, ratio));
+          if (activeId !== primary.id && activeId !== secondary.id) activeId = primary.id;
+        }
+      }
       // Load every page tab; the shell keeps background views hidden.
       for (const tab of restored) {
         if (tab.page === 'web') {
@@ -219,6 +245,16 @@
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
           { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⇧R' },
+          ...(split || webTabCount > 1
+            ? [
+                {
+                  id: 'split',
+                  label: split ? t('split.close') : t('split.open'),
+                  icon: 'columns',
+                  hint: '⌘\\',
+                },
+              ]
+            : []),
           { id: 'copylink', label: t('palette.copyClean'), icon: 'external' },
         ]
       : []),
@@ -536,22 +572,29 @@
     hooks.__lioraNewTab = (url: string) => newTab(url);
   });
 
-  // Tell the shell where the kernel view goes. It is repositioned on resize.
+  // Tell the shell where each native kernel view goes. Split view needs two
+  // rects; the single-pane case is the same message with one entry.
   $effect(() => {
-    if (!contentEl) return;
-    const observer = new ResizeObserver(() => {
-      const rect = contentEl!.getBoundingClientRect();
-      notify('ui.contentRect', {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        visible: !readerActive && active?.page === 'web' && !active?.error,
-        tab: active?.id,
-      });
-    });
-    observer.observe(contentEl);
-    return () => observer.disconnect();
+    // Read the state that changes the geometry so the effect reruns.
+    void activeId;
+    void split;
+    void splitRatio;
+    void paletteOpen;
+    void readerActive;
+    void tabs;
+    void bookmarks.length;
+    void app.density;
+
+    scheduleContentLayout();
+
+    const onResize = (): void => scheduleContentLayout();
+    window.addEventListener('resize', onResize);
+    const observer = new ResizeObserver(() => scheduleContentLayout());
+    if (contentEl) observer.observe(contentEl);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      observer.disconnect();
+    };
   });
 
   $effect(() => {
@@ -559,16 +602,32 @@
   });
 
   $effect(() => {
+    if (!split) return;
+    if (activeId !== split.primary && activeId !== split.secondary) {
+      split = null;
+      return;
+    }
+    const primary = tabs.find((tab) => tab.id === split!.primary);
+    const secondary = tabs.find((tab) => tab.id === split!.secondary);
+    if (
+      !primary ||
+      !secondary ||
+      primary.page !== 'web' ||
+      secondary.page !== 'web' ||
+      primary.error ||
+      secondary.error
+    ) {
+      split = null;
+    }
+  });
+
+  $effect(() => {
     const group = groups.find((item) => item.id === active?.groupId);
     if (group?.collapsed) group.collapsed = false;
   });
 
-  // Switching tabs activates that tab's kernel view.
+  // Switching tabs closes transient panels.
   $effect(() => {
-    notify('ui.showTab', {
-      tab: activeId,
-      visible: !paletteOpen && !readerActive && active?.page === 'web' && !active?.error,
-    });
     siteCardOpen = false;
     if (findOpen && findTabId !== activeId) closeFind();
   });
@@ -637,6 +696,34 @@
         case 'downloads': openDownloads(); break;
         case 'palette': openPalette(); break;
         case 'reader': requestReader(); break;
+        case 'split': toggleSplit(); break;
+        case 'splitfocus2':
+          if (split) activeId = split.secondary;
+          break;
+        case 'splitclose': closeSplit(); break;
+        case 'splitratio':
+          splitRatio = 0.35;
+          scheduleContentLayout();
+          break;
+        case 'splitdrag': {
+          const splitNode = document.querySelector<HTMLElement>('.split');
+          const divider = document.querySelector<HTMLElement>('.split__divider');
+          if (!splitNode || !divider) break;
+          const splitRect = splitNode.getBoundingClientRect();
+          const dividerRect = divider.getBoundingClientRect();
+          const options = {
+            bubbles: true,
+            pointerId: 1,
+            clientY: dividerRect.top + 10,
+          } as PointerEventInit;
+          divider.dispatchEvent(
+            new PointerEvent('pointerdown', { ...options, clientX: dividerRect.left + 2 }),
+          );
+          const x = splitRect.left + splitRect.width * 0.35;
+          window.dispatchEvent(new PointerEvent('pointermove', { ...options, clientX: x }));
+          window.dispatchEvent(new PointerEvent('pointerup', { ...options, clientX: x }));
+          break;
+        }
         case 'readerclose': closeReader(); break;
         case 'newgroup': createGroup(); break;
         case 'reopentab': reopenClosedTab(); break;
@@ -903,6 +990,17 @@
                 scrollTop: document.querySelector('.settings__main')?.scrollTop,
               });
             })(),
+            '-- split --',
+            (() => {
+              const el = document.querySelector('.split');
+              if (!el) return 'none';
+              const style = getComputedStyle(el);
+              return JSON.stringify({
+                inline: el.getAttribute('style'),
+                columns: style.gridTemplateColumns,
+                width: el.getBoundingClientRect().width,
+              });
+            })(),
             '-- active icons --',
             JSON.stringify(
               [...document.querySelectorAll('.toolbar .icon-button--active')].map(
@@ -939,10 +1037,17 @@
       collapsed: group.collapsed,
     }));
     const selected = activeId;
+    // Read split state here so changes to the layout alone also trigger a save.
+    const savedSplit = split ? { ...split, ratio: splitRatio } : null;
     if (!sessionReady) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      void call('session.save', { tabs: snapshot, groups: savedGroups, active: selected });
+      void call('session.save', {
+        tabs: snapshot,
+        groups: savedGroups,
+        split: savedSplit,
+        active: selected,
+      });
     }, 700);
     return () => clearTimeout(saveTimer);
   });
@@ -968,6 +1073,12 @@
   function closeTab(id: number): void {
     const closing = tabs.find((tab) => tab.id === id);
     if (closing) rememberClosed(closing);
+    if (split && (id === split.primary || id === split.secondary)) {
+      const otherId = id === split.primary ? split.secondary : split.primary;
+      const other = tabs.find((tab) => tab.id === otherId);
+      split = null;
+      if (activeId === id && other) activeId = other.id;
+    }
     if (tabs.length === 1) {
       updateTab(id, { title: t('tab.new'), url: 'liora://newtab', page: 'newtab', groupId: undefined });
       notify('ui.setPage', { page: 'newtab' });
@@ -1204,11 +1315,106 @@
     }
   }
 
+  function closeSplit(): void {
+    split = null;
+    splitDragging = false;
+  }
+
+  function toggleSplit(): void {
+    if (split) {
+      closeSplit();
+      return;
+    }
+    if (active.page !== 'web' || active.error) {
+      toast(t('split.needWeb'), 'error');
+      return;
+    }
+    const index = tabs.findIndex((tab) => tab.id === activeId);
+    let secondary: Tab | undefined;
+    for (let step = 1; step < tabs.length; step += 1) {
+      const candidate = tabs[(index - step + tabs.length) % tabs.length];
+      if (candidate.page === 'web' && !candidate.error && candidate.id !== activeId) {
+        secondary = candidate;
+        break;
+      }
+    }
+    if (!secondary) {
+      toast(t('split.needTwo'), 'error');
+      return;
+    }
+    split = { primary: activeId, secondary: secondary.id };
+    splitRatio = 0.5;
+  }
+
+  function focusPane(id: number): void {
+    if (split && (id === split.primary || id === split.secondary)) activeId = id;
+  }
+
+  function startSplitDrag(event: PointerEvent): void {
+    event.preventDefault();
+    if (!splitEl) return;
+    splitDragging = true;
+    const onMove = (moveEvent: PointerEvent): void => {
+      if (!splitEl) return;
+      const rect = splitEl.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      splitRatio = Math.min(0.8, Math.max(0.2, (moveEvent.clientX - rect.left) / rect.width));
+    };
+    const onUp = (): void => {
+      splitDragging = false;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function scheduleContentLayout(): void {
+    cancelAnimationFrame(layoutFrame);
+    layoutFrame = requestAnimationFrame(() => sendContentLayout());
+  }
+
+  function sendContentLayout(): void {
+    const rects: Array<{
+      tab: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      visible: boolean;
+    }> = [];
+    const add = (tabId: number, element: HTMLElement | null): void => {
+      if (!element || paletteOpen) return;
+      const tab = tabs.find((item) => item.id === tabId);
+      if (!tab || tab.page !== 'web' || tab.error) return;
+      if (readerActive && tabId === activeId) return;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      rects.push({
+        tab: tabId,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        visible: true,
+      });
+    };
+
+    if (split) {
+      add(split.primary, document.querySelector<HTMLElement>(`[data-split-tab="${split.primary}"]`));
+      add(split.secondary, document.querySelector<HTMLElement>(`[data-split-tab="${split.secondary}"]`));
+    } else {
+      add(activeId, contentEl);
+    }
+    notify('ui.contentLayout', { rects, focused: activeId });
+  }
+
   function closeReader(): void {
     reader = null;
   }
 
   function requestReader(): void {
+    if (split) closeSplit();
     if (active.page !== 'web' || active.error) {
       toast(t('reader.onlyWeb'), 'error');
       return;
@@ -1286,6 +1492,7 @@
     else if (id === 'reopen') reopenClosedTab();
     else if (id === 'copylink') void copyCleanLink();
     else if (id === 'reader') requestReader();
+    else if (id === 'split') toggleSplit();
   }
 
   function openPaletteTab(id: number): void {
@@ -1405,6 +1612,11 @@
     if (key === 'w') {
       event.preventDefault();
       closeTab(activeId);
+      return;
+    }
+    if (event.key === '\\') {
+      event.preventDefault();
+      toggleSplit();
       return;
     }
     if (key === 'r' && event.shiftKey) {
@@ -1866,14 +2078,18 @@
         >
           <span class="command-glyph">⌘</span>
         </button>
-        <button
-          class="icon-button"
-          title={t('nav.bookmarks')}
-          onclick={() => navigate('liora://bookmarks')}
-        >
-          <Icon name="folder" />
-        </button>
         {#if active.page === 'web'}
+          {#if split || webTabCount > 1}
+            <button
+              class="icon-button"
+              class:icon-button--active={Boolean(split)}
+              title={split ? t('split.close') : t('split.open')}
+              aria-label={split ? t('split.close') : t('split.open')}
+              onclick={toggleSplit}
+            >
+              <Icon name="columns" />
+            </button>
+          {/if}
           <button
             class="icon-button"
             class:icon-button--active={readerActive}
@@ -1962,7 +2178,101 @@
       </div>
     {/if}
 
-    <div class="content" class:content--native={active.page === 'web'} bind:this={contentEl}>
+    <div class="content" class:content--native={!split && active.page === 'web'} bind:this={contentEl}>
+      {#if split}
+        <div
+          class="split"
+          class:split--dragging={splitDragging}
+          bind:this={splitEl}
+          style:grid-template-columns={`minmax(0, ${splitRatio}fr) 6px minmax(0, ${1 - splitRatio}fr)`}
+        >
+          {#if splitPrimary}
+            <section class="split__pane" class:split__pane--active={activeId === split.primary}>
+              <div
+                class="split__header"
+                role="button"
+                tabindex="0"
+                onclick={() => focusPane(split!.primary)}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    focusPane(split!.primary);
+                  }
+                }}
+              >
+                <span class="split__favicon"><Icon name="globe" size={10} /></span>
+                <span class="split__title">{splitPrimary.title || splitPrimary.url}</span>
+                {#if splitPrimary.groupId}
+                  <span
+                    class="split__group"
+                    style:background={groupColor(splitPrimary.groupId)}
+                    title={groupName(splitPrimary.groupId)}
+                  ></span>
+                {/if}
+                <button
+                  class="split__close"
+                  title={t('tab.close')}
+                  aria-label={t('tab.close')}
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    closeTab(split!.primary);
+                  }}
+                >
+                  <Icon name="close" size={9} />
+                </button>
+              </div>
+              <div class="split__surface" data-split-tab={split.primary}></div>
+            </section>
+          {/if}
+
+          <div
+            class="split__divider"
+            class:split__divider--dragging={splitDragging}
+            role="separator"
+            aria-orientation="vertical"
+            onpointerdown={startSplitDrag}
+          ></div>
+
+          {#if splitSecondary}
+            <section class="split__pane" class:split__pane--active={activeId === split.secondary}>
+              <div
+                class="split__header"
+                role="button"
+                tabindex="0"
+                onclick={() => focusPane(split!.secondary)}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    focusPane(split!.secondary);
+                  }
+                }}
+              >
+                <span class="split__favicon"><Icon name="globe" size={10} /></span>
+                <span class="split__title">{splitSecondary.title || splitSecondary.url}</span>
+                {#if splitSecondary.groupId}
+                  <span
+                    class="split__group"
+                    style:background={groupColor(splitSecondary.groupId)}
+                    title={groupName(splitSecondary.groupId)}
+                  ></span>
+                {/if}
+                <button
+                  class="split__close"
+                  title={t('tab.close')}
+                  aria-label={t('tab.close')}
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    closeTab(split!.secondary);
+                  }}
+                >
+                  <Icon name="close" size={9} />
+                </button>
+              </div>
+              <div class="split__surface" data-split-tab={split.secondary}></div>
+            </section>
+          {/if}
+        </div>
+      {:else}
       {#if active.page === 'newtab'}
         <NewTab
           onnavigate={(url) => navigate(url)}
@@ -2010,6 +2320,7 @@
             </div>
           </div>
         {/if}
+      {/if}
       {/if}
     </div>
       </div>
