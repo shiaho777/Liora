@@ -284,6 +284,7 @@ a {
 }
 
 .tab {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -308,6 +309,18 @@ a {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-sm);
+}
+
+.tab--grouped::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--group-color);
+  opacity: 0.9;
 }
 
 .tab__favicon {
@@ -563,6 +576,135 @@ a {
 .tabrow__close:hover {
   background: var(--bg-active);
   color: var(--text);
+}
+
+.tabgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+
+.tabgroup__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  flex: none;
+  padding: 0 4px 0 8px;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.tabgroup__head:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.tabgroup__head--active {
+  color: var(--text-secondary);
+}
+
+.tabgroup__head--drop {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tabgroup__head--plain {
+  margin-top: 8px;
+  cursor: default;
+}
+
+.tabgroup__chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  transition: transform var(--fast) var(--ease);
+}
+
+.tabgroup__chevron--open {
+  transform: rotate(90deg);
+}
+
+.tabgroup__dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 3px;
+  border: none;
+  padding: 0;
+}
+
+.tabgroup__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.tabgroup__count {
+  flex: none;
+  min-width: 16px;
+  text-align: right;
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+.tabgroup__action {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  opacity: 0;
+}
+
+.tabgroup__head:hover .tabgroup__action {
+  opacity: 1;
+}
+
+.tabgroup__action:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.tabgroup__rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.tabgroup .tabrow {
+  margin-left: 9px;
+}
+
+.tabrow--dragging {
+  opacity: 0.45;
+}
+
+.tabrow__group {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
 }
 
 .tabrail__empty {

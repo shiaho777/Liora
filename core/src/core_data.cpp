@@ -309,8 +309,10 @@ void Core::registerDataMethods() {
         {"savedAt", nowMs()},
         {"active", params::optionalInteger(params, "active").value_or(0)},
         {"tabs", params::optional(params, "tabs").value_or(Json::array())},
+        {"groups", params::optional(params, "groups").value_or(Json::array())},
     };
     if (!session["tabs"].is_array()) rpcFail(kRpcInvalidParams, "tabs must be a list");
+    if (!session["groups"].is_array()) rpcFail(kRpcInvalidParams, "groups must be a list");
     std::string error;
     if (!writeFileAtomic(paths_.root / "session.json", session.dump(), &error)) {
       rpcFail(kRpcInternalError, error);

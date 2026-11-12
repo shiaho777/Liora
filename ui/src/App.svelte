@@ -30,6 +30,14 @@
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
     canBack?: boolean;
     canForward?: boolean;
+    groupId?: string;
+  }
+
+  interface TabGroup {
+    id: string;
+    name: string;
+    color: string;
+    collapsed: boolean;
   }
 
   const firstTab: Tab = { id: 1, title: t('tab.new'), url: 'liora://newtab', page: 'newtab' };
@@ -50,6 +58,11 @@
   let siteCardOpen = $state(false);
   let tabQuery = $state('');
   let paletteOpen = $state(false);
+  let groups = $state<TabGroup[]>([]);
+  let renamingGroup = $state('');
+  let groupNameDraft = $state('');
+  let draggingTab = $state(0);
+  let dragOverGroup = $state('');
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -94,10 +107,21 @@
   async function restoreSession(): Promise<void> {
     try {
       const session = await call<{
-        tabs?: Array<{ url: string; title: string; page: string }>;
+        tabs?: Array<{ url: string; title: string; page: string; group?: string }>;
+        groups?: Array<{ id: string; name: string; color: string; collapsed?: boolean }>;
         active?: number;
       }>('session.load');
       if (!session.tabs?.length) return;
+      if (Array.isArray(session.groups)) {
+        groups = session.groups
+          .filter((group) => group && typeof group.id === 'string' && typeof group.name === 'string')
+          .map((group) => ({
+            id: group.id,
+            name: group.name,
+            color: typeof group.color === 'string' ? group.color : groupColors[0],
+            collapsed: group.collapsed === true,
+          }));
+      }
       // A tab that turned into a download is transient; restoring it would
       // download the file again.
       const restorable = session.tabs.filter((item) => item.page !== 'download');
@@ -107,6 +131,7 @@
         title: item.title || item.url,
         url: item.url,
         page: pageForUrl(item.url),
+        groupId: item.group && groups.some((group) => group.id === item.group) ? item.group : undefined,
       }));
       tabs = restored;
       tabSeq = restored.length + 1;
@@ -157,6 +182,17 @@
     );
   });
 
+  const groupColors = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+
+  const groupedTabs = $derived(
+    groups.map((group) => ({
+      ...group,
+      tabs: tabs.filter((tab) => tab.groupId === group.id),
+    })),
+  );
+
+  const ungroupedTabs = $derived(tabs.filter((tab) => !tab.groupId));
+
   const paletteCommands = $derived([
     { id: 'newtab', label: t('tab.new'), icon: 'plus', hint: '⌘T' },
     { id: 'settings', label: t('nav.settings'), icon: 'settings', hint: '⌘,' },
@@ -164,6 +200,10 @@
     { id: 'bookmarks', label: t('nav.bookmarks'), icon: 'star' },
     { id: 'history', label: t('nav.history'), icon: 'history' },
     { id: 'dns', label: t('nav.dns'), icon: 'shield' },
+    { id: 'group', label: t('groups.new'), icon: 'folder' },
+    ...(active.groupId
+      ? [{ id: 'ungroup', label: t('groups.remove'), icon: 'close' }]
+      : []),
     ...(active.page === 'web'
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
@@ -482,6 +522,11 @@
     return () => observer.disconnect();
   });
 
+  $effect(() => {
+    const group = groups.find((item) => item.id === active?.groupId);
+    if (group?.collapsed) group.collapsed = false;
+  });
+
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
     notify('ui.showTab', { tab: activeId, visible: !paletteOpen && active?.page === 'web' && !active?.error });
@@ -552,6 +597,10 @@
         case 'zoomReset': void changeZoom(0); break;
         case 'downloads': openDownloads(); break;
         case 'palette': openPalette(); break;
+        case 'newgroup': createGroup(); break;
+        case 'grouptab':
+          if (groups[0]) assignGroup(activeId, groups[0].id);
+          break;
         case 'paletteclose': closePalette(); break;
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
         case 'copyreport':
@@ -833,12 +882,19 @@
       url: tab.url,
       title: tab.title,
       page: tab.page,
+      group: tab.groupId ?? '',
+    }));
+    const savedGroups = groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      color: group.color,
+      collapsed: group.collapsed,
     }));
     const selected = activeId;
     if (!sessionReady) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      void call('session.save', { tabs: snapshot, active: selected });
+      void call('session.save', { tabs: snapshot, groups: savedGroups, active: selected });
     }, 700);
     return () => clearTimeout(saveTimer);
   });
@@ -849,7 +905,13 @@
   }
 
   function newTab(url = 'liora://newtab'): void {
-    const tab: Tab = { id: tabSeq++, title: t('tab.new'), url, page: 'newtab' };
+    const tab: Tab = {
+      id: tabSeq++,
+      title: t('tab.new'),
+      url,
+      page: 'newtab',
+      groupId: active?.groupId,
+    };
     tabs = [...tabs, tab];
     activeId = tab.id;
     if (url !== 'liora://newtab') navigate(url);
@@ -994,6 +1056,73 @@
     form.querySelector('input')?.blur();
   }
 
+  function groupColor(groupId?: string): string {
+    return groups.find((group) => group.id === groupId)?.color ?? 'transparent';
+  }
+
+  function groupName(groupId?: string): string {
+    return groups.find((group) => group.id === groupId)?.name ?? '';
+  }
+
+  function createGroup(tabId = activeId): string {
+    const id = `group-${Date.now()}-${groups.length}`;
+    const group: TabGroup = {
+      id,
+      name: t('groups.defaultName', { count: groups.length + 1 }),
+      color: groupColors[groups.length % groupColors.length],
+      collapsed: false,
+    };
+    groups = [...groups, group];
+    const tab = tabs.find((item) => item.id === tabId);
+    if (tab) tab.groupId = id;
+    tabs = [...tabs];
+    return id;
+  }
+
+  function assignGroup(tabId: number, groupId: string): void {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    tab.groupId = groupId;
+    tabs = [...tabs];
+    const group = groups.find((item) => item.id === groupId);
+    if (group) group.collapsed = false;
+  }
+
+  function ungroupTab(tabId: number): void {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    tab.groupId = undefined;
+    tabs = [...tabs];
+  }
+
+  function closeGroup(groupId: string): void {
+    for (const tab of tabs) {
+      if (tab.groupId === groupId) tab.groupId = undefined;
+    }
+    groups = groups.filter((group) => group.id !== groupId);
+    tabs = [...tabs];
+  }
+
+  function cycleGroupColor(group: TabGroup): void {
+    const index = groupColors.indexOf(group.color);
+    group.color = groupColors[(index + 1) % groupColors.length];
+  }
+
+  function beginRenameGroup(group: TabGroup): void {
+    renamingGroup = group.id;
+    groupNameDraft = group.name;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('.tabgroup__rename')?.select();
+    });
+  }
+
+  function commitGroupName(): void {
+    const group = groups.find((item) => item.id === renamingGroup);
+    const name = groupNameDraft.trim();
+    if (group && name) group.name = name;
+    renamingGroup = '';
+  }
+
   function openPalette(): void {
     siteCardOpen = false;
     paletteOpen = true;
@@ -1055,6 +1184,8 @@
     else if (id === 'bookmarks') navigate('liora://bookmarks');
     else if (id === 'history') navigate('liora://history');
     else if (id === 'dns') openSettings('dns');
+    else if (id === 'group') createGroup();
+    else if (id === 'ungroup') ungroupTab(activeId);
     else if (id === 'find') openFind();
     else if (id === 'reload') navigate(active.url);
     else if (id === 'close') closeTab(activeId);
@@ -1231,6 +1362,8 @@
         <div
           class="tab"
           class:tab--active={tab.id === activeId}
+          class:tab--grouped={Boolean(tab.groupId)}
+          style:--group-color={groupColor(tab.groupId)}
           role="tab"
           tabindex="0"
           aria-selected={tab.id === activeId}
@@ -1274,6 +1407,64 @@
   </div>
 {/snippet}
 
+{#snippet verticalTab(tab: Tab, showGroup = false)}
+  <div
+    class="tabrow"
+    class:tabrow--active={tab.id === activeId}
+    class:tabrow--dragging={draggingTab === tab.id}
+    role="tab"
+    tabindex="0"
+    aria-selected={tab.id === activeId}
+    draggable="true"
+    onclick={() => (activeId = tab.id)}
+    onkeydown={(event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activeId = tab.id;
+      }
+    }}
+    ondragstart={(event) => {
+      draggingTab = tab.id;
+      event.dataTransfer?.setData('text/liora-tab', String(tab.id));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    }}
+    ondragend={() => {
+      draggingTab = 0;
+      dragOverGroup = '';
+    }}
+    title={tab.groupId ? `${tab.url} · ${groupName(tab.groupId)}` : tab.url}
+  >
+    <span class="tabrow__favicon">
+      {#if tab.page === 'web'}
+        <Icon name="globe" size={11} />
+      {:else if tab.page === 'newtab'}
+        L
+      {:else}
+        <Icon name={internalIcon(tab.page)} size={11} />
+      {/if}
+    </span>
+    <span class="tabrow__title">{tab.title}</span>
+    {#if showGroup && tab.groupId}
+      <span
+        class="tabrow__group"
+        style:background={groupColor(tab.groupId)}
+        title={groupName(tab.groupId)}
+      ></span>
+    {/if}
+    <button
+      class="tabrow__close"
+      title={t('tab.close')}
+      aria-label={t('tab.close')}
+      onclick={(event) => {
+        event.stopPropagation();
+        closeTab(tab.id);
+      }}
+    >
+      <Icon name="close" size={9} />
+    </button>
+  </div>
+{/snippet}
+
 {#if !app.ready}
   <div class="boot">
     <div class="boot__mark">L</div>
@@ -1302,6 +1493,14 @@
               {t('tabs.label')}
               <span class="tabrail__count">{tabs.length}</span>
             </span>
+            <button
+              class="icon-button"
+              title={t('groups.new')}
+              aria-label={t('groups.new')}
+              onclick={() => createGroup()}
+            >
+              <Icon name="folder" />
+            </button>
             <button
               class="icon-button"
               title={t('tab.new')}
@@ -1336,47 +1535,140 @@
           </label>
 
           <div class="tabrail__list">
-            {#if visibleTabs.length === 0}
-              <div class="tabrail__empty">{t('tabs.none')}</div>
+            {#if tabQuery.trim()}
+              {#if visibleTabs.length === 0}
+                <div class="tabrail__empty">{t('tabs.none')}</div>
+              {:else}
+                {#each visibleTabs as tab (tab.id)}
+                  {@render verticalTab(tab, true)}
+                {/each}
+              {/if}
             {:else}
-              {#each visibleTabs as tab (tab.id)}
-                <div
-                  class="tabrow"
-                  class:tabrow--active={tab.id === activeId}
-                  role="tab"
-                  tabindex="0"
-                  aria-selected={tab.id === activeId}
-                  onclick={() => (activeId = tab.id)}
-                  onkeydown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
+              {#each groupedTabs as group (group.id)}
+                <div class="tabgroup">
+                  <div
+                    class="tabgroup__head"
+                    class:tabgroup__head--active={group.tabs.some((tab) => tab.id === activeId)}
+                    class:tabgroup__head--drop={dragOverGroup === group.id}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => (group.collapsed = !group.collapsed)}
+                    onkeydown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        group.collapsed = !group.collapsed;
+                      }
+                    }}
+                    ondragover={(event) => {
                       event.preventDefault();
-                      activeId = tab.id;
-                    }
-                  }}
-                  title={tab.url}
-                >
-                  <span class="tabrow__favicon">
-                    {#if tab.page === 'web'}
-                      <Icon name="globe" size={11} />
-                    {:else if tab.page === 'newtab'}
-                      L
-                    {:else}
-                      <Icon name={internalIcon(tab.page)} size={11} />
-                    {/if}
-                  </span>
-                  <span class="tabrow__title">{tab.title}</span>
-                  <button
-                    class="tabrow__close"
-                    title={t('tab.close')}
-                    aria-label={t('tab.close')}
-                    onclick={(event) => {
-                      event.stopPropagation();
-                      closeTab(tab.id);
+                      dragOverGroup = group.id;
+                    }}
+                    ondragleave={() => {
+                      if (dragOverGroup === group.id) dragOverGroup = '';
+                    }}
+                    ondrop={(event) => {
+                      event.preventDefault();
+                      const id = Number(event.dataTransfer?.getData('text/liora-tab'));
+                      if (id) assignGroup(id, group.id);
+                      dragOverGroup = '';
+                      draggingTab = 0;
                     }}
                   >
-                    <Icon name="close" size={9} />
-                  </button>
+                    <span
+                      class="tabgroup__chevron"
+                      class:tabgroup__chevron--open={!group.collapsed}
+                    >
+                      <Icon name="chevron" size={9} />
+                    </span>
+                    <button
+                      class="tabgroup__dot"
+                      style:background={group.color}
+                      title={t('groups.color')}
+                      aria-label={t('groups.color')}
+                      onclick={(event) => {
+                        event.stopPropagation();
+                        cycleGroupColor(group);
+                      }}
+                    ></button>
+                    {#if renamingGroup === group.id}
+                      <input
+                        class="tabgroup__rename"
+                        bind:value={groupNameDraft}
+                        onclick={(event) => event.stopPropagation()}
+                        onblur={commitGroupName}
+                        onkeydown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitGroupName();
+                          } else if (event.key === 'Escape') {
+                            event.preventDefault();
+                            renamingGroup = '';
+                          }
+                        }}
+                      />
+                    {:else}
+                      <span class="tabgroup__name">{group.name}</span>
+                    {/if}
+                    <span class="tabgroup__count">{group.tabs.length}</span>
+                    <button
+                      class="tabgroup__action"
+                      title={t('groups.rename')}
+                      aria-label={t('groups.rename')}
+                      onclick={(event) => {
+                        event.stopPropagation();
+                        beginRenameGroup(group);
+                      }}
+                    >
+                      <Icon name="pencil" size={11} />
+                    </button>
+                    <button
+                      class="tabgroup__action"
+                      title={t('groups.close')}
+                      aria-label={t('groups.close')}
+                      onclick={(event) => {
+                        event.stopPropagation();
+                        closeGroup(group.id);
+                      }}
+                    >
+                      <Icon name="close" size={10} />
+                    </button>
+                  </div>
+                  {#if !group.collapsed}
+                    {#each group.tabs as tab (tab.id)}
+                      {@render verticalTab(tab, false)}
+                    {/each}
+                  {/if}
                 </div>
+              {/each}
+
+              {#if groups.length > 0}
+                <div
+                  class="tabgroup__head tabgroup__head--plain"
+                  class:tabgroup__head--drop={dragOverGroup === 'none'}
+                  role="presentation"
+                  title={t('groups.dropHint')}
+                  ondragover={(event) => {
+                    event.preventDefault();
+                    dragOverGroup = 'none';
+                  }}
+                  ondragleave={() => {
+                    if (dragOverGroup === 'none') dragOverGroup = '';
+                  }}
+                  ondrop={(event) => {
+                    event.preventDefault();
+                    const id = Number(event.dataTransfer?.getData('text/liora-tab'));
+                    if (id) ungroupTab(id);
+                    dragOverGroup = '';
+                    draggingTab = 0;
+                  }}
+                >
+                  <span class="tabgroup__name">{t('groups.ungrouped')}</span>
+                  <span class="tabgroup__count">{ungroupedTabs.length}</span>
+                </div>
+              {/if}
+
+              {#each ungroupedTabs as tab (tab.id)}
+                {@render verticalTab(tab, false)}
               {/each}
             {/if}
           </div>
