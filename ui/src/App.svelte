@@ -63,6 +63,9 @@
   let groupNameDraft = $state('');
   let draggingTab = $state(0);
   let dragOverGroup = $state('');
+  let closedTabs = $state<Array<{ title: string; url: string; page: Tab['page']; groupId?: string }>>(
+    [],
+  );
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -212,6 +215,9 @@
       : []),
     { id: 'reload', label: t('nav.reload'), icon: 'reload', hint: '⌘R' },
     { id: 'close', label: t('tab.close'), icon: 'close', hint: '⌘W' },
+    ...(closedTabs.length > 0
+      ? [{ id: 'reopen', label: t('tab.reopen'), icon: 'refresh', hint: '⌘⇧T' }]
+      : []),
   ]);
 
   // A failed load is reported by the kernel; show the diagnosis panel instead
@@ -598,6 +604,7 @@
         case 'downloads': openDownloads(); break;
         case 'palette': openPalette(); break;
         case 'newgroup': createGroup(); break;
+        case 'reopentab': reopenClosedTab(); break;
         case 'grouptab':
           if (groups[0]) assignGroup(activeId, groups[0].id);
           break;
@@ -918,8 +925,10 @@
   }
 
   function closeTab(id: number): void {
+    const closing = tabs.find((tab) => tab.id === id);
+    if (closing) rememberClosed(closing);
     if (tabs.length === 1) {
-      updateTab(id, { title: t('tab.new'), url: 'liora://newtab', page: 'newtab' });
+      updateTab(id, { title: t('tab.new'), url: 'liora://newtab', page: 'newtab', groupId: undefined });
       notify('ui.setPage', { page: 'newtab' });
       return;
     }
@@ -1123,6 +1132,34 @@
     renamingGroup = '';
   }
 
+  function rememberClosed(tab: Tab): void {
+    closedTabs = [
+      ...closedTabs.slice(-19),
+      { title: tab.title, url: tab.url, page: tab.page, groupId: tab.groupId },
+    ];
+  }
+
+  function reopenClosedTab(): void {
+    const entry = closedTabs[closedTabs.length - 1];
+    if (!entry) return;
+    closedTabs = closedTabs.slice(0, -1);
+    const tab: Tab = {
+      id: tabSeq++,
+      title: entry.title || internalTitle(entry.page),
+      url: entry.url,
+      page: entry.page,
+      groupId: entry.groupId && groups.some((group) => group.id === entry.groupId)
+        ? entry.groupId
+        : undefined,
+    };
+    tabs = [...tabs, tab];
+    activeId = tab.id;
+    if (tab.page === 'web') {
+      notify('ui.navigate', { url: tab.url, tab: tab.id });
+      void applyStoredZoom(tab.url, tab.id);
+    }
+  }
+
   function openPalette(): void {
     siteCardOpen = false;
     paletteOpen = true;
@@ -1189,6 +1226,7 @@
     else if (id === 'find') openFind();
     else if (id === 'reload') navigate(active.url);
     else if (id === 'close') closeTab(activeId);
+    else if (id === 'reopen') reopenClosedTab();
     else if (id === 'copylink') void copyCleanLink();
   }
 
@@ -1281,6 +1319,11 @@
     if (key === 'k' || (key === 'a' && event.shiftKey)) {
       event.preventDefault();
       paletteOpen = !paletteOpen;
+      return;
+    }
+    if (key === 't' && event.shiftKey) {
+      event.preventDefault();
+      reopenClosedTab();
       return;
     }
     if (paletteOpen) return;
