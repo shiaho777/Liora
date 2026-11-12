@@ -6,6 +6,7 @@ add_executable(liora_tests
   test_storage.cpp
   test_backup_migration.cpp
   test_components_rpc.cpp
+  test_watches.cpp
 )
 
 target_include_directories(liora_tests PRIVATE

@@ -97,7 +97,10 @@ class Core {
   void registerCoreMethods();
   void registerDataMethods();
   void registerComponentMethods();
+  void registerWatchMethods();
   void registerBackupSections();
+  void loadWatches();
+  void saveWatchesLocked();
   // Persists settings and rules when they changed.
   void persistSettings();
 
@@ -124,6 +127,9 @@ class Core {
   mutable std::mutex resolverMutex_;
   Json resolverStatus_ = Json::object();
   bool started_ = false;
+  // Page watches: URLs polled by the shell for content changes.
+  Json watches_ = Json::array();
+  mutable std::mutex watchesMutex_;
 };
 
 }  // namespace liora

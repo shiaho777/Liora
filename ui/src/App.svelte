@@ -4,6 +4,8 @@
   import Settings from './lib/Settings.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import ReaderView from './lib/ReaderView.svelte';
+  import Watches from './lib/Watches.svelte';
+  import WatchDialog from './lib/WatchDialog.svelte';
   import { parseReaderData, type ReaderData } from './lib/reader';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
@@ -27,7 +29,7 @@
     id: number;
     title: string;
     url: string;
-    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'downloads' | 'web';
+    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'downloads' | 'watches' | 'web';
     error?: { url: string; code: number; message: string };
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
     canBack?: boolean;
@@ -81,6 +83,9 @@
   let splitDragging = $state(false);
   let splitEl = $state<HTMLDivElement | null>(null);
   let layoutFrame = 0;
+  let watchDialogOpen = $state(false);
+  let watchDialogUrl = $state('');
+  let watchDialogTitle = $state('');
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -237,6 +242,10 @@
     { id: 'bookmarks', label: t('nav.bookmarks'), icon: 'star' },
     { id: 'history', label: t('nav.history'), icon: 'history' },
     { id: 'dns', label: t('nav.dns'), icon: 'shield' },
+    { id: 'watches', label: t('nav.watches'), icon: 'eye' },
+    ...(active.page === 'web'
+      ? [{ id: 'watch', label: t('watch.create'), icon: 'eye' }]
+      : []),
     { id: 'group', label: t('groups.new'), icon: 'folder' },
     ...(active.groupId
       ? [{ id: 'ungroup', label: t('groups.remove'), icon: 'close' }]
@@ -488,6 +497,11 @@
       toast(t('reader.unavailable'), 'error');
       return;
     }
+    if (message.method === 'browser.watchChanged' && message.params) {
+      const params = message.params as { title?: string; url?: string };
+      toast(t('watch.changedToast', { title: params.title || params.url || '' }));
+      return;
+    }
     if (message.method === 'browser.download' && message.params) {
       const params = message.params as {
         id: string;
@@ -580,6 +594,7 @@
     void split;
     void splitRatio;
     void paletteOpen;
+    void watchDialogOpen;
     void readerActive;
     void tabs;
     void bookmarks.length;
@@ -725,6 +740,10 @@
           break;
         }
         case 'readerclose': closeReader(); break;
+        case 'watchdialog': openWatchDialog(); break;
+        case 'watchsubmit':
+          document.querySelector<HTMLElement>('.watch-dialog .button--primary')?.click();
+          break;
         case 'newgroup': createGroup(); break;
         case 'reopentab': reopenClosedTab(); break;
         case 'grouptab':
@@ -1112,6 +1131,7 @@
     if (page === 'history') return t('nav.history');
     if (page === 'diagnostics') return t('nav.diagnostics');
     if (page === 'downloads') return t('nav.downloads');
+    if (page === 'watches') return t('nav.watches');
     return t('tab.new');
   }
 
@@ -1121,6 +1141,7 @@
     if (page === 'history') return 'history';
     if (page === 'diagnostics') return 'info';
     if (page === 'downloads') return 'download';
+    if (page === 'watches') return 'eye';
     return 'home';
   }
 
@@ -1384,7 +1405,7 @@
       visible: boolean;
     }> = [];
     const add = (tabId: number, element: HTMLElement | null): void => {
-      if (!element || paletteOpen) return;
+      if (!element || paletteOpen || watchDialogOpen) return;
       const tab = tabs.find((item) => item.id === tabId);
       if (!tab || tab.page !== 'web' || tab.error) return;
       if (readerActive && tabId === activeId) return;
@@ -1421,6 +1442,20 @@
     }
     toast(t('reader.extracting'));
     notify('ui.reader', { tab: activeId });
+  }
+
+  function openWatchDialog(): void {
+    if (active.page !== 'web' || active.error) {
+      toast(t('watch.onlyWeb'), 'error');
+      return;
+    }
+    watchDialogUrl = active.url;
+    watchDialogTitle = active.title || active.url;
+    watchDialogOpen = true;
+  }
+
+  function closeWatchDialog(): void {
+    watchDialogOpen = false;
   }
 
   function openPalette(): void {
@@ -1493,6 +1528,8 @@
     else if (id === 'copylink') void copyCleanLink();
     else if (id === 'reader') requestReader();
     else if (id === 'split') toggleSplit();
+    else if (id === 'watches') navigate('liora://watches');
+    else if (id === 'watch') openWatchDialog();
   }
 
   function openPaletteTab(id: number): void {
@@ -1591,7 +1628,7 @@
       reopenClosedTab();
       return;
     }
-    if (paletteOpen) return;
+    if (paletteOpen || watchDialogOpen) return;
 
     if (key === 'f') {
       event.preventDefault();
@@ -2285,6 +2322,8 @@
         <DiagnosticsPage />
       {:else if active.page === 'downloads'}
         <DownloadsPage />
+      {:else if active.page === 'watches'}
+        <Watches onnavigate={(url) => navigate(url)} />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library
           kind={active.page}
@@ -2325,6 +2364,14 @@
     </div>
       </div>
     </div>
+
+    {#if watchDialogOpen}
+      <WatchDialog
+        url={watchDialogUrl}
+        title={watchDialogTitle}
+        onclose={closeWatchDialog}
+      />
+    {/if}
 
     {#if paletteOpen}
       <CommandPalette

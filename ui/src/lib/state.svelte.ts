@@ -24,7 +24,8 @@ export type PageKind =
   | 'bookmarks'
   | 'history'
   | 'diagnostics'
-  | 'downloads';
+  | 'downloads'
+  | 'watches';
 
 export const app = $state({
   ready: false,
@@ -152,6 +153,7 @@ export function internalPageFor(url: string): PageKind | null {
   if (name === 'history') return 'history';
   if (name === 'diagnostics') return 'diagnostics';
   if (name === 'downloads') return 'downloads';
+  if (name === 'watches') return 'watches';
   if (name === 'newtab' || name === '') return 'newtab';
   return null;
 }

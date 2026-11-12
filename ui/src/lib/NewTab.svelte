@@ -281,6 +281,10 @@
           <Icon name="history" size={12} />
           {t('nav.history')}
         </button>
+        <button class="foot-link" onclick={() => onopen?.('watches')}>
+          <Icon name="eye" size={12} />
+          {t('nav.watches')}
+        </button>
         <button class="foot-link" onclick={() => onpanel?.('appearance')}>
           <Icon name="sliders" size={12} />
           {t('nav.settings')}

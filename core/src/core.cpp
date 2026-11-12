@@ -78,6 +78,7 @@ Core::Core(Options options)
   registerCoreMethods();
   registerDataMethods();
   registerComponentMethods();
+  registerWatchMethods();
   registerBackupSections();
 }
 
@@ -88,6 +89,7 @@ std::optional<std::string> Core::start() {
   if (!settings_.load(&error)) return "settings: " + error;
   reloadRules();
   if (!storage_.open(&error)) return "database: " + error;
+  loadWatches();
 
   // Catalog signature enforcement. Priority: explicit option, environment,
   // then the public key embedded at build time. A developer can disable it for

@@ -2,6 +2,7 @@
 // All state lives in Core; this file only moves pixels and messages.
 
 #import <Cocoa/Cocoa.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <Network/Network.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/WebKit.h>
@@ -30,6 +31,13 @@ NSString* ns(const std::string& value) {
 }
 
 std::string stdString(NSString* value) { return value ? std::string([value UTF8String]) : std::string(); }
+
+std::string safeStdString(NSString* value) {
+  if (!value) return {};
+  NSData* data = [value dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
+  if (!data) return {};
+  return std::string(static_cast<const char*>(data.bytes), data.length);
+}
 
 NSString* jsonEscape(id object) {
   NSData* data = [NSJSONSerialization dataWithJSONObject:@[ object ] options:0 error:nil];
@@ -122,6 +130,8 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, assign) BOOL sentRuntimeInfo;
 @property(nonatomic, copy) NSString* cefStatus;
 @property(nonatomic, copy) NSString* appliedConfig;
+@property(nonatomic, strong) NSTimer* watchTimer;
+@property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
 
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
@@ -162,6 +172,8 @@ NSString* jsonEscape(id object) {
 
   [self startCore];
   [self buildInterface];
+  self.checkingWatches = [NSMutableSet set];
+  [self startWatchTimer];
 
   [self.window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
@@ -257,7 +269,215 @@ NSString* jsonEscape(id object) {
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender { return YES; }
 
+// ---- Page watches ---------------------------------------------------------
+
+- (void)startWatchTimer {
+  self.watchTimer = [NSTimer scheduledTimerWithTimeInterval:60
+                                                    target:self
+                                                  selector:@selector(checkDueWatches)
+                                                  userInfo:nil
+                                                   repeats:YES];
+  __weak LioraController* weakSelf = self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    [weakSelf checkDueWatches];
+  });
+}
+
+- (liora::Json)watchList {
+  if (!_core) return liora::Json::array();
+  liora::Json response = _core->handleJson(liora::Json{
+      {"jsonrpc", "2.0"}, {"id", 1}, {"method", "watch.list"}, {"params", liora::Json::object()}});
+  auto result = response.find("result");
+  if (result == response.end() || !result->is_array()) return liora::Json::array();
+  return *result;
+}
+
+- (void)checkDueWatches {
+  if (!_core) return;
+  const int64_t now = liora::nowMs();
+  for (const auto& watch : [self watchList]) {
+    std::string id = watch.value("id", "");
+    if (id.empty()) continue;
+    const int interval = watch.value("intervalMinutes", 60);
+    const int64_t last = watch.value("lastCheckedAt", int64_t{0});
+    if (last > 0 && now - last < static_cast<int64_t>(interval) * 60 * 1000) continue;
+    [self fetchWatch:@{
+      @"id" : ns(id),
+      @"url" : ns(watch.value("url", "")),
+      @"title" : ns(watch.value("title", "")),
+      @"keyword" : ns(watch.value("keyword", "")),
+      @"lastHash" : ns(watch.value("lastHash", "")),
+    }];
+  }
+}
+
+- (void)fetchWatch:(NSDictionary*)watch {
+  NSString* watchId = watch[@"id"];
+  NSString* url = watch[@"url"];
+  if (!watchId.length || !url.length || [self.checkingWatches containsObject:watchId]) return;
+  NSURL* parsed = [NSURL URLWithString:url];
+  if (!parsed) return;
+  [self.checkingWatches addObject:watchId];
+
+  NSMutableURLRequest* request =
+      [NSMutableURLRequest requestWithURL:parsed
+                              cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                          timeoutInterval:25];
+  [request setValue:@"Liora-Watch/0.1" forHTTPHeaderField:@"User-Agent"];
+  __weak LioraController* weakSelf = self;
+  NSURLSessionDataTask* task = [[NSURLSession sharedSession]
+      dataTaskWithRequest:request
+        completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+          LioraController* strongSelf = weakSelf;
+          if (!strongSelf) return;
+          NSString* failure = nil;
+          NSString* text = nil;
+          if (error) {
+            failure = error.localizedDescription;
+          } else if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSInteger status = ((NSHTTPURLResponse*)response).statusCode;
+            if (status < 200 || status >= 400) {
+              failure = [NSString stringWithFormat:@"HTTP %ld", (long)status];
+            }
+          }
+          if (!failure) {
+            if (data.length > 4 * 1024 * 1024) {
+              failure = @"the page is larger than 4 MB";
+            } else {
+              NSString* html = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+              if (!html) html = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+              text = [strongSelf plainTextFromHTML:html ?: @""];
+              if (text.length < 40) failure = @"the page has no readable text";
+            }
+          }
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf finishWatch:watch text:text failure:failure];
+          });
+        }];
+  [task resume];
+}
+
+- (NSString*)plainTextFromHTML:(NSString*)html {
+  if (!html.length) return @"";
+  NSMutableString* text = [html mutableCopy];
+  NSArray<NSString*>* patterns = @[
+    @"(?is)<(script|style|noscript|svg|canvas|template)[^>]*>.*?</\\1>",
+    @"(?is)<!--.*?-->",
+    @"(?is)<[^>]+>",
+  ];
+  for (NSString* pattern in patterns) {
+    NSRegularExpression* regex =
+        [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+    if (!regex) continue;
+    [regex replaceMatchesInString:text
+                          options:0
+                            range:NSMakeRange(0, text.length)
+                     withTemplate:@" "];
+  }
+  NSDictionary<NSString*, NSString*>* entities = @{
+    @"&nbsp;" : @" ",
+    @"&amp;" : @"&",
+    @"&lt;" : @"<",
+    @"&gt;" : @">",
+    @"&quot;" : @"\"",
+    @"&#39;" : @"'",
+    @"&apos;" : @"'",
+  };
+  for (NSString* key in entities) {
+    [text replaceOccurrencesOfString:key
+                          withString:entities[key]
+                             options:NSCaseInsensitiveSearch
+                               range:NSMakeRange(0, text.length)];
+  }
+  NSRegularExpression* whitespace =
+      [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil];
+  [whitespace replaceMatchesInString:text
+                             options:0
+                               range:NSMakeRange(0, text.length)
+                        withTemplate:@" "];
+  return [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+- (NSString*)sha256:(NSString*)text {
+  NSData* data = [text dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+  CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+  NSMutableString* result = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+  for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i) {
+    [result appendFormat:@"%02x", digest[i]];
+  }
+  return result;
+}
+
+- (void)finishWatch:(NSDictionary*)watch text:(NSString*)text failure:(NSString*)failure {
+  if (!_core) return;
+  NSString* watchId = watch[@"id"];
+  if (!watchId.length) return;
+  [self.checkingWatches removeObject:watchId];
+
+  NSString* hash = @"";
+  NSString* summary = @"";
+  if (!failure) {
+    NSString* keyword = watch[@"keyword"];
+    NSString* subject = text ?: @"";
+    if (keyword.length) {
+      NSRange range = [subject rangeOfString:keyword options:NSCaseInsensitiveSearch];
+      if (range.location == NSNotFound) {
+        subject = @"__LIORA_KEYWORD_MISSING__";
+        summary = [NSString stringWithFormat:@"“%@” is no longer present", keyword];
+      } else {
+        NSUInteger start = range.location > 220 ? range.location - 220 : 0;
+        if (start < subject.length) {
+          start = [subject rangeOfComposedCharacterSequenceAtIndex:start].location;
+        }
+        NSUInteger end = MIN(subject.length, range.location + range.length + 280);
+        if (end > 0 && end < subject.length) {
+          end = NSMaxRange([subject rangeOfComposedCharacterSequenceAtIndex:end]);
+        }
+        if (end > start) subject = [subject substringWithRange:NSMakeRange(start, end - start)];
+        summary = subject;
+      }
+    } else {
+      NSUInteger end = MIN(text.length, 240);
+      if (end > 0 && end < text.length) {
+        end = NSMaxRange([text rangeOfComposedCharacterSequenceAtIndex:end]);
+      }
+      summary = text.length > 0 ? [text substringToIndex:end] : @"";
+    }
+    hash = [self sha256:subject];
+  }
+
+  const bool changed = !failure && hash.length > 0 && [watch[@"lastHash"] length] > 0 &&
+                       ![hash isEqualToString:watch[@"lastHash"]];
+  liora::Json response = _core->handleJson(liora::Json{
+      {"jsonrpc", "2.0"},
+      {"id", 1},
+      {"method", "watch.touch"},
+      {"params",
+       {{"id", stdString(watchId)},
+        {"checkedAt", liora::nowMs()},
+        {"hash", stdString(hash)},
+        {"changed", changed},
+        {"error", safeStdString(failure ?: @"")},
+        {"summary", safeStdString(summary ?: @"")}}}});
+  auto result = response.find("result");
+  liora::Json record = (result != response.end()) ? *result : liora::Json::object();
+  if (changed) {
+    [self notifyInterface:@"browser.watchChanged"
+                   params:@{@"id" : watchId,
+                            @"title" : ns(safeStdString(watch[@"title"] ?: watch[@"url"] ?: @"")),
+                            @"url" : ns(safeStdString(watch[@"url"] ?: @"")),
+                            @"summary" : ns(safeStdString(summary ?: @""))}];
+  }
+  [self notifyInterface:@"browser.watchChecked"
+                 params:@{@"id" : watchId,
+                          @"changed" : @(changed),
+                          @"error" : failure ?: @"",
+                          @"record" : ns(record.dump())}];
+}
+
 - (void)applicationWillTerminate:(NSNotification*)notification {
+  [self.watchTimer invalidate];
   [self.netService stop];
   if (_core) _core->stop();
 }
@@ -1506,6 +1726,36 @@ NSString* jsonEscape(id object) {
       bool forward = [params[@"forward"] boolValue];
       bool matchCase = [params[@"matchCase"] boolValue];
       view->find(stdString(text), forward, matchCase);
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.checkWatch"]) {
+    NSString* watchId = params[@"id"];
+    if (!watchId.length) return;
+    for (const auto& watch : [self watchList]) {
+      if (ns(watch.value("id", "")) != watchId) continue;
+      [self fetchWatch:@{
+        @"id" : watchId,
+        @"url" : ns(watch.value("url", "")),
+        @"title" : ns(watch.value("title", "")),
+        @"keyword" : ns(watch.value("keyword", "")),
+        @"lastHash" : ns(watch.value("lastHash", "")),
+      }];
+      break;
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.checkAllWatches"]) {
+    for (const auto& watch : [self watchList]) {
+      [self fetchWatch:@{
+        @"id" : ns(watch.value("id", "")),
+        @"url" : ns(watch.value("url", "")),
+        @"title" : ns(watch.value("title", "")),
+        @"keyword" : ns(watch.value("keyword", "")),
+        @"lastHash" : ns(watch.value("lastHash", "")),
+      }];
     }
     return;
   }
