@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import { call, notify } from '../bridge';
   import { app } from '../state.svelte';
   import { t } from '../i18n.svelte';
@@ -33,9 +34,7 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('about.title')}</h1>
-  </header>
+  <PageHeader icon="info" title={t('about.title')} subtitle={t('about.subtitle')} />
 
   <div class="card hero-card">
     <span class="hero-card__mark">L</span>
@@ -46,7 +45,7 @@
       </div>
       <div class="hero-card__tagline">{t('about.lede')}</div>
     </div>
-    <span class="badge">{t('about.license')} · Apache-2.0</span>
+    <span class="badge mono">Apache-2.0</span>
   </div>
 
   <div class="card">
@@ -103,6 +102,25 @@
       </div>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card__header">
+      <div>
+        <div class="card__title">{t('shortcut.title')}</div>
+        <div class="card__subtitle">{t('shortcut.subtitle')}</div>
+      </div>
+    </div>
+    <div class="card__body">
+      <div class="shortcuts">
+        <div class="shortcut"><kbd>⌘ L</kbd><span>{t('shortcut.address')}</span></div>
+        <div class="shortcut"><kbd>⌘ T</kbd><span>{t('shortcut.newTab')}</span></div>
+        <div class="shortcut"><kbd>⌘ W</kbd><span>{t('shortcut.closeTab')}</span></div>
+        <div class="shortcut"><kbd>⌘ F</kbd><span>{t('shortcut.find')}</span></div>
+        <div class="shortcut"><kbd>⌘ D</kbd><span>{t('shortcut.bookmark')}</span></div>
+        <div class="shortcut"><kbd>⌘ 1–9</kbd><span>{t('shortcut.switchTab')}</span></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 
@@ -154,4 +172,41 @@
       flex-wrap: wrap;
     }
   }
+
+  .shortcuts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .shortcut {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .shortcut kbd {
+    flex: none;
+    min-width: 54px;
+    padding: 2px 6px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-align: center;
+    color: var(--text);
+  }
+
+  @media (max-width: 640px) {
+    .shortcuts {
+      grid-template-columns: 1fr;
+    }
+  }
+
 </style>

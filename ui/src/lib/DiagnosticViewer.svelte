@@ -745,8 +745,8 @@
   {:else if !report}
     <div class="diag__empty">
       <div class="diag__empty-icon"><Icon name="info" size={22} stroke={1.4} /></div>
-      <div class="diag__empty-title">{t('diag.title')}</div>
-      <p class="diag__empty-text">{t('diag.emptyHint')}</p>
+      <div class="diag__empty-title">{t('diag.noReportTitle')}</div>
+      <p class="diag__empty-text">{t('diag.noReportBody')}</p>
 
       <div class="cluster" style="justify-content: center">
         <button class="button button--primary" onclick={pickFile}>

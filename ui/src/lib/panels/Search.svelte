@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { value, set } from '../settings-store.svelte';
   import { t } from '../i18n.svelte';
@@ -15,10 +16,7 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('search.title')}</h1>
-    <p class="settings__lede">{t('search.lede')}</p>
-  </header>
+  <PageHeader icon="search" title={t('search.title')} subtitle={t('search.lede')} />
 
   <div class="card">
     <div class="card__body">
@@ -50,20 +48,6 @@
             checked={value<boolean>('search.suggest')}
             label={t('search.suggest')}
             onchange={(next) => set('search.suggest', next)}
-          />
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row__main">
-          <div class="row__title">{t('search.startup')}</div>
-          <div class="row__desc">{t('search.startup.desc')}</div>
-        </div>
-        <div class="row__control">
-          <Toggle
-            checked={value<boolean>('startup.restore')}
-            label={t('search.startup')}
-            onchange={(next) => set('startup.restore', next)}
           />
         </div>
       </div>

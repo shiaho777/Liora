@@ -6,14 +6,12 @@
   import ErrorPanel from './lib/ErrorPanel.svelte';
   import SiteCard from './lib/SiteCard.svelte';
   import DiagnosticsPage from './lib/DiagnosticsPage.svelte';
-  import DownloadsPanel from './lib/DownloadsPanel.svelte';
-  import DownloadPage from './lib/DownloadPage.svelte';
+  import DownloadsPage from './lib/DownloadsPage.svelte';
   import {
     activeDownloadCount,
     downloads,
     handleDownloadEvent,
     seedDownloadHistory,
-    type DownloadItem,
     type DownloadRecord,
   } from './lib/downloads.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
@@ -26,9 +24,8 @@
     id: number;
     title: string;
     url: string;
-    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'web';
+    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'downloads' | 'web';
     error?: { url: string; code: number; message: string };
-    download?: DownloadItem;
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
     canBack?: boolean;
     canForward?: boolean;
@@ -312,7 +309,7 @@
       const url = (params.url ?? '').trim();
       if (!url || url === 'about:blank') return;
       const tab = tabs.find((entry) => entry.id === Number(params.tab));
-      if (tab && tab.page === 'web' && !tab.download && !tab.error) {
+      if (tab && tab.page === 'web' && !tab.error) {
         tab.url = url;
         tabs = [...tabs];
         void applyStoredZoom(url, tab.id);
@@ -326,7 +323,7 @@
       const tab =
         tabs.find((entry) => entry.id === Number(params.tab)) ??
         tabs.find((entry) => entry.id === activeId);
-      if (tab && tab.page === 'web' && !tab.download && !tab.error) {
+      if (tab && tab.page === 'web' && !tab.error) {
         tab.title = title;
         tabs = [...tabs];
       }
@@ -373,13 +370,6 @@
           actions.push({ label: t('downloads.reveal'), path: directory, kind: 'folder' as const });
         }
         toast(t('downloads.saved', { name }), 'info', actions);
-      }
-      const tab = tabs.find((entry) => entry.id === Number(params.tab));
-      const item = downloads.items.find((entry) => entry.id === params.id);
-      if (tab && item) {
-        tab.download = { ...item };
-        tab.title = item.filename;
-        tabs = [...tabs];
       }
       return;
     }
@@ -432,7 +422,7 @@
 
   $effect(() => {
     if (addressFocused) return;
-    if (active) addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
+    if (active) addressValue = addressLabel(active);
   });
 
   // Used by the shell for automated checks and deep links.
@@ -455,7 +445,7 @@
         y: Math.round(rect.y),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
-        visible: active?.page === 'web' && !active?.error && !active?.download,
+        visible: active?.page === 'web' && !active?.error,
         tab: active?.id,
       });
     });
@@ -465,7 +455,7 @@
 
   // Switching tabs activates that tab's kernel view.
   $effect(() => {
-    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error && !active?.download });
+    notify('ui.showTab', { tab: activeId, visible: active?.page === 'web' && !active?.error });
     siteCardOpen = false;
     if (findOpen && findTabId !== activeId) closeFind();
   });
@@ -531,7 +521,7 @@
         case 'zoomIn': void changeZoom(10); break;
         case 'zoomOut': void changeZoom(-10); break;
         case 'zoomReset': void changeZoom(0); break;
-        case 'downloads': downloads.open = !downloads.open; break;
+        case 'downloads': openDownloads(); break;
         case 'sitecard': siteCardOpen = !siteCardOpen; break;
         case 'copyreport':
           (window as unknown as { __lioraCopyReport?: () => void }).__lioraCopyReport?.();
@@ -741,6 +731,14 @@
           }, 1500);
           break;
         }
+        case 'advanced': {
+          document.querySelector<HTMLElement>('.settings__footer .toggle')?.click();
+          break;
+        }
+        case 'settingsdone': {
+          document.querySelector<HTMLElement>('.settings__done')?.click();
+          break;
+        }
         case 'scrollsettings': {
           const main = document.querySelector<HTMLElement>('.settings__main');
           if (main) main.scrollTop = main.scrollHeight;
@@ -767,6 +765,22 @@
             ),
             '-- pane title --',
             document.querySelector('.settings__title')?.textContent?.trim() ?? 'none',
+            '-- section --',
+            (() => {
+              const el = document.querySelector('.settings__main .section');
+              if (!el) return 'none';
+              const style = getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              return JSON.stringify({
+                opacity: style.opacity,
+                transform: style.transform,
+                animation: style.animationName,
+                display: style.display,
+                top: rect.top,
+                height: rect.height,
+                scrollTop: document.querySelector('.settings__main')?.scrollTop,
+              });
+            })(),
             '-- badge --',
             badge
               ? JSON.stringify({ text: badge.textContent?.trim(), title: badge.title })
@@ -787,7 +801,7 @@
     const snapshot = tabs.map((tab) => ({
       url: tab.url,
       title: tab.title,
-      page: tab.download ? 'download' : tab.page,
+      page: tab.page,
     }));
     const selected = activeId;
     if (!sessionReady) return;
@@ -843,7 +857,21 @@
     if (page === 'bookmarks') return t('nav.bookmarks');
     if (page === 'history') return t('nav.history');
     if (page === 'diagnostics') return t('nav.diagnostics');
+    if (page === 'downloads') return t('nav.downloads');
     return t('tab.new');
+  }
+
+  function internalIcon(page: string): string {
+    if (page === 'settings') return 'settings';
+    if (page === 'bookmarks') return 'star';
+    if (page === 'history') return 'history';
+    if (page === 'diagnostics') return 'info';
+    if (page === 'downloads') return 'download';
+    return 'home';
+  }
+
+  function addressLabel(tab: Tab): string {
+    return tab.page === 'web' ? tab.url : internalTitle(tab.page);
   }
 
   function navigate(raw: string): void {
@@ -863,7 +891,6 @@
       page: 'web',
       title: url.replace(/^https?:\/\//, '').split('/')[0],
       error: undefined,
-      download: undefined,
     });
     notify('ui.navigate', { url, tab: activeId });
     void applyStoredZoom(url, activeId);
@@ -925,8 +952,29 @@
 
   function submitAddress(event: Event): void {
     event.preventDefault();
+    const form = event.target as HTMLFormElement;
+    // Clicking into the friendly label of an internal page and pressing Enter
+    // should keep the page, not search for its name.
+    if (active.page !== 'web' && addressValue.trim() === internalTitle(active.page)) {
+      form.querySelector('input')?.blur();
+      return;
+    }
     navigate(addressValue);
-    (event.target as HTMLFormElement).querySelector('input')?.blur();
+    form.querySelector('input')?.blur();
+  }
+
+  function openDownloads(): void {
+    const existing = tabs.find((tab) => tab.page === 'downloads');
+    if (existing) {
+      activeId = existing.id;
+      return;
+    }
+    newTab('liora://downloads');
+  }
+
+  function closeSettings(): void {
+    if (tabs.length > 1) closeTab(activeId);
+    else navigate('liora://newtab');
   }
 
   function openSettings(section?: string): void {
@@ -937,11 +985,12 @@
 
   function onAddressFocus(): void {
     addressFocused = true;
+    requestAnimationFrame(() => addressEl?.select());
   }
 
   function onAddressBlur(): void {
     addressFocused = false;
-    addressValue = active.page === 'web' ? active.url : `liora://${active.page}`;
+    addressValue = addressLabel(active);
   }
 
   // Zoom is remembered per site, matching the settings model.
@@ -1081,12 +1130,12 @@
           title={tab.title}
         >
           <span class="tab__favicon">
-            {#if tab.page === 'settings'}
-              <Icon name="settings" size={10} />
+            {#if tab.page === 'web'}
+              <Icon name="globe" size={10} />
             {:else if tab.page === 'newtab'}
               L
             {:else}
-              <Icon name="globe" size={10} />
+              <Icon name={internalIcon(tab.page)} size={10} />
             {/if}
           </span>
           <span class="tab__title">{tab.title}</span>
@@ -1148,15 +1197,21 @@
 
       <form class="address" onsubmit={submitAddress}>
         <span class="address__scheme">
-          <button
-            type="button"
-            class="address__scheme-button"
-            title={t('site.title')}
-            aria-label={t('site.title')}
-            onclick={() => (siteCardOpen = !siteCardOpen)}
-          >
-            <Icon name={active.page === 'web' ? 'globe' : 'shield'} size={12} />
-          </button>
+          {#if active.page === 'web'}
+            <button
+              type="button"
+              class="address__scheme-button"
+              title={t('site.title')}
+              aria-label={t('site.title')}
+              onclick={() => (siteCardOpen = !siteCardOpen)}
+            >
+              <Icon name="globe" size={12} />
+            </button>
+          {:else}
+            <span class="address__scheme-icon">
+              <Icon name={internalIcon(active.page)} size={12} />
+            </span>
+          {/if}
         </span>
         <input
           class="address__input"
@@ -1216,9 +1271,10 @@
         {/if}
         <button
           class="icon-button"
-          class:icon-button--active={downloads.open}
+          class:icon-button--active={active.page === 'downloads'}
           title={t('downloads.title')}
-          onclick={() => (downloads.open = !downloads.open)}
+          aria-label={t('downloads.title')}
+          onclick={openDownloads}
         >
           <Icon name="download" />
           {#if activeDownloadCount() > 0}
@@ -1230,9 +1286,6 @@
         </button>
       </div>
 
-      {#if downloads.open}
-        <DownloadsPanel />
-      {/if}
     </div>
 
     {#if siteCardOpen && active.page === 'web'}
@@ -1293,17 +1346,17 @@
           onpanel={(section) => openSettings(section)}
         />
       {:else if active.page === 'settings'}
-        <Settings />
+        <Settings onclose={closeSettings} />
       {:else if active.page === 'diagnostics'}
         <DiagnosticsPage />
+      {:else if active.page === 'downloads'}
+        <DownloadsPage />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library
           kind={active.page}
           onnavigate={(url) => navigate(url)}
           onopen={(page) => navigate(`liora://${page}`)}
         />
-      {:else if active.download}
-        <DownloadPage item={active.download} />
       {:else if active.page === 'web'}
         {#if active.error}
           <ErrorPanel

@@ -23,7 +23,6 @@ export interface DownloadRecord {
 
 export const downloads = $state({
   items: [] as DownloadItem[],
-  open: false,
 });
 
 export function handleDownloadEvent(params: Partial<DownloadItem> & { id: string; state: DownloadItem['state'] }): void {
@@ -40,9 +39,6 @@ export function handleDownloadEvent(params: Partial<DownloadItem> & { id: string
 
   if (index >= 0) downloads.items[index] = { ...downloads.items[index], ...merged };
   else downloads.items = [merged, ...downloads.items];
-
-  // Surfacing the list when a download finishes mirrors every other browser.
-  if (params.state === 'finished') downloads.open = true;
 }
 
 export function activeDownloadCount(): number {

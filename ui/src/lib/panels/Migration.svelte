@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
@@ -45,7 +46,10 @@
   }
 
   $effect(() => {
-    void detect();
+    // Scanning browser profiles can block the shell's main thread for a
+    // moment, so let the page paint its skeleton first.
+    const timer = setTimeout(() => void detect(), 50);
+    return () => clearTimeout(timer);
   });
 
   async function run(source: Source): Promise<void> {
@@ -111,32 +115,55 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('migration.title')}</h1>
-    <p class="settings__lede">{t('migration.lede')}</p>
-  </header>
+  <PageHeader icon="external" title={t('migration.title')} subtitle={t('migration.lede')} />
 
   <div class="card">
+    <div class="card__header">
+      <div class="card__main">
+        <div class="card__title">{t('migration.detected')}</div>
+        <div class="card__subtitle">{t('migration.detectedDesc')}</div>
+      </div>
+      <button class="icon-button" title={t('migration.detect')} onclick={detect}>
+        <Icon name="refresh" size={14} />
+      </button>
+    </div>
     <div class="card__body">
-      <div class="cluster" style:margin-bottom="12px">
-        <span class="muted" style:font-size="12px">{t('data.backup.sections')}</span>
-        <button class="chip" class:chip--active={includeBookmarks} onclick={() => (includeBookmarks = !includeBookmarks)}>
+      <div class="migration-options">
+        <span class="migration-options__label">{t('migration.include')}</span>
+        <button
+          class="chip"
+          class:chip--active={includeBookmarks}
+          onclick={() => (includeBookmarks = !includeBookmarks)}
+        >
           {t('data.bookmarks')}
         </button>
-        <button class="chip" class:chip--active={includeHistory} onclick={() => (includeHistory = !includeHistory)}>
+        <button
+          class="chip"
+          class:chip--active={includeHistory}
+          onclick={() => (includeHistory = !includeHistory)}
+        >
           {t('data.history')}
-        </button>
-        <button class="icon-button" title={t('migration.detect')} onclick={detect}>
-          <Icon name="refresh" size={14} />
         </button>
       </div>
 
       {#if loading}
-        <div class="empty">…</div>
+        <div class="migration-loading" aria-busy="true">
+          {#each Array(3) as _, index (index)}
+            <span class="skeleton-row"></span>
+          {/each}
+        </div>
       {:else if sources.length === 0}
-        <div class="empty">{t('migration.empty')}</div>
+        <div class="empty-state empty-state--compact">
+          <span class="empty-state__icon"><Icon name="external" size={18} /></span>
+          <div class="empty-state__title">{t('migration.empty')}</div>
+          <p class="empty-state__body">{t('migration.emptyHint')}</p>
+          <button class="button button--sm" onclick={pickFile}>
+            <Icon name="folder" size={13} />
+            {t('migration.chooseFile')}
+          </button>
+        </div>
       {:else}
-        <div class="stack">
+        <div class="source-list">
           {#each sources as source (source.id)}
             <div class="source">
               <div class="source__avatar">{initial(source)}</div>
@@ -148,11 +175,14 @@
                   {/if}
                 </div>
                 <div class="row__desc">{subtitle(source)}</div>
-                <div class="row__desc mono">{source.path}</div>
+                <div class="row__desc mono source__path" title={source.path}>{source.path}</div>
               </div>
               <div class="row__control">
                 {#if source.needsAccess}
-                  <button class="button button--sm" onclick={() => notify('ui.openSystemSettings', { pane: 'privacy' })}>
+                  <button
+                    class="button button--sm"
+                    onclick={() => notify('ui.openSystemSettings', { pane: 'privacy' })}
+                  >
                     {t('migration.openSettings')}
                   </button>
                 {:else}
@@ -205,3 +235,63 @@
     </div>
   </div>
 </div>
+
+<style>
+
+  .card__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .migration-options {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .migration-options__label {
+    margin-right: 3px;
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--text-muted);
+  }
+
+  .source-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .source__path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+  }
+
+  .migration-loading {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .skeleton-row {
+    height: 54px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+</style>

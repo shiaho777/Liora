@@ -1,9 +1,11 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import Segmented from '../Segmented.svelte';
+  import Toggle from '../Toggle.svelte';
   import Rules from './Rules.svelte';
   import { call, notify, onNotification } from '../bridge';
-  import { app, toast } from '../state.svelte';
+  import { app, toast, updateSetting } from '../state.svelte';
   import { value, set } from '../settings-store.svelte';
   import { localized, t } from '../i18n.svelte';
   import { configFingerprint, hasUnappliedChanges } from '../kernel-switch-check';
@@ -341,6 +343,59 @@
   const modeLabel = $derived(
     modes.find((item) => item.value === mode)?.label ?? t('dns.mode.auto'),
   );
+  const advanced = $derived(app.mode === 'advanced');
+  const quickProviderIds = ['cloudflare', 'quad9', 'google'];
+  const quickProviders = $derived(
+    quickProviderIds.flatMap((id) => {
+      const variant = allVariants.find((item) => item.id === id);
+      return variant ? [variant] : [];
+    }),
+  );
+  const simpleChoice = $derived(
+    mode === 'off'
+      ? 'off'
+      : mode === 'auto'
+        ? 'auto'
+        : quickProviderIds.includes(providerId)
+          ? providerId
+          : 'current',
+  );
+  const simpleProviderName = $derived.by(() => {
+    if (mode === 'custom') {
+      return custom.find((entry) => entry.id === customId)?.name || t('dns.mode.custom');
+    }
+    if (mode === 'provider') {
+      return selectedVariant?.provider || selectedVariant?.id || t('dns.mode.provider');
+    }
+    return t('dns.mode.auto');
+  });
+
+  // Turning encryption off and on again should not forget a custom provider.
+  let previousMode = $state('auto');
+  $effect(() => {
+    if (mode !== 'off') previousMode = mode;
+  });
+
+  async function toggleEncryption(next: boolean): Promise<void> {
+    await set('dns.mode', next ? previousMode : 'off');
+    await refreshPlan();
+  }
+
+  async function applySimpleChoice(event: Event): Promise<void> {
+    const choice = (event.target as HTMLSelectElement).value;
+    if (choice === 'current' || choice === 'off') return;
+    if (choice === 'auto') {
+      await set('dns.mode', 'auto');
+      await refreshPlan();
+      return;
+    }
+    const variant = allVariants.find((item) => item.id === choice);
+    if (variant) await chooseVariant(variant);
+  }
+
+  async function openAdvanced(): Promise<void> {
+    await updateSetting('ui.mode', 'advanced');
+  }
 
   const resolverValue = $derived.by(() => {
     if (mode === 'off' || !needsResolver) return t('dns.notNeeded');
@@ -427,11 +482,13 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('dns.title')}</h1>
-    <p class="settings__lede">{t('dns.lede')}</p>
-  </header>
+  <PageHeader
+    icon="shield"
+    title={t('dns.title')}
+    subtitle={advanced ? t('dns.ledeAdvanced') : t('dns.lede')}
+  />
 
+  {#if advanced}
   <section class="card status">
     <div class="status__hero">
       <span
@@ -741,8 +798,109 @@
     </section>
   {/if}
 
-  {#if app.mode === 'advanced' || mode === 'provider'}
-    <Rules />
+  <Rules />
+  {:else}
+    <section class="card privacy">
+      <div class="privacy__row">
+        <span
+          class="privacy__icon"
+          class:privacy__icon--success={status.kind === 'success'}
+          class:privacy__icon--warning={status.kind === 'warning'}
+        >
+          <Icon name={status.kind === 'warning' ? 'warning' : 'shield'} size={20} />
+        </span>
+        <div class="privacy__main">
+          <div class="privacy__eyebrow">{t('dns.current')}</div>
+          <div class="privacy__title">{status.title}</div>
+          <div class="privacy__desc">{status.detail}</div>
+          <div class="privacy__meta">
+            <span class="badge">{modeLabel}</span>
+            {#if active?.endpoint}
+              <span class="badge">{active.endpoint.protocol.toUpperCase()} · {active.endpoint.name}</span>
+            {:else if mode === 'off'}
+              <span class="badge">{t('dns.systemResolver')}</span>
+            {/if}
+            {#if resolverMissing}
+              <span class="badge badge--warning">{t('dns.notRunning')}</span>
+            {/if}
+          </div>
+        </div>
+        <div class="privacy__switch">
+          <span class="privacy__switch-label">{t('dns.useEncrypted')}</span>
+          <Toggle
+            checked={mode !== 'off'}
+            label={t('dns.useEncrypted')}
+            onchange={toggleEncryption}
+          />
+        </div>
+      </div>
+
+      <div class="privacy__divider"></div>
+
+      <div class="privacy__choice">
+        <div class="privacy__choice-main">
+          <div class="row__title">{t('dns.providerChoice')}</div>
+          <div class="row__desc">{t('dns.providerChoiceDesc')}</div>
+        </div>
+        <select
+          class="select privacy__select"
+          value={simpleChoice}
+          disabled={mode === 'off'}
+          aria-label={t('dns.providerChoice')}
+          onchange={applySimpleChoice}
+        >
+          <option value="auto">{t('dns.autoChoice')}</option>
+          {#if simpleChoice === 'current'}
+            <option value="current">{simpleProviderName}</option>
+          {/if}
+          {#each quickProviders as provider (provider.id)}
+            <option value={provider.id}>{provider.provider ?? provider.id} · {localized(provider.label)}</option>
+          {/each}
+        </select>
+      </div>
+
+      {#if resolverMissing}
+        <div class="callout callout--warning privacy__notice">
+          <span class="callout__icon"><Icon name="warning" size={14} /></span>
+          <span>{t('dns.status.resolverDownHint')}</span>
+        </div>
+      {/if}
+
+      <div class="privacy__footer">
+        <span class="privacy__hint">{t('dns.advancedHint')}</span>
+        <button class="button button--ghost button--sm" onclick={openAdvanced}>
+          {t('dns.advanced')}
+          <Icon name="chevron" size={11} />
+        </button>
+      </div>
+    </section>
+
+    {#if hasPendingChanges}
+      <section class="card pending-card">
+        <div class="pending">
+          <span class="pending__icon"><Icon name="refresh" size={15} /></span>
+          <div class="pending__main">
+            <div class="pending__title">{t('dns.pendingTitle')}</div>
+            <div class="pending__desc">
+              {restartRequired ? t('dns.pendingKernelHint') : t('dns.pendingResolverHint')}
+            </div>
+          </div>
+          <button
+            class="button button--sm"
+            class:button--primary={restartRequired}
+            disabled={restarting}
+            onclick={restartKernel}
+          >
+            <Icon name="refresh" size={12} />
+            {restarting
+              ? t('restart.working')
+              : restartRequired
+                ? t('restart.action')
+                : t('restart.panelResolverAction')}
+          </button>
+        </div>
+      </section>
+    {/if}
   {/if}
 </div>
 
@@ -1195,4 +1353,134 @@
       flex-wrap: wrap;
     }
   }
+
+  .privacy__row {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    padding: 18px;
+  }
+
+  .privacy__icon {
+    width: 42px;
+    height: 42px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-sunken);
+  }
+
+  .privacy__icon--success {
+    color: var(--success);
+    background: var(--success-soft);
+  }
+
+  .privacy__icon--warning {
+    color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .privacy__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .privacy__eyebrow {
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .privacy__title {
+    margin-top: 2px;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .privacy__desc {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .privacy__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+  }
+
+  .privacy__divider {
+    height: 1px;
+    margin: 0 18px;
+    background: var(--border);
+  }
+
+  .privacy__choice {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 15px 18px;
+  }
+
+  .privacy__choice-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .privacy__select {
+    flex: none;
+    width: 230px;
+    max-width: 50%;
+  }
+
+  .privacy__notice {
+    margin: 0 18px 14px;
+  }
+
+  .privacy__footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .privacy__hint {
+    flex: 1;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .pending-card {
+    padding: 0;
+  }
+
+  .pending-card .pending {
+    margin: 0;
+  }
+
+
+
+  .privacy__switch {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+
+  .privacy__switch-label {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+
 </style>

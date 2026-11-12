@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
@@ -288,10 +289,7 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('kernels.title')}</h1>
-    <p class="settings__lede">{t('kernels.lede')}</p>
-  </header>
+  <PageHeader icon="puzzle" title={t('kernels.title')} subtitle={t('kernels.lede')} />
 
   <section class="card runtime">
     <div class="card__header">

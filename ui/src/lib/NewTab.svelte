@@ -79,6 +79,10 @@
     };
   });
 
+  function focusSearch(): void {
+    searchEl?.focus();
+  }
+
   function submit(event: Event): void {
     event.preventDefault();
     if (!query.trim()) return;
@@ -210,18 +214,35 @@
         </div>
       </section>
     {:else if !query.trim()}
+      <section class="welcome">
+        <span class="welcome__glow" aria-hidden="true"></span>
+        <span class="welcome__mark">L</span>
+        <div class="welcome__main">
+          <div class="welcome__eyebrow">{t('start.welcome.eyebrow')}</div>
+          <h2 class="welcome__title">{t('start.welcome.title')}</h2>
+          <p class="welcome__body">{t('start.welcome.body')}</p>
+          <div class="welcome__actions">
+            <button class="button button--primary" onclick={() => onpanel?.('migration')}>
+              <Icon name="external" size={14} />
+              {t('start.welcome.import')}
+            </button>
+            <button class="button button--ghost" onclick={focusSearch}>
+              {t('start.welcome.start')}
+            </button>
+          </div>
+          <div class="welcome__privacy">
+            <Icon name="shield" size={12} />
+            {t('start.welcome.privacy')}
+          </div>
+        </div>
+      </section>
+
       <section class="block block--starter">
         <div class="block__head">
-          <h2 class="block__title">{t('start.getStarted')}</h2>
-          <span class="block__hint">{t('start.getStartedHint')}</span>
+          <h2 class="block__title">{t('start.next')}</h2>
+          <span class="block__hint">{t('start.nextHint')}</span>
         </div>
         <div class="starters">
-          <button class="starter" onclick={() => onpanel?.('migration')}>
-            <span class="starter__icon"><Icon name="external" size={17} /></span>
-            <span class="starter__title">{t('start.starter.migrate')}</span>
-            <span class="starter__desc">{t('start.starter.migrateDesc')}</span>
-            <span class="starter__go"><Icon name="chevron" size={12} /></span>
-          </button>
           <button class="starter" onclick={() => onpanel?.('dns')}>
             <span class="starter__icon"><Icon name="shield" size={17} /></span>
             <span class="starter__title">{t('start.starter.dns')}</span>
@@ -793,6 +814,95 @@
     border-top: 1px solid var(--border);
     background: var(--bg-sunken);
     font-size: 10px;
+    color: var(--text-muted);
+  }
+
+
+
+  .welcome {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 22px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background:
+      linear-gradient(135deg, var(--accent-soft), transparent 46%),
+      var(--surface);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .welcome__glow {
+    position: absolute;
+    width: 260px;
+    height: 260px;
+    right: -90px;
+    top: -130px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    filter: blur(10px);
+    pointer-events: none;
+  }
+
+  .welcome__mark {
+    position: relative;
+    width: 42px;
+    height: 42px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    color: #fff;
+    font-size: 19px;
+    font-weight: 700;
+    box-shadow: 0 8px 22px var(--accent-soft);
+  }
+
+  .welcome__main {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .welcome__eyebrow {
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .welcome__title {
+    margin: 3px 0 0;
+    font-size: 19px;
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  .welcome__body {
+    margin: 5px 0 0;
+    max-width: 58ch;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+
+  .welcome__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 14px;
+  }
+
+  .welcome__privacy {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 12px;
+    font-size: 10.5px;
     color: var(--text-muted);
   }
 

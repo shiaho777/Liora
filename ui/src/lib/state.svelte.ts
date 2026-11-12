@@ -17,7 +17,14 @@ export interface Toast {
   actions?: ToastAction[];
 }
 
-export type PageKind = 'browser' | 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics';
+export type PageKind =
+  | 'browser'
+  | 'newtab'
+  | 'settings'
+  | 'bookmarks'
+  | 'history'
+  | 'diagnostics'
+  | 'downloads';
 
 export const app = $state({
   ready: false,
@@ -92,7 +99,8 @@ export async function boot(): Promise<void> {
   applyMode(String(values.get('ui.mode') ?? 'simple'));
   app.theme = String(values.get('ui.theme') ?? 'system') as typeof app.theme;
   app.density = String(values.get('ui.density') ?? 'comfortable') as typeof app.density;
-  app.tabsPosition = String(values.get('ui.tabs') ?? 'strip') as typeof app.tabsPosition;
+  // Tab placement is not user-configurable yet; always use the titlebar strip.
+  app.tabsPosition = 'strip';
   app.language = String(values.get('ui.language') ?? 'auto');
   setLocale(app.language);
   applyAppearance();
@@ -102,6 +110,8 @@ export async function boot(): Promise<void> {
 
 export async function updateSetting(key: string, value: unknown): Promise<void> {
   await rpcSetSetting(key, value);
+  const stored = settingsStore.items.find((item) => item.key === key);
+  if (stored) stored.value = value;
   switch (key) {
     case 'ui.mode':
       applyMode(String(value));
@@ -140,6 +150,7 @@ export function internalPageFor(url: string): PageKind | null {
   if (name === 'bookmarks') return 'bookmarks';
   if (name === 'history') return 'history';
   if (name === 'diagnostics') return 'diagnostics';
+  if (name === 'downloads') return 'downloads';
   if (name === 'newtab' || name === '') return 'newtab';
   return null;
 }

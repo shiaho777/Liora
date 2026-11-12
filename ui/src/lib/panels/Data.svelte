@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
@@ -131,15 +132,12 @@
 </script>
 
 <div class="section">
-  <header class="settings__header">
-    <h1 class="settings__title">{t('data.title')}</h1>
-    <p class="settings__lede">{t('data.lede')}</p>
-  </header>
+  <PageHeader icon="folder" title={t('data.title')} subtitle={t('data.lede')} />
 
   <div class="card">
     <div class="card__header">
       <div class="row__main">
-        <div class="card__title">{t('data.backup.now')}</div>
+        <div class="card__title">{t('data.backupCard')}</div>
         <div class="card__subtitle">{t('data.backup.sections')}</div>
       </div>
       <button class="button button--primary" onclick={backupNow}>{t('data.backup.now')}</button>
