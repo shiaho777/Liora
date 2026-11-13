@@ -310,10 +310,12 @@ void Core::registerDataMethods() {
         {"active", params::optionalInteger(params, "active").value_or(0)},
         {"tabs", params::optional(params, "tabs").value_or(Json::array())},
         {"groups", params::optional(params, "groups").value_or(Json::array())},
+        {"containers", params::optional(params, "containers").value_or(Json::array())},
         {"split", params::optional(params, "split").value_or(Json())},
     };
     if (!session["tabs"].is_array()) rpcFail(kRpcInvalidParams, "tabs must be a list");
     if (!session["groups"].is_array()) rpcFail(kRpcInvalidParams, "groups must be a list");
+    if (!session["containers"].is_array()) rpcFail(kRpcInvalidParams, "containers must be a list");
     if (!session["split"].is_null() && !session["split"].is_object()) {
       rpcFail(kRpcInvalidParams, "split must be an object or null");
     }

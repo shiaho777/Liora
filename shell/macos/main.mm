@@ -132,6 +132,7 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, copy) NSString* appliedConfig;
 @property(nonatomic, strong) NSTimer* watchTimer;
 @property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabContainers;
 
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
@@ -173,6 +174,7 @@ NSString* jsonEscape(id object) {
   [self startCore];
   [self buildInterface];
   self.checkingWatches = [NSMutableSet set];
+  self.tabContainers = [NSMutableDictionary dictionary];
   [self startWatchTimer];
 
   [self.window makeKeyAndOrderFront:nil];
@@ -942,6 +944,12 @@ NSString* jsonEscape(id object) {
   liora::ViewOptions options;
   options.tab = tab;
   options.parent = (__bridge void*)self.container;
+  NSString* container = self.tabContainers[@(tab)] ?: @"";
+  options.containerId = stdString(container);
+  if (container.length) {
+    options.containerPath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF" / "Containers" /
+                                              stdString(container));
+  }
   options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
   options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
   options.askPermission = [core = _core.get()](const std::string& origin, const std::string& kind) -> bool {
@@ -1701,6 +1709,7 @@ NSString* jsonEscape(id object) {
 
   if ([method isEqualToString:@"ui.closeTab"]) {
     int64_t tab = [params[@"tab"] longLongValue];
+    [self.tabContainers removeObjectForKey:@(tab)];
     auto entry = _views.find(tab);
     if (entry != _views.end()) {
       NSView* native = (__bridge NSView*)entry->second->nativeHandle();
@@ -1805,9 +1814,21 @@ NSString* jsonEscape(id object) {
     return;
   }
 
-  if ([method isEqualToString:@"ui.navigate"]) {    NSString* url = params[@"url"];
+  if ([method isEqualToString:@"ui.navigate"]) {
+    NSString* url = params[@"url"];
     if (!url.length) return;
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    NSString* oldContainer = self.tabContainers[@(tab)] ?: @"";
+    NSString* container = params[@"container"] ?: oldContainer;
+    if (![container isEqualToString:oldContainer]) {
+      auto existing = _views.find(tab);
+      if (existing != _views.end()) {
+        NSView* native = (__bridge NSView*)existing->second->nativeHandle();
+        if (native) [native removeFromSuperview];
+        _views.erase(existing);
+      }
+    }
+    self.tabContainers[@(tab)] = container;
     self.activeTab = tab;
     self.contentVisible = YES;
     liora::IKernelView* view = [self viewForTab:tab];

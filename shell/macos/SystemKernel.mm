@@ -403,9 +403,20 @@ class WebViewKernelView final : public IKernelView {
   WebViewKernelView(const ViewOptions& options, ViewEvents events)
       : events_(std::make_shared<ViewEvents>(std::move(events))) {
     WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
-    configuration.websiteDataStore = options.incognito
-                                         ? [WKWebsiteDataStore nonPersistentDataStore]
-                                         : [WKWebsiteDataStore defaultDataStore];
+    if (options.incognito) {
+      configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    } else if (!options.containerId.empty()) {
+      // macOS 14+ supports named persistent data stores. Older systems still
+      // get container isolation, but without persistence.
+      WKWebsiteDataStore* store = nil;
+      if (@available(macOS 14.0, *)) {
+        NSUUID* identifier = [[NSUUID alloc] initWithUUIDString:toNSString(options.containerId)];
+        if (identifier) store = [WKWebsiteDataStore dataStoreForIdentifier:identifier];
+      }
+      configuration.websiteDataStore = store ?: [WKWebsiteDataStore nonPersistentDataStore];
+    } else {
+      configuration.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+    }
     configuration.defaultWebpagePreferences.allowsContentJavaScript = YES;
 
     delegate_ = [[LioraWebViewDelegate alloc] initWithEvents:events_ options:options];

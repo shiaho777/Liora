@@ -4,7 +4,9 @@
 
 #include <atomic>
 #include <cmath>
+#include <filesystem>
 #include <functional>
+#include <map>
 #include <mutex>
 
 #import <Cocoa/Cocoa.h>
@@ -19,12 +21,33 @@
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_permission_handler.h"
+#include "include/cef_request_context.h"
 #include "include/cef_version.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/wrapper/cef_library_loader.h"
 
 namespace liora::cef {
 namespace {
+
+std::mutex g_contextMutex;
+std::map<std::string, CefRefPtr<CefRequestContext>> g_containerContexts;
+// Chromium cannot create extra profiles in single-process compatibility mode.
+bool g_containerContextsSupported = true;
+
+CefRefPtr<CefRequestContext> containerContext(const ViewOptions& options) {
+  if (!g_containerContextsSupported || options.containerPath.empty()) return nullptr;
+  std::lock_guard lock(g_contextMutex);
+  auto existing = g_containerContexts.find(options.containerPath);
+  if (existing != g_containerContexts.end()) return existing->second;
+  std::error_code ec;
+  std::filesystem::create_directories(options.containerPath, ec);
+  CefRequestContextSettings settings;
+  CefString(&settings.cache_path).FromString(options.containerPath);
+  settings.persist_session_cookies = true;
+  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, nullptr);
+  if (context) g_containerContexts[options.containerPath] = context;
+  return context;
+}
 
 // Maps Chromium net errors onto the NSURLErrorDomain codes the interface
 // already explains. 0 means the failure should be ignored (navigation replaced).
@@ -471,9 +494,9 @@ class CefView final : public IKernelView {
     NSView* parent = (__bridge NSView*)options.parent;
     info.SetAsChild((__bridge void*)parent, CefRect(0, 0, 800, 600));
     CefBrowserSettings settings;
-    // Isolated profiles use a separate CefRequestContext; wired up with the
-    // tab model rather than guessed here.
-    CefBrowserHost::CreateBrowser(info, client_, CefString(options.url.c_str()), settings, nullptr, nullptr);
+    context_ = containerContext(options);
+    CefBrowserHost::CreateBrowser(info, client_, CefString(options.url.c_str()), settings, nullptr,
+                                  context_);
   }
 
   ~CefView() override {
@@ -642,6 +665,7 @@ class CefView final : public IKernelView {
   std::string lastFindText_;
   bool lastMatchCase_ = false;
   std::function<void(const std::string&)> readerCallback_;
+  CefRefPtr<CefRequestContext> context_;
   bool hasBounds_ = false;
   int boundsX_ = 0;
   int boundsY_ = 0;
@@ -743,6 +767,13 @@ bool initialize(const Startup& startup, std::string* error) {
   if (g_initialized) return true;
 
   CefMainArgs args;
+  g_containerContextsSupported = true;
+  for (const auto& item : startup.switches) {
+    if (item == "--single-process") {
+      g_containerContextsSupported = false;
+      break;
+    }
+  }
   CefSettings settings;
   CefString(&settings.cache_path).FromString(startup.cachePath);
   if (!startup.userAgent.empty()) CefString(&settings.user_agent).FromString(startup.userAgent);

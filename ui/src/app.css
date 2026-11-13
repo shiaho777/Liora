@@ -343,6 +343,13 @@ a {
   object-fit: contain;
 }
 
+.tab__container {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
+}
+
 .tab__title {
   flex: 1;
   min-width: 0;
@@ -545,6 +552,13 @@ a {
 .tabrow--active .tabrow__favicon {
   background: var(--surface);
   color: var(--accent);
+}
+
+.tabrow__container {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
 }
 
 .tabrow__title {
@@ -856,6 +870,15 @@ a {
   color: var(--text);
 }
 
+.address__container {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
 .address__input {
   flex: 1;
   min-width: 0;
@@ -1015,6 +1038,13 @@ a {
   white-space: nowrap;
   font-size: 12px;
   font-weight: 550;
+}
+
+.split__container {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 2px;
 }
 
 .split__group {

@@ -109,6 +109,11 @@ struct ViewOptions {
   int64_t tab = 0;
   std::string url;
   bool incognito = false;
+  // Stable container id (a UUID) and its data directory. Empty means the
+  // default browsing context. Kernels that support isolated website data
+  // stores use these; others fall back to the default store.
+  std::string containerId;
+  std::string containerPath;
   // Empty means the platform default (the user's Downloads folder).
   std::string downloadDir;
   bool askWhereToSave = false;

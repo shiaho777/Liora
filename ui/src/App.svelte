@@ -6,6 +6,8 @@
   import ReaderView from './lib/ReaderView.svelte';
   import Watches from './lib/Watches.svelte';
   import WatchDialog from './lib/WatchDialog.svelte';
+  import Containers from './lib/Containers.svelte';
+  import ContainerPicker from './lib/ContainerPicker.svelte';
   import { parseReaderData, type ReaderData } from './lib/reader';
   import Library from './lib/Library.svelte';
   import ErrorPanel from './lib/ErrorPanel.svelte';
@@ -29,12 +31,22 @@
     id: number;
     title: string;
     url: string;
-    page: 'newtab' | 'settings' | 'bookmarks' | 'history' | 'diagnostics' | 'downloads' | 'watches' | 'web';
+    page:
+      | 'newtab'
+      | 'settings'
+      | 'bookmarks'
+      | 'history'
+      | 'diagnostics'
+      | 'downloads'
+      | 'watches'
+      | 'containers'
+      | 'web';
     error?: { url: string; code: number; message: string };
     security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
     canBack?: boolean;
     canForward?: boolean;
     groupId?: string;
+    containerId?: string;
   }
 
   interface TabGroup {
@@ -42,6 +54,12 @@
     name: string;
     color: string;
     collapsed: boolean;
+  }
+
+  interface Container {
+    id: string;
+    name: string;
+    color: string;
   }
 
   interface SplitState {
@@ -86,6 +104,8 @@
   let watchDialogOpen = $state(false);
   let watchDialogUrl = $state('');
   let watchDialogTitle = $state('');
+  let containers = $state<Container[]>([]);
+  let containerPickerOpen = $state(false);
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
   const showTabs = $derived(app.tabsPosition !== 'hidden');
@@ -98,6 +118,18 @@
     split ? (tabs.find((tab) => tab.id === split!.secondary) ?? null) : null,
   );
   const webTabCount = $derived(tabs.filter((tab) => tab.page === 'web').length);
+  const containerColors = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+  const activeContainer = $derived(
+    containers.find((container) => container.id === active?.containerId) ?? null,
+  );
+  const containerTabCounts = $derived.by(() => {
+    const counts: Record<string, number> = {};
+    for (const tab of tabs) {
+      if (!tab.containerId) continue;
+      counts[tab.containerId] = (counts[tab.containerId] ?? 0) + 1;
+    }
+    return counts;
+  });
 
   const searchTemplates: Record<string, string> = {
     duckduckgo: 'https://duckduckgo.com/?q=',
@@ -138,8 +170,9 @@
   async function restoreSession(): Promise<void> {
     try {
       const session = await call<{
-        tabs?: Array<{ url: string; title: string; page: string; group?: string }>;
+        tabs?: Array<{ url: string; title: string; page: string; group?: string; container?: string }>;
         groups?: Array<{ id: string; name: string; color: string; collapsed?: boolean }>;
+        containers?: Array<{ id: string; name: string; color: string }>;
         split?: { primary?: number; secondary?: number; ratio?: number } | null;
         active?: number;
       }>('session.load');
@@ -158,12 +191,31 @@
       // download the file again.
       const restorable = session.tabs.filter((item) => item.page !== 'download');
       if (restorable.length === 0) return;
+      if (Array.isArray(session.containers)) {
+        containers = session.containers
+          .filter(
+            (container) =>
+              container &&
+              typeof container.id === 'string' &&
+              typeof container.name === 'string' &&
+              typeof container.color === 'string',
+          )
+          .map((container) => ({
+            id: container.id,
+            name: container.name,
+            color: container.color,
+          }));
+      }
       const restored: Tab[] = restorable.map((item, index) => ({
         id: index + 1,
         title: item.title || item.url,
         url: item.url,
         page: pageForUrl(item.url),
         groupId: item.group && groups.some((group) => group.id === item.group) ? item.group : undefined,
+        containerId:
+          item.container && containers.some((container) => container.id === item.container)
+            ? item.container
+            : undefined,
       }));
       tabs = restored;
       tabSeq = restored.length + 1;
@@ -181,7 +233,11 @@
       // Load every page tab; the shell keeps background views hidden.
       for (const tab of restored) {
         if (tab.page === 'web') {
-          notify('ui.navigate', { url: tab.url, tab: tab.id });
+          notify('ui.navigate', {
+            url: tab.url,
+            tab: tab.id,
+            container: tab.containerId ?? '',
+          });
           void applyStoredZoom(tab.url, tab.id);
         }
       }
@@ -243,6 +299,10 @@
     { id: 'history', label: t('nav.history'), icon: 'history' },
     { id: 'dns', label: t('nav.dns'), icon: 'shield' },
     { id: 'watches', label: t('nav.watches'), icon: 'eye' },
+    { id: 'containers', label: t('containers.title'), icon: 'shield' },
+    ...(active.page === 'web'
+      ? [{ id: 'opencontainer', label: t('containers.open'), icon: 'shield' }]
+      : []),
     ...(active.page === 'web'
       ? [{ id: 'watch', label: t('watch.create'), icon: 'eye' }]
       : []),
@@ -595,6 +655,7 @@
     void splitRatio;
     void paletteOpen;
     void watchDialogOpen;
+    void containerPickerOpen;
     void readerActive;
     void tabs;
     void bookmarks.length;
@@ -741,6 +802,7 @@
         }
         case 'readerclose': closeReader(); break;
         case 'watchdialog': openWatchDialog(); break;
+        case 'containerdialog': openContainerPicker(); break;
         case 'watchsubmit':
           document.querySelector<HTMLElement>('.watch-dialog .button--primary')?.click();
           break;
@@ -1048,6 +1110,7 @@
       title: tab.title,
       page: tab.page,
       group: tab.groupId ?? '',
+      container: tab.containerId ?? '',
     }));
     const savedGroups = groups.map((group) => ({
       id: group.id,
@@ -1056,6 +1119,11 @@
       collapsed: group.collapsed,
     }));
     const selected = activeId;
+    const savedContainers = containers.map((container) => ({
+      id: container.id,
+      name: container.name,
+      color: container.color,
+    }));
     // Read split state here so changes to the layout alone also trigger a save.
     const savedSplit = split ? { ...split, ratio: splitRatio } : null;
     if (!sessionReady) return;
@@ -1064,6 +1132,7 @@
       void call('session.save', {
         tabs: snapshot,
         groups: savedGroups,
+        containers: savedContainers,
         split: savedSplit,
         active: selected,
       });
@@ -1076,17 +1145,22 @@
     if (index >= 0) tabs[index] = { ...tabs[index], ...patch };
   }
 
-  function newTab(url = 'liora://newtab'): void {
+  function newTab(
+    url = 'liora://newtab',
+    containerId: string | null = active?.containerId ?? null,
+  ): Tab {
     const tab: Tab = {
       id: tabSeq++,
       title: t('tab.new'),
       url,
       page: 'newtab',
       groupId: active?.groupId,
+      containerId: containerId ?? undefined,
     };
     tabs = [...tabs, tab];
     activeId = tab.id;
     if (url !== 'liora://newtab') navigate(url);
+    return tab;
   }
 
   function closeTab(id: number): void {
@@ -1099,7 +1173,13 @@
       if (activeId === id && other) activeId = other.id;
     }
     if (tabs.length === 1) {
-      updateTab(id, { title: t('tab.new'), url: 'liora://newtab', page: 'newtab', groupId: undefined });
+      updateTab(id, {
+        title: t('tab.new'),
+        url: 'liora://newtab',
+        page: 'newtab',
+        groupId: undefined,
+        containerId: undefined,
+      });
       notify('ui.setPage', { page: 'newtab' });
       return;
     }
@@ -1132,6 +1212,7 @@
     if (page === 'diagnostics') return t('nav.diagnostics');
     if (page === 'downloads') return t('nav.downloads');
     if (page === 'watches') return t('nav.watches');
+    if (page === 'containers') return t('containers.title');
     return t('tab.new');
   }
 
@@ -1142,6 +1223,7 @@
     if (page === 'diagnostics') return 'info';
     if (page === 'downloads') return 'download';
     if (page === 'watches') return 'eye';
+    if (page === 'containers') return 'shield';
     return 'home';
   }
 
@@ -1168,7 +1250,8 @@
       title: url.replace(/^https?:\/\//, '').split('/')[0],
       error: undefined,
     });
-    notify('ui.navigate', { url, tab: activeId });
+    const container = tabs.find((tab) => tab.id === activeId)?.containerId ?? '';
+    notify('ui.navigate', { url, tab: activeId, container });
     void applyStoredZoom(url, activeId);
   }
 
@@ -1405,7 +1488,7 @@
       visible: boolean;
     }> = [];
     const add = (tabId: number, element: HTMLElement | null): void => {
-      if (!element || paletteOpen || watchDialogOpen) return;
+      if (!element || paletteOpen || watchDialogOpen || containerPickerOpen) return;
       const tab = tabs.find((item) => item.id === tabId);
       if (!tab || tab.page !== 'web' || tab.error) return;
       if (readerActive && tabId === activeId) return;
@@ -1442,6 +1525,69 @@
     }
     toast(t('reader.extracting'));
     notify('ui.reader', { tab: activeId });
+  }
+
+  function containerColor(id?: string): string {
+    if (!id) return 'transparent';
+    return containers.find((container) => container.id === id)?.color ?? 'transparent';
+  }
+
+  function containerName(id?: string): string {
+    if (!id) return t('containers.default');
+    return containers.find((container) => container.id === id)?.name ?? t('containers.default');
+  }
+
+  function createContainerId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  function createContainer(name: string, color?: string): Container {
+    const container: Container = {
+      id: createContainerId(),
+      name: name.trim() || t('containers.untitled'),
+      color: color || containerColors[containers.length % containerColors.length],
+    };
+    containers = [...containers, container];
+    return container;
+  }
+
+  function renameContainer(id: string, name: string): void {
+    const container = containers.find((item) => item.id === id);
+    if (container) container.name = name.trim() || container.name;
+  }
+
+  function recolorContainer(id: string, color: string): void {
+    const container = containers.find((item) => item.id === id);
+    if (container) container.color = color;
+  }
+
+  function deleteContainer(id: string): void {
+    const tabsInContainer = tabs
+      .filter((tab) => tab.containerId === id)
+      .map((tab) => tab.id);
+    for (const tabId of tabsInContainer) closeTab(tabId);
+    containers = containers.filter((container) => container.id !== id);
+  }
+
+  function openContainerPicker(): void {
+    if (active.page !== 'web' || active.error) {
+      toast(t('containers.onlyWeb'), 'error');
+      return;
+    }
+    containerPickerOpen = true;
+  }
+
+  function openInContainer(containerId?: string): void {
+    containerPickerOpen = false;
+    const url = active.url;
+    newTab(url, containerId ?? null);
   }
 
   function openWatchDialog(): void {
@@ -1530,6 +1676,8 @@
     else if (id === 'split') toggleSplit();
     else if (id === 'watches') navigate('liora://watches');
     else if (id === 'watch') openWatchDialog();
+    else if (id === 'containers') navigate('liora://containers');
+    else if (id === 'opencontainer') openContainerPicker();
   }
 
   function openPaletteTab(id: number): void {
@@ -1628,7 +1776,7 @@
       reopenClosedTab();
       return;
     }
-    if (paletteOpen || watchDialogOpen) return;
+    if (paletteOpen || watchDialogOpen || containerPickerOpen) return;
 
     if (key === 'f') {
       event.preventDefault();
@@ -1741,6 +1889,13 @@
               <Icon name={internalIcon(tab.page)} size={10} />
             {/if}
           </span>
+          {#if tab.containerId}
+            <span
+              class="tab__container"
+              style:background={containerColor(tab.containerId)}
+              title={containerName(tab.containerId)}
+            ></span>
+          {/if}
           <span class="tab__title">{tab.title}</span>
           <button
             class="tab__close"
@@ -1798,6 +1953,13 @@
         <Icon name={internalIcon(tab.page)} size={11} />
       {/if}
     </span>
+    {#if tab.containerId}
+      <span
+        class="tabrow__container"
+        style:background={containerColor(tab.containerId)}
+        title={containerName(tab.containerId)}
+      ></span>
+    {/if}
     <span class="tabrow__title">{tab.title}</span>
     {#if showGroup && tab.groupId}
       <span
@@ -2069,6 +2231,16 @@
             </span>
           {/if}
         </span>
+        {#if activeContainer}
+          <button
+            type="button"
+            class="address__container"
+            style:background={activeContainer.color}
+            title={`${t('containers.title')} · ${activeContainer.name}`}
+            aria-label={`${t('containers.title')} · ${activeContainer.name}`}
+            onclick={openContainerPicker}
+          ></button>
+        {/if}
         <input
           class="address__input"
           bind:this={addressEl}
@@ -2239,6 +2411,13 @@
               >
                 <span class="split__favicon"><Icon name="globe" size={10} /></span>
                 <span class="split__title">{splitPrimary.title || splitPrimary.url}</span>
+                {#if splitPrimary.containerId}
+                  <span
+                    class="split__container"
+                    style:background={containerColor(splitPrimary.containerId)}
+                    title={containerName(splitPrimary.containerId)}
+                  ></span>
+                {/if}
                 {#if splitPrimary.groupId}
                   <span
                     class="split__group"
@@ -2286,6 +2465,13 @@
               >
                 <span class="split__favicon"><Icon name="globe" size={10} /></span>
                 <span class="split__title">{splitSecondary.title || splitSecondary.url}</span>
+                {#if splitSecondary.containerId}
+                  <span
+                    class="split__container"
+                    style:background={containerColor(splitSecondary.containerId)}
+                    title={containerName(splitSecondary.containerId)}
+                  ></span>
+                {/if}
                 {#if splitSecondary.groupId}
                   <span
                     class="split__group"
@@ -2324,6 +2510,17 @@
         <DownloadsPage />
       {:else if active.page === 'watches'}
         <Watches onnavigate={(url) => navigate(url)} />
+      {:else if active.page === 'containers'}
+        <Containers
+          {containers}
+          defaultCount={tabs.filter((tab) => !tab.containerId).length}
+          counts={containerTabCounts}
+          oncreate={createContainer}
+          onrename={renameContainer}
+          onrecolor={recolorContainer}
+          ondelete={deleteContainer}
+          onopen={(id) => newTab('liora://newtab', id ?? null)}
+        />
       {:else if active.page === 'bookmarks' || active.page === 'history'}
         <Library
           kind={active.page}
@@ -2364,6 +2561,16 @@
     </div>
       </div>
     </div>
+
+    {#if containerPickerOpen}
+      <ContainerPicker
+        {containers}
+        url={active.url}
+        onclose={() => (containerPickerOpen = false)}
+        onopen={openInContainer}
+        oncreate={createContainer}
+      />
+    {/if}
 
     {#if watchDialogOpen}
       <WatchDialog
