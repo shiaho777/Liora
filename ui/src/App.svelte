@@ -96,6 +96,7 @@
   let reader = $state<ReaderData | null>(null);
   let readerTab = $state(0);
   let readerUrl = $state('');
+  let readerSummary = $state(false);
   let split = $state<SplitState | null>(null);
   let splitRatio = $state(0.5);
   let splitDragging = $state(false);
@@ -314,6 +315,7 @@
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
           { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⇧R' },
+          { id: 'summary', label: t('summary.command'), icon: 'sparkles' },
           { id: 'mini', label: t('mini.open'), icon: 'external' },
           ...(split || webTabCount > 1
             ? [
@@ -680,7 +682,10 @@
   });
 
   $effect(() => {
-    if (reader && !readerActive) reader = null;
+    if (reader && !readerActive) {
+      reader = null;
+      readerSummary = false;
+    }
   });
 
   $effect(() => {
@@ -777,7 +782,8 @@
         case 'zoomReset': void changeZoom(0); break;
         case 'downloads': openDownloads(); break;
         case 'palette': openPalette(); break;
-        case 'reader': requestReader(); break;
+        case 'reader': requestReader(false); break;
+        case 'summary': requestReader(true); break;
         case 'split': toggleSplit(); break;
         case 'splitfocus2':
           if (split) activeId = split.secondary;
@@ -1522,14 +1528,16 @@
 
   function closeReader(): void {
     reader = null;
+    readerSummary = false;
   }
 
-  function requestReader(): void {
+  function requestReader(summary = false): void {
     if (split) closeSplit();
     if (active.page !== 'web' || active.error) {
       toast(t('reader.onlyWeb'), 'error');
       return;
     }
+    readerSummary = summary;
     toast(t('reader.extracting'));
     notify('ui.reader', { tab: activeId });
   }
@@ -1693,6 +1701,7 @@
     else if (id === 'reopen') reopenClosedTab();
     else if (id === 'copylink') void copyCleanLink();
     else if (id === 'reader') requestReader();
+    else if (id === 'summary') requestReader(true);
     else if (id === 'mini') openMiniWindow();
     else if (id === 'split') toggleSplit();
     else if (id === 'watches') navigate('liora://watches');
@@ -2325,7 +2334,7 @@
             class:icon-button--active={readerActive}
             title={t('reader.open')}
             aria-label={t('reader.open')}
-            onclick={requestReader}
+            onclick={() => requestReader(false)}
           >
             <Icon name="book" />
           </button>
@@ -2550,7 +2559,7 @@
         />
       {:else if active.page === 'web'}
         {#if readerActive && reader}
-          <ReaderView data={reader} onclose={closeReader} />
+          <ReaderView data={reader} onclose={closeReader} startSummary={readerSummary} />
         {:else if active.error}
           <ErrorPanel
             url={active.error.url}

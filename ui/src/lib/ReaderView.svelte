@@ -1,18 +1,23 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { readingMinutes, type ReaderData } from './reader';
+  import { summarize } from './summary';
   import { t } from './i18n.svelte';
   import { onMount } from 'svelte';
 
   interface Props {
     data: ReaderData;
     onclose: () => void;
+    startSummary?: boolean;
   }
 
-  let { data, onclose }: Props = $props();
+  let { data, onclose, startSummary = false }: Props = $props();
   let scale = $state(1);
+  let summaryOpen = $state(false);
+  const summary = $derived(summaryOpen ? summarize(data) : []);
 
   onMount(() => {
+    if (startSummary) summaryOpen = true;
     const saved = Number(localStorage.getItem('liora.reader.scale'));
     if (Number.isFinite(saved) && saved >= 0.85 && saved <= 1.35) scale = saved;
   });
@@ -37,6 +42,16 @@
     </button>
     <span class="reader__source">{data.site}</span>
     <div class="reader__tools">
+      <button
+        class="reader__tool reader__tool--summary"
+        class:reader__tool--active={summaryOpen}
+        title={t('summary.open')}
+        aria-label={t('summary.open')}
+        onclick={() => (summaryOpen = !summaryOpen)}
+      >
+        <Icon name="sparkles" size={12} />
+        {t('summary.open')}
+      </button>
       <button
         class="reader__tool"
         title={t('reader.smaller')}
@@ -76,6 +91,27 @@
           <span>{t('reader.local')}</span>
         </div>
       </header>
+
+      {#if summaryOpen}
+        <section class="reader__summary">
+          <div class="reader__summary-head">
+            <span class="reader__summary-title">
+              <Icon name="sparkles" size={13} />
+              {t('summary.title')}
+            </span>
+            <span class="reader__summary-local">{t('summary.local')}</span>
+          </div>
+          {#if summary.length > 0}
+            <ul>
+              {#each summary as sentence, index (index)}
+                <li>{sentence}</li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="reader__summary-empty">{t('summary.empty')}</p>
+          {/if}
+        </section>
+      {/if}
 
       <div class="reader__body">
         {#each data.blocks as block, index (index)}
@@ -381,4 +417,72 @@
       display: none;
     }
   }
+
+  .reader__tool--summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .reader__tool--active {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  .reader__summary {
+    margin-bottom: 26px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background:
+      linear-gradient(135deg, var(--accent-soft), transparent 50%),
+      var(--surface);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.65;
+  }
+
+  .reader__summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+
+  .reader__summary-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .reader__summary-local {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  .reader__summary ul {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-secondary);
+  }
+
+  .reader__summary li::marker {
+    color: var(--accent);
+  }
+
+  .reader__summary-empty {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
+
 </style>
