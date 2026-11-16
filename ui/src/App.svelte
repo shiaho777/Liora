@@ -314,6 +314,7 @@
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
           { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⇧R' },
+          { id: 'mini', label: t('mini.open'), icon: 'external' },
           ...(split || webTabCount > 1
             ? [
                 {
@@ -555,6 +556,11 @@
     }
     if (message.method === 'browser.readerFailed') {
       toast(t('reader.unavailable'), 'error');
+      return;
+    }
+    if (message.method === 'browser.miniWindowFailed' && message.params) {
+      const params = message.params as { message?: string };
+      toast(params.message || t('mini.failed'), 'error');
       return;
     }
     if (message.method === 'browser.watchChanged' && message.params) {
@@ -803,6 +809,7 @@
         case 'readerclose': closeReader(); break;
         case 'watchdialog': openWatchDialog(); break;
         case 'containerdialog': openContainerPicker(); break;
+        case 'mini': openMiniWindow(); break;
         case 'watchsubmit':
           document.querySelector<HTMLElement>('.watch-dialog .button--primary')?.click();
           break;
@@ -1590,6 +1597,19 @@
     newTab(url, containerId ?? null);
   }
 
+  function openMiniWindow(): void {
+    if (active.page !== 'web' || active.error) {
+      toast(t('mini.onlyWeb'), 'error');
+      return;
+    }
+    notify('ui.miniWindow', {
+      url: active.url,
+      title: active.title || active.url,
+      container: active.containerId ?? '',
+    });
+    toast(t('mini.opened'));
+  }
+
   function openWatchDialog(): void {
     if (active.page !== 'web' || active.error) {
       toast(t('watch.onlyWeb'), 'error');
@@ -1673,6 +1693,7 @@
     else if (id === 'reopen') reopenClosedTab();
     else if (id === 'copylink') void copyCleanLink();
     else if (id === 'reader') requestReader();
+    else if (id === 'mini') openMiniWindow();
     else if (id === 'split') toggleSplit();
     else if (id === 'watches') navigate('liora://watches');
     else if (id === 'watch') openWatchDialog();

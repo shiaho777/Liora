@@ -112,6 +112,72 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, weak) LioraController* controller;
 @end
 
+// ---- Mini window ----------------------------------------------------------
+
+@interface LioraMiniWindow : NSObject <NSWindowDelegate>
+@property(nonatomic, strong) NSWindow* window;
+@property(nonatomic, strong) NSView* container;
+@property(nonatomic, copy) void (^onClose)(void);
+- (instancetype)initWithTitle:(NSString*)title;
+- (void)attachView:(std::unique_ptr<liora::IKernelView>)view;
+- (void)layoutView;
+@end
+
+@implementation LioraMiniWindow {
+  std::unique_ptr<liora::IKernelView> _view;
+}
+
+- (instancetype)initWithTitle:(NSString*)title {
+  self = [super init];
+  if (!self) return nil;
+  NSRect frame = NSMakeRect(0, 0, 560, 440);
+  self.window = [[NSWindow alloc]
+      initWithContentRect:frame
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                          NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+                  backing:NSBackingStoreBuffered
+                    defer:NO];
+  self.window.title = title.length ? title : @"Liora";
+  self.window.level = NSFloatingWindowLevel;
+  self.window.collectionBehavior =
+      NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+  self.window.hidesOnDeactivate = NO;
+  self.window.delegate = self;
+  self.container = [[NSView alloc] initWithFrame:frame];
+  self.container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  self.window.contentView = self.container;
+  [self.window center];
+  [self.window makeKeyAndOrderFront:nil];
+  return self;
+}
+
+- (void)attachView:(std::unique_ptr<liora::IKernelView>)view {
+  _view = std::move(view);
+  if (!_view) return;
+  NSView* native = (__bridge NSView*)_view->nativeHandle();
+  if (native) [self.container addSubview:native];
+  [self layoutView];
+}
+
+- (void)layoutView {
+  if (!_view) return;
+  NSRect bounds = self.container.bounds;
+  _view->setBounds(0, 0, static_cast<int>(bounds.size.width),
+                   static_cast<int>(bounds.size.height));
+  _view->setVisible(true);
+}
+
+- (void)windowDidResize:(NSNotification*)notification {
+  [self layoutView];
+}
+
+- (void)windowWillClose:(NSNotification*)notification {
+  _view.reset();
+  if (self.onClose) self.onClose();
+}
+
+@end
+
 // ---- Window controller ----------------------------------------------------
 
 @interface LioraController : NSObject <NSApplicationDelegate, WKNavigationDelegate>
@@ -133,9 +199,13 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, strong) NSTimer* watchTimer;
 @property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabContainers;
+@property(nonatomic, strong) NSMutableArray<LioraMiniWindow*>* miniWindows;
 
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
+- (void)publishDownload:(const liora::DownloadEvent&)event hideContent:(BOOL)hide;
+- (std::function<bool(const std::string&, const std::string&)>)permissionHandler;
+- (void)openMiniWindow:(NSDictionary*)params;
 @end
 
 // The message handler is a separate object so the web view configuration does
@@ -175,6 +245,7 @@ NSString* jsonEscape(id object) {
   [self buildInterface];
   self.checkingWatches = [NSMutableSet set];
   self.tabContainers = [NSMutableDictionary dictionary];
+  self.miniWindows = [NSMutableArray array];
   [self startWatchTimer];
 
   [self.window makeKeyAndOrderFront:nil];
@@ -270,6 +341,172 @@ NSString* jsonEscape(id object) {
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender { return YES; }
+
+- (void)openMiniWindow:(NSDictionary*)params {
+  if (!_core) return;
+  NSString* url = params[@"url"];
+  if (!url.length) return;
+  NSString* title = params[@"title"] ?: url;
+  NSString* container = params[@"container"] ?: @"";
+
+  LioraMiniWindow* mini = [[LioraMiniWindow alloc] initWithTitle:title];
+  [self.miniWindows addObject:mini];
+  __weak LioraMiniWindow* weakMini = mini;
+  __weak LioraController* weakSelf = self;
+  mini.onClose = ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
+      LioraMiniWindow* strongMini = weakMini;
+      LioraController* strongSelf = weakSelf;
+      if (strongMini && strongSelf) [strongSelf.miniWindows removeObject:strongMini];
+    });
+  };
+
+  auto kernel = _core->kernels().instance(
+      _core->kernels().resolve(_core->settings(), liora::Scope{"", 0}));
+  if (!kernel) {
+    [self notifyInterface:@"browser.miniWindowFailed" params:@{@"message" : @"no kernel is available"}];
+    [mini.window close];
+    return;
+  }
+
+  liora::ViewOptions options;
+  options.tab = 0;
+  options.url = stdString(url);
+  options.parent = (__bridge void*)mini.container;
+  options.containerId = stdString(container);
+  if (container.length) {
+    options.containerPath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF" / "Containers" /
+                                              stdString(container));
+  }
+  options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
+  options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
+  options.askPermission = [self permissionHandler];
+
+  liora::ViewEvents events;
+  events.onReady = [weakMini]() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakMini layoutView];
+    });
+  };
+  events.onTitle = [weakMini](const std::string& value) {
+    NSString* text = ns(value);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (weakMini && text.length) weakMini.window.title = text;
+    });
+  };
+  events.onDownload = [weakSelf](const liora::DownloadEvent& event) {
+    [weakSelf publishDownload:event hideContent:NO];
+  };
+  events.onError = [weakSelf, weakMini](const std::string& failedUrl, int code,
+                                        const std::string& message) {
+    NSString* reason = ns(message);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (weakMini) weakMini.window.title = [NSString stringWithFormat:@"Liora · %@", reason];
+      [weakSelf notifyInterface:@"browser.miniWindowFailed"
+                         params:@{@"message" : reason ?: @"the page could not be loaded"}];
+    });
+  };
+  events.onOpenWindow = [weakSelf](const std::string& target, bool) {
+    if (!weakSelf || target.empty()) return false;
+    NSString* text = ns(target);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSString* script = [NSString
+          stringWithFormat:@"window.__lioraNewTab && window.__lioraNewTab(%@);", jsonEscape(text)];
+      [weakSelf.ui evaluateJavaScript:script completionHandler:nil];
+    });
+    return true;
+  };
+
+  auto view = kernel->createView(options, std::move(events));
+  if (!view) {
+    [self notifyInterface:@"browser.miniWindowFailed" params:@{@"message" : @"the page could not be opened"}];
+    [mini.window close];
+    return;
+  }
+  [mini attachView:std::move(view)];
+}
+
+- (std::function<bool(const std::string&, const std::string&)>)permissionHandler {
+  return [core = _core.get()](const std::string& origin, const std::string& kind) -> bool {
+    if (!core) return false;
+    if (auto stored = core->storage().permission(origin, kind)) return *stored == "allow";
+
+    NSString* kindLabel = @"摄像头";
+    if (kind == "microphone") kindLabel = @"麦克风";
+    else if (kind == "camera+microphone") kindLabel = @"摄像头与麦克风";
+
+    __block bool allow = false;
+    void (^ask)(void) = ^{
+      NSAlert* alert = [[NSAlert alloc] init];
+      alert.messageText = [NSString stringWithFormat:@"允许 %@ 使用%@？", ns(origin), kindLabel];
+      alert.informativeText = @"只有你允许后，这个站点才能使用该设备。";
+      [alert addButtonWithTitle:@"允许"];
+      [alert addButtonWithTitle:@"拒绝"];
+
+      NSButton* remember = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 240, 22)];
+      [remember setButtonType:NSButtonTypeSwitch];
+      remember.title = @"记住这个决定";
+      alert.accessoryView = remember;
+
+      allow = [alert runModal] == NSAlertFirstButtonReturn;
+      if (remember.state == NSControlStateValueOn) {
+        core->storage().setPermission(origin, kind, allow ? "allow" : "block");
+      }
+    };
+
+    if ([NSThread isMainThread]) {
+      ask();
+    } else {
+      dispatch_sync(dispatch_get_main_queue(), ask);
+    }
+    return allow;
+  };
+}
+
+- (void)publishDownload:(const liora::DownloadEvent&)event hideContent:(BOOL)hide {
+  NSString* state = @"started";
+  switch (event.state) {
+    case liora::DownloadState::kStarted: state = @"started"; break;
+    case liora::DownloadState::kProgress: state = @"progress"; break;
+    case liora::DownloadState::kFinished: state = @"finished"; break;
+    case liora::DownloadState::kFailed: state = @"failed"; break;
+  }
+
+  if (_core && (event.state == liora::DownloadState::kFinished ||
+                event.state == liora::DownloadState::kFailed)) {
+    liora::DownloadRecord record;
+    record.id = event.id;
+    record.filename = event.filename;
+    record.path = event.path;
+    record.state = event.state == liora::DownloadState::kFinished ? "finished" : "failed";
+    record.error = event.error;
+    record.bytes = event.received;
+    record.total = event.total;
+    record.created = liora::nowMs();
+    _core->storage().saveDownload(record);
+  }
+
+  NSDictionary* params = @{
+    @"id" : ns(event.id),
+    @"filename" : ns(event.filename),
+    @"path" : ns(event.path),
+    @"received" : @(event.received),
+    @"total" : @(event.total),
+    @"tab" : @(event.tab),
+    @"state" : state,
+    @"error" : ns(event.error),
+  };
+  __weak LioraController* weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    LioraController* strongSelf = weakSelf;
+    if (!strongSelf) return;
+    if (hide && event.state == liora::DownloadState::kStarted) {
+      strongSelf.contentVisible = NO;
+      [strongSelf layoutContent];
+    }
+    [strongSelf notifyInterface:@"browser.download" params:params];
+  });
+}
 
 // ---- Page watches ---------------------------------------------------------
 
@@ -480,6 +717,7 @@ NSString* jsonEscape(id object) {
 
 - (void)applicationWillTerminate:(NSNotification*)notification {
   [self.watchTimer invalidate];
+  for (LioraMiniWindow* mini in [self.miniWindows copy]) [mini.window close];
   [self.netService stop];
   if (_core) _core->stop();
 }
@@ -952,40 +1190,7 @@ NSString* jsonEscape(id object) {
   }
   options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
   options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
-  options.askPermission = [core = _core.get()](const std::string& origin, const std::string& kind) -> bool {
-    if (!core) return false;
-    if (auto stored = core->storage().permission(origin, kind)) return *stored == "allow";
-
-    NSString* kindLabel = @"摄像头";
-    if (kind == "microphone") kindLabel = @"麦克风";
-    else if (kind == "camera+microphone") kindLabel = @"摄像头与麦克风";
-
-    __block bool allow = false;
-    void (^ask)(void) = ^{
-      NSAlert* alert = [[NSAlert alloc] init];
-      alert.messageText = [NSString stringWithFormat:@"允许 %@ 使用%@？", ns(origin), kindLabel];
-      alert.informativeText = @"只有你允许后，这个站点才能使用该设备。";
-      [alert addButtonWithTitle:@"允许"];
-      [alert addButtonWithTitle:@"拒绝"];
-
-      NSButton* remember = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 240, 22)];
-      [remember setButtonType:NSButtonTypeSwitch];
-      remember.title = @"记住这个决定";
-      alert.accessoryView = remember;
-
-      allow = [alert runModal] == NSAlertFirstButtonReturn;
-      if (remember.state == NSControlStateValueOn) {
-        core->storage().setPermission(origin, kind, allow ? "allow" : "block");
-      }
-    };
-
-    if ([NSThread isMainThread]) {
-      ask();
-    } else {
-      dispatch_sync(dispatch_get_main_queue(), ask);
-    }
-    return allow;
-  };
+  options.askPermission = [self permissionHandler];
 
   liora::ViewEvents events;
   __weak LioraController* weakSelf = self;
@@ -1025,46 +1230,8 @@ NSString* jsonEscape(id object) {
       [weakSelf handleLoadFailure:failedUrl code:code message:reason tab:tab];
     });
   };
-  events.onDownload = [weakSelf, core = _core.get()](const liora::DownloadEvent& event) {    NSString* state = @"started";
-    switch (event.state) {
-      case liora::DownloadState::kStarted: state = @"started"; break;
-      case liora::DownloadState::kProgress: state = @"progress"; break;
-      case liora::DownloadState::kFinished: state = @"finished"; break;
-      case liora::DownloadState::kFailed: state = @"failed"; break;
-    }
-
-    // Persist only terminal states; progress is too noisy for disk history.
-    if (core && (event.state == liora::DownloadState::kFinished || event.state == liora::DownloadState::kFailed)) {
-      liora::DownloadRecord record;
-      record.id = event.id;
-      record.filename = event.filename;
-      record.path = event.path;
-      record.state = event.state == liora::DownloadState::kFinished ? "finished" : "failed";
-      record.error = event.error;
-      record.bytes = event.received;
-      record.total = event.total;
-      record.created = liora::nowMs();
-      core->storage().saveDownload(record);
-    }
-    NSDictionary* params = @{
-      @"id" : ns(event.id),
-      @"filename" : ns(event.filename),
-      @"path" : ns(event.path),
-      @"received" : @(event.received),
-      @"total" : @(event.total),
-      @"tab" : @(event.tab),
-      @"state" : state,
-      @"error" : ns(event.error),
-    };
-    dispatch_async(dispatch_get_main_queue(), ^{
-      // A download replaces the page WebKit was about to render, so hide the
-      // blank kernel view and let the interface show the download state.
-      if (event.state == liora::DownloadState::kStarted && weakSelf) {
-        weakSelf.contentVisible = NO;
-        [weakSelf layoutContent];
-      }
-      [weakSelf notifyInterface:@"browser.download" params:params];
-    });
+  events.onDownload = [weakSelf](const liora::DownloadEvent& event) {
+    [weakSelf publishDownload:event hideContent:YES];
   };
   events.onSecurity = [weakSelf, tab](const liora::SecurityInfo& info) {
     NSDictionary* params = @{
@@ -1736,6 +1903,11 @@ NSString* jsonEscape(id object) {
       bool matchCase = [params[@"matchCase"] boolValue];
       view->find(stdString(text), forward, matchCase);
     }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.miniWindow"]) {
+    [self openMiniWindow:params];
     return;
   }
 
