@@ -284,6 +284,8 @@ const DEFAULTS: Record<string, unknown> = {
   'ui.showHomeButton': false,
   'search.engine': 'duckduckgo',
   'search.suggest': true,
+  'search.customEngines': [],
+  'start.tiles': [],
   'home.page': 'liora://newtab',
   'startup.restore': true,
   'kernel.default': 'system',

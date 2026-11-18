@@ -22,6 +22,7 @@
     type DownloadRecord,
   } from './lib/downloads.svelte';
   import { buildSuggestions, moveSelection, type Suggestion } from './lib/suggest';
+  import { buildSearchUrl, engineName, parseCustomEngines } from './lib/search-engines';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
   import { addressBadges, type HostRule } from './lib/address-badges';
@@ -171,28 +172,14 @@
     return counts;
   });
 
-  const searchTemplates: Record<string, string> = {
-    duckduckgo: 'https://duckduckgo.com/?q=',
-    google: 'https://www.google.com/search?q=',
-    bing: 'https://www.bing.com/search?q=',
-    brave: 'https://search.brave.com/search?q=',
-    startpage: 'https://www.startpage.com/do/search?q=',
-    baidu: 'https://www.baidu.com/s?wd=',
-    sogou: 'https://www.sogou.com/web?query=',
-  };
   const searchEngine = $derived.by(() => {
     const item = settingsStore.items.find((entry) => entry.key === 'search.engine');
     return typeof item?.value === 'string' ? item.value : 'duckduckgo';
   });
-  const searchEngineNames: Record<string, string> = {
-    duckduckgo: 'DuckDuckGo',
-    google: 'Google',
-    bing: 'Bing',
-    brave: 'Brave Search',
-    startpage: 'Startpage',
-    baidu: '百度',
-    sogou: '搜狗',
-  };
+  const customEngines = $derived.by(() => {
+    const item = settingsStore.items.find((entry) => entry.key === 'search.customEngines');
+    return parseCustomEngines(item?.value);
+  });
   const homePage = $derived.by(() => {
     const item = settingsStore.items.find((entry) => entry.key === 'home.page');
     return typeof item?.value === 'string' && item.value ? item.value : 'liora://newtab';
@@ -1004,8 +991,7 @@
     if (!value) return 'liora://newtab';
     if (value.startsWith('liora://')) return value;
     if (looksLikeUrl(value)) return /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`;
-    const template = searchTemplates[searchEngine] ?? searchTemplates.duckduckgo;
-    return template + encodeURIComponent(value);
+    return buildSearchUrl(searchEngine, customEngines, value);
   }
 
   function internalTitle(page: string): string {
@@ -1539,14 +1525,13 @@
         call<Array<{ url: string; title: string }>>('bookmarks.search', { query: text, limit: 4 }),
       ]).then(([history, bookmarks]) => {
         if (!current) return;
-        const engineName = searchEngineNames[searchEngine] ?? searchEngine;
         suggestions = buildSuggestions(
           text,
           history.status === 'fulfilled' && Array.isArray(history.value) ? history.value : [],
           bookmarks.status === 'fulfilled' && Array.isArray(bookmarks.value)
             ? bookmarks.value.filter((entry) => entry.url)
             : [],
-          engineName,
+          engineName(searchEngine, customEngines),
           looksLikeUrl,
         );
         suggestSelected = -1;

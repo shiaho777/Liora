@@ -218,6 +218,89 @@ export function runTestScenario(name: string): boolean {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     }
+    case 'customengine': {
+      // Add a custom engine through the real form, then record the list.
+      const add = [...document.querySelectorAll<HTMLButtonElement>('.card__header .button')]
+        .find((button) => button.textContent?.includes('添加引擎') || button.textContent?.includes('Add engine'));
+      add?.click();
+      setTimeout(() => {
+        const inputs = [...document.querySelectorAll<HTMLInputElement>('.engine-form input')];
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        if (inputs.length >= 2) {
+          setter?.call(inputs[0], 'Test Engine');
+          inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+          setter?.call(inputs[1], 'https://search.example/?q=%s');
+          inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const save = [...document.querySelectorAll<HTMLButtonElement>('.engine-form .button--primary')]
+          .find((button) => button.textContent?.includes('保存引擎') || button.textContent?.includes('Save engine'));
+        save?.click();
+        setTimeout(() => {
+          const names = [...document.querySelectorAll('.row__title')].map((node) => node.textContent?.trim());
+          const options = [...document.querySelectorAll<HTMLSelectElement>('.select option')].map((option) => option.textContent?.trim());
+          (window as unknown as { __lioraEngineDump?: string }).__lioraEngineDump = JSON.stringify({
+            addBtn: Boolean(add), inputs: inputs.length, saveBtn: Boolean(save), names, options,
+          });
+        }, 700);
+      }, 250);
+      return true;
+    }
+    case 'tileadd': {
+      // Open the add-tile dialog, fill it, save, and record the pinned tiles.
+      const edit = [...document.querySelectorAll<HTMLButtonElement>('.block__actions .text-button')]
+        .find((button) => button.textContent?.includes('编辑') || button.textContent?.includes('Edit'));
+      edit?.click();
+      setTimeout(() => {
+        const addCard = document.querySelector<HTMLButtonElement>('.site--add');
+        addCard?.click();
+        setTimeout(() => {
+          const inputs = [...document.querySelectorAll<HTMLInputElement>('.tile-dialog input')];
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          if (inputs.length >= 2) {
+            setter?.call(inputs[0], 'https://pinned.example');
+            inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+            setter?.call(inputs[1], 'My Pinned Site');
+            inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          const save = document.querySelector<HTMLButtonElement>('.tile-dialog .button--primary');
+          save?.click();
+          setTimeout(() => {
+            const titles = [...document.querySelectorAll('.site__title')].map((node) => node.textContent?.trim());
+            (window as unknown as { __lioraTileDump?: string }).__lioraTileDump = JSON.stringify({
+              addCard: Boolean(addCard), inputs: inputs.length, saveBtn: Boolean(save), titles,
+            });
+          }, 700);
+        }, 250);
+      }, 250);
+      return true;
+    }
+    case 'newtabsearch': {
+      // Type into the start-page search box and submit, exercising the active
+      // engine's URL building end to end.
+      const input = document.querySelector<HTMLInputElement>('.search input');
+      if (!input) return true;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'hello world');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      return true;
+    }
+    case 'tilepin': {
+      // Enter edit mode on the start page and pin the first top site.
+      const edit = [...document.querySelectorAll<HTMLButtonElement>('.block__actions .text-button')]
+        .find((button) => button.textContent?.includes('编辑') || button.textContent?.includes('Edit'));
+      edit?.click();
+      setTimeout(() => {
+        const pin = document.querySelector<HTMLButtonElement>('.site__edit .icon-button');
+        pin?.click();
+        setTimeout(() => {
+          const pinnedMarks = document.querySelectorAll('.site__pin').length;
+          (window as unknown as { __lioraTileDump?: string }).__lioraTileDump =
+            `editBtn=${Boolean(edit)} pinBtn=${Boolean(pin)} pinned=${pinnedMarks}`;
+        }, 700);
+      }, 250);
+      return true;
+    }
     case 'trapcheck': {
       // Press Tab several times inside the open dialog and report whether focus
       // stayed contained. The trap listens on the dialog container.
