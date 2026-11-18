@@ -395,6 +395,13 @@ a {
   border-radius: 2px;
 }
 
+.tab__private {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
 .tab__title {
   flex: 1;
   min-width: 0;
@@ -610,6 +617,13 @@ a {
   height: 6px;
   flex: none;
   border-radius: 2px;
+}
+
+.tabrow__private {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
 }
 
 .tabrow__title {
@@ -958,6 +972,14 @@ a {
 .address__hint--warn {
   color: var(--warning);
   background: var(--warning-soft);
+}
+
+.address__hint--private {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
 }
 
 .bookmarksbar {

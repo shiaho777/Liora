@@ -25,6 +25,8 @@ export interface Tab {
   canForward?: boolean;
   groupId?: string;
   containerId?: string;
+  /** Private tabs use a non-persistent store and leave no history/session. */
+  incognito?: boolean;
 }
 
 export interface TabGroup {

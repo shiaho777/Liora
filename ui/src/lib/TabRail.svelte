@@ -144,6 +144,11 @@
         title={containerName(tab.containerId)}
       ></span>
     {/if}
+    {#if tab.incognito}
+      <span class="tabrow__private" title={t('tab.private')} aria-label={t('tab.private')}>
+        <Icon name="eye" size={10} />
+      </span>
+    {/if}
     <span class="tabrow__title">{tab.title}</span>
     {#if showGroup && tab.groupId}
       <span

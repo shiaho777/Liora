@@ -274,6 +274,18 @@ export function runTestScenario(name: string): boolean {
       }, 250);
       return true;
     }
+    case 'privatetab': {
+      // Open a private tab through the real command and record its state.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+      setTimeout(() => {
+        const privateMarks = document.querySelectorAll('.tab__private, .tabrow__private').length;
+        const addressPrivate = document.querySelector('.address__hint--private')?.textContent?.trim();
+        (window as unknown as { __lioraPrivateDump?: string }).__lioraPrivateDump = JSON.stringify({
+          privateMarks, addressPrivate: addressPrivate ?? null,
+        });
+      }, 600);
+      return true;
+    }
     case 'newtabsearch': {
       // Type into the start-page search box and submit, exercising the active
       // engine's URL building end to end.

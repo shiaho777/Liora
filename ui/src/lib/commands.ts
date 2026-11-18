@@ -13,6 +13,7 @@ export interface CommandContext {
   siteCardOpen: boolean;
   addressEl: HTMLInputElement | null;
   newTab: () => void;
+  newPrivateTab: () => void;
   closeTab: (id: number) => void;
   navigate: (url: string) => void;
   openSettings: (section?: string) => void;
@@ -87,6 +88,7 @@ export function runCommand(name: string, ctx: CommandContext): boolean {
 
   switch (name) {
     case 'newTab': ctx.newTab(); return true;
+    case 'newprivatetab': ctx.newPrivateTab(); return true;
     case 'closeTab': ctx.closeTab(ctx.activeId); return true;
     case 'reload': ctx.navigate(ctx.activeUrl); return true;
     case 'focusAddress': ctx.addressEl?.focus(); ctx.addressEl?.select(); return true;
