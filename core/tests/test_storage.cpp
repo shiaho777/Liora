@@ -252,3 +252,54 @@ LIORA_TEST(storage_export_import_roundtrip_and_dedupe) {
   CHECK(!f.storage.importData(exported, false));
   CHECK_EQ(f.storage.children(Storage::kBookmarkBar).size(), size_t{1});
 }
+
+LIORA_TEST(storage_favicon_cache_roundtrip) {
+  Fixture f;
+  CHECK(!f.storage.favicon("x.example").has_value());
+
+  f.storage.setFavicon("x.example", "data:image/png;base64,AAAA");
+  auto icon = f.storage.favicon("x.example");
+  CHECK(icon.has_value());
+  CHECK_EQ(*icon, std::string("data:image/png;base64,AAAA"));
+
+  // Overwriting replaces, never duplicates.
+  f.storage.setFavicon("x.example", "data:image/png;base64,BBBB");
+  CHECK_EQ(*f.storage.favicon("x.example"), std::string("data:image/png;base64,BBBB"));
+  CHECK_EQ(f.storage.favicons(10).size(), size_t{1});
+  CHECK_EQ(f.storage.favicons(10)[0].host, std::string("x.example"));
+
+  // An empty value removes the entry.
+  f.storage.setFavicon("x.example", "");
+  CHECK(!f.storage.favicon("x.example").has_value());
+  CHECK(f.storage.favicons(10).empty());
+
+  // Empty hosts are ignored rather than stored.
+  f.storage.setFavicon("", "data:image/png;base64,CCCC");
+  CHECK(f.storage.favicons(10).empty());
+}
+
+LIORA_TEST(storage_favicon_cache_stays_bounded) {
+  Fixture f;
+  for (int i = 0; i < 520; ++i) {
+    f.storage.setFavicon("host" + std::to_string(i) + ".example", "data:image/png;base64,AAAA");
+  }
+  auto all = f.storage.favicons(1000);
+  CHECK_EQ(all.size(), size_t{512});
+  // The oldest entries were evicted, the newest survive.
+  CHECK(!f.storage.favicon("host0.example").has_value());
+  CHECK(f.storage.favicon("host519.example").has_value());
+}
+
+LIORA_TEST(storage_favicon_survives_reopen) {
+  TempDir dir;
+  {
+    Storage storage(dir / "liora.db");
+    CHECK(storage.open());
+    storage.setFavicon("persist.example", "data:image/png;base64,AAAA");
+  }
+  Storage reopened(dir / "liora.db");
+  CHECK(reopened.open());
+  auto icon = reopened.favicon("persist.example");
+  CHECK(icon.has_value());
+  CHECK_EQ(*icon, std::string("data:image/png;base64,AAAA"));
+}

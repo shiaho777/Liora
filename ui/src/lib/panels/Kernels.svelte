@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import LoadingState from '../LoadingState.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
@@ -337,10 +338,8 @@
   </section>
 
   {#if loading}
-    <section class="card loading-card" aria-busy="true">
-      <span class="skeleton skeleton--title"></span>
-      <span class="skeleton skeleton--line"></span>
-      <span class="skeleton skeleton--line skeleton--short"></span>
+    <section class="card loading-card">
+      <LoadingState />
     </section>
   {:else}
     {#each rows as kernel (kernel.id)}
@@ -603,20 +602,20 @@
   }
 
   .runtime__label {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .runtime__detail {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-muted);
   }
 
   .runtime__code {
     margin-top: 5px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     word-break: break-all;
   }
@@ -629,8 +628,8 @@
     height: 22px;
     padding: 0 8px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
     background: var(--bg-sunken);
     white-space: nowrap;
@@ -691,15 +690,15 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 7px;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.005em;
   }
 
   .kernel__meta {
     margin-top: 2px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -713,7 +712,7 @@
 
   .kernel__desc {
     margin: 10px 0 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     color: var(--text-secondary);
     max-width: 66ch;
@@ -745,13 +744,13 @@
   }
 
   .kernel__setting-title {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .kernel__setting-desc {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-muted);
     max-width: 68ch;
@@ -778,13 +777,13 @@
   }
 
   .confirm__title {
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
   }
 
   .confirm__body {
     margin: 3px 0 10px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--text-secondary);
   }
@@ -801,14 +800,14 @@
   }
 
   .field__label {
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
   }
 
   .field__hint {
     margin: 6px 0 0;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -828,13 +827,13 @@
   }
 
   .setting-line__title {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .setting-line__desc {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -880,13 +879,13 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 7px;
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .component-row__desc {
     margin-top: 1px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -902,37 +901,6 @@
     flex-direction: column;
     gap: 10px;
     padding: 18px;
-  }
-
-  .skeleton {
-    display: block;
-    height: 12px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  .skeleton--title {
-    width: 132px;
-    height: 15px;
-  }
-
-  .skeleton--line {
-    width: 100%;
-  }
-
-  .skeleton--short {
-    width: 62%;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
   }
 
   @media (max-width: 640px) {

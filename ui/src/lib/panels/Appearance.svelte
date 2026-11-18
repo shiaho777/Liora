@@ -5,6 +5,7 @@
   import { app, updateSetting } from '../state.svelte';
   import { set, value } from '../settings-store.svelte';
   import { t } from '../i18n.svelte';
+  import { accentPresets } from '../palette';
 
   const themes = $derived([
     { value: 'system', label: t('appearance.theme.system') },
@@ -27,6 +28,10 @@
     { value: 'zh', label: '简体中文' },
     { value: 'en', label: 'English' },
   ];
+
+  function pickAccent(color: string): void {
+    void updateSetting('ui.accent', color);
+  }
 </script>
 
 <div class="section">
@@ -51,6 +56,38 @@
             ariaLabel={t('appearance.theme')}
             onchange={(value) => updateSetting('ui.theme', value)}
           />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('appearance.accent')}</div>
+          <div class="row__desc">{t('appearance.accentDesc')}</div>
+        </div>
+        <div class="row__control">
+          <div class="accents" role="radiogroup" aria-label={t('appearance.accent')}>
+            {#each accentPresets as preset (preset.value)}
+              <button
+                class="accent-dot"
+                class:accent-dot--active={app.accent.toLowerCase() === preset.value}
+                style:background={preset.value}
+                role="radio"
+                aria-checked={app.accent.toLowerCase() === preset.value}
+                aria-label={t(preset.name)}
+                title={t(preset.name)}
+                onclick={() => pickAccent(preset.value)}
+              ></button>
+            {/each}
+            <label class="accent-custom" title={t('appearance.accentCustom')}>
+              <input
+                type="color"
+                value={app.accent}
+                aria-label={t('appearance.accentCustom')}
+                onchange={(event) => pickAccent((event.target as HTMLInputElement).value)}
+              />
+              <span class="accent-custom__ring" style:background={app.accent}></span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -169,6 +206,63 @@
 
 
 <style>
+  .accents {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .accent-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  .accent-dot:hover {
+    transform: scale(1.12);
+  }
+
+  .accent-dot--active {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--accent);
+  }
+
+  .accent-custom {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    display: inline-block;
+  }
+
+  .accent-custom input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .accent-custom__ring {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    /* quality-audit-ignore: decorative rainbow ring signalling "any colour" */
+    background: conic-gradient(#e64980, #e8590c, #2f9e44, #0f9d8f, #3b6cf6, #7c5cf0, #e64980);
+    box-shadow: inset 0 0 0 2px var(--bg);
+    pointer-events: none;
+  }
+
   .preview {
     display: flex;
     height: 208px;
@@ -206,7 +300,7 @@
     height: 23px;
     padding: 0 9px;
     border-radius: 7px 7px 0 0;
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     white-space: nowrap;
   }
@@ -228,7 +322,7 @@
   .preview__plus {
     margin-left: auto;
     padding: 0 4px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
@@ -290,10 +384,10 @@
     place-items: center;
     margin-bottom: 2px;
     border-radius: 9px;
-    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    background: linear-gradient(145deg, var(--accent), var(--accent-highlight));
     color: #fff;
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
   }
 
   .preview__line {

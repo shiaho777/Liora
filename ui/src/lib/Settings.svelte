@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import LoadingState from './LoadingState.svelte';
   import Toggle from './Toggle.svelte';
   import { app, toast, updateSetting } from './state.svelte';
   import { loadSettings } from './settings-store.svelte';
@@ -7,7 +8,9 @@
   import { networkPending } from './network-status.svelte';
 
   import Appearance from './panels/Appearance.svelte';
+  import Content from './panels/Content.svelte';
   import SearchPanel from './panels/Search.svelte';
+  import UserScripts from './panels/UserScripts.svelte';
   import Dns from './panels/Dns.svelte';
   import Kernels from './panels/Kernels.svelte';
   import Data from './panels/Data.svelte';
@@ -31,7 +34,9 @@
 
   const sections: NavEntry[] = [
     { id: 'appearance', label: 'nav.appearance', icon: 'sliders', group: 'browsing' },
+    { id: 'content', label: 'nav.content', icon: 'shield', group: 'browsing' },
     { id: 'search', label: 'nav.search', icon: 'search', group: 'browsing' },
+    { id: 'userscripts', label: 'nav.userscripts', icon: 'puzzle', group: 'browsing' },
     { id: 'dns', label: 'nav.dns', icon: 'shield', group: 'network' },
     { id: 'data', label: 'nav.data', icon: 'download', group: 'data' },
     { id: 'migration', label: 'nav.migration', icon: 'external', group: 'data' },
@@ -142,15 +147,15 @@
     {/if}
 
     {#if !loaded}
-      <div class="settings-loading" aria-busy="true">
-        <span class="skeleton skeleton--title"></span>
-        <span class="skeleton skeleton--line"></span>
-        <span class="skeleton skeleton--line skeleton--short"></span>
-      </div>
+      <LoadingState />
     {:else if activeSection === 'appearance'}
       <Appearance />
+    {:else if activeSection === 'content'}
+      <Content />
     {:else if activeSection === 'search'}
       <SearchPanel />
+    {:else if activeSection === 'userscripts'}
+      <UserScripts />
     {:else if activeSection === 'dns'}
       <Dns />
     {:else if activeSection === 'kernels'}
@@ -180,8 +185,8 @@
 
   .settings__brand-name {
     flex: 1;
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.01em;
   }
 
@@ -192,8 +197,8 @@
     height: 24px;
     padding: 0 8px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
     background: var(--bg-hover);
     transition:
@@ -224,8 +229,8 @@
 
   .settings__group-label {
     padding: 0 9px 5px;
-    font-size: 10px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -245,8 +250,8 @@
     border-radius: var(--radius-pill);
     background: var(--warning-soft);
     color: var(--warning);
-    font-size: 10px;
-    font-weight: 600;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
   }
 
   .settings__footer {
@@ -267,55 +272,16 @@
   }
 
   .advanced-row__title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
   .advanced-row__desc {
     margin-top: 1px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
     color: var(--text-muted);
   }
 
-  .settings-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 11px;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 12px 0;
-  }
-
-  .skeleton {
-    display: block;
-    height: 12px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  .skeleton--title {
-    width: 140px;
-    height: 20px;
-  }
-
-  .skeleton--line {
-    width: 100%;
-  }
-
-  .skeleton--short {
-    width: 58%;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
-  }
 </style>

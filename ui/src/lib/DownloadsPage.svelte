@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from './EmptyState.svelte';
   import Icon from './Icon.svelte';
   import PageHeader from './PageHeader.svelte';
   import { notify } from './bridge';
@@ -54,11 +55,7 @@
 
       <div class="card__body">
         {#if downloads.items.length === 0}
-          <div class="empty-state">
-            <span class="empty-state__icon"><Icon name="download" size={19} /></span>
-            <div class="empty-state__title">{t('downloads.empty')}</div>
-            <p class="empty-state__body">{t('downloads.emptyHint')}</p>
-          </div>
+          <EmptyState icon="download" title={t('downloads.empty')} body={t('downloads.emptyHint')} />
         {:else}
           <div class="download-list">
             {#each downloads.items as item (item.id)}
@@ -172,15 +169,15 @@
   }
 
   .download-row__title {
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .download-row__status {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 

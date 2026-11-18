@@ -173,8 +173,8 @@
     height: 26px;
     padding: 0 9px;
     border-radius: var(--radius-pill);
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
     background: var(--bg-hover);
   }
@@ -191,7 +191,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -207,8 +207,8 @@
     height: 24px;
     padding: 0 6px;
     border-radius: var(--radius-xs);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
@@ -225,7 +225,7 @@
     width: 34px;
     text-align: center;
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -253,8 +253,8 @@
 
   .reader__site {
     font-family: var(--font-sans);
-    font-size: 10.5px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--accent-text);
@@ -264,7 +264,7 @@
     margin: 12px 0 0;
     font-size: 2.1em;
     line-height: 1.16;
-    font-weight: 650;
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.022em;
     color: var(--text);
   }
@@ -272,7 +272,7 @@
   .reader__byline {
     margin-top: 12px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
@@ -289,7 +289,7 @@
     gap: 6px;
     margin-top: 16px;
     font-family: var(--font-sans);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -314,7 +314,7 @@
   .reader__heading {
     margin-top: 1.6em;
     line-height: 1.25;
-    font-weight: 650;
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.012em;
   }
 
@@ -377,7 +377,7 @@
   .reader__figure figcaption {
     margin-top: 7px;
     font-family: var(--font-sans);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     color: var(--text-muted);
     text-align: center;
@@ -391,7 +391,7 @@
     padding-top: 18px;
     border-top: 1px solid var(--border);
     font-family: var(--font-sans);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -400,11 +400,11 @@
     height: 20px;
     display: grid;
     place-items: center;
-    border-radius: 6px;
+    border-radius: var(--radius-xs);
     background: var(--accent-soft);
     color: var(--accent);
-    font-size: 10px;
-    font-weight: 700;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-bold);
   }
 
   @media (max-width: 640px) {
@@ -432,13 +432,13 @@
   .reader__summary {
     margin-bottom: 26px;
     padding: 16px 18px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background:
       linear-gradient(135deg, var(--accent-soft), transparent 50%),
       var(--surface);
     font-family: var(--font-sans);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.65;
   }
 
@@ -454,15 +454,15 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
-    font-weight: 650;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--accent-text);
   }
 
   .reader__summary-local {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -482,7 +482,7 @@
   .reader__summary-empty {
     margin: 0;
     color: var(--text-muted);
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 
 </style>

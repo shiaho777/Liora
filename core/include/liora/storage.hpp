@@ -63,6 +63,16 @@ struct DownloadRecord {
   Json toJson() const;
 };
 
+// A site's favicon, cached locally so tabs and the start page can show real
+// icons without any third-party icon service.
+struct Favicon {
+  std::string host;
+  std::string dataUrl;
+  int64_t updated = 0;
+
+  Json toJson() const;
+};
+
 // Kernel-independent user data: bookmarks, history and site permissions.
 // All methods are thread safe.
 class Storage {
@@ -123,6 +133,12 @@ class Storage {
   std::vector<DownloadRecord> downloads(int limit = 100) const;
   void clearDownloads();
   bool removeDownload(std::string_view id);
+
+  // ---- Favicons ----
+  // An empty dataUrl removes the entry. Keys are hosts, not full URLs.
+  void setFavicon(std::string_view host, std::string_view dataUrl);
+  std::optional<std::string> favicon(std::string_view host) const;
+  std::vector<Favicon> favicons(int limit = 512) const;
 
   // ---- Backup ----
   Json exportData() const;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import LoadingState from '../LoadingState.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
@@ -182,11 +183,7 @@
       <div class="divider"></div>
 
       {#if loading}
-        <div class="backup-loading" aria-busy="true">
-          <span class="skeleton-row"></span>
-          <span class="skeleton-row"></span>
-          <span class="skeleton-row"></span>
-        </div>
+        <LoadingState rows={3} />
       {:else if backups.length === 0}
         <div class="empty-state empty-state--compact">
           <span class="empty-state__icon"><Icon name="folder" size={18} /></span>
@@ -318,13 +315,13 @@
   }
 
   .backup-row__title {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .backup-row__name {
     margin-top: 1px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -355,36 +352,13 @@
   }
 
   .restore__title {
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
   }
 
   .restore__file {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     opacity: 0.75;
   }
 
-  .backup-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 6px 0;
-  }
-
-  .skeleton-row {
-    height: 38px;
-    border-radius: var(--radius-sm);
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
-  }
 </style>

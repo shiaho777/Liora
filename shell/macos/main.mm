@@ -274,6 +274,16 @@ NSString* jsonEscape(id object) {
                              "LIORA_TEST_COMMAND3_DELAY_MS", "LIORA_TEST_COMMAND4_DELAY_MS",
                              "LIORA_TEST_COMMAND5_DELAY_MS", "LIORA_TEST_COMMAND6_DELAY_MS",
                              "LIORA_TEST_COMMAND7_DELAY_MS"};
+  BOOL hasTestCommand = NO;
+  for (int index = 0; index < 7; ++index) {
+    const char* command = getenv(commandEnvs[index]);
+    if (command && *command) hasTestCommand = YES;
+  }
+  if (hasTestCommand) {
+    // The interface only registers its DOM-driven test scenarios when this
+    // flag is set, so production builds never carry that machinery active.
+    [self.ui evaluateJavaScript:@"window.__lioraTestMode = true;" completionHandler:nil];
+  }
   for (int index = 0; index < 7; ++index) {
     const char* command = getenv(commandEnvs[index]);
     if (!command || !*command) continue;
@@ -1162,6 +1172,35 @@ NSString* jsonEscape(id object) {
   [self.ui loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
+// Resolves the layered content settings for the URL's site and hands them to
+// the kernel. Called before every load so per-site overrides take effect.
+- (void)applyContentControls:(liora::IKernelView*)view url:(NSString*)url {
+  if (!_core || !view) return;
+  NSURL* parsed = [NSURL URLWithString:url];
+  NSString* host = parsed.host ?: @"";
+  liora::Scope scope{stdString(host), 0};
+  liora::ContentControls controls;
+  controls.javascript = _core->settings().value<bool>("content.javascript", scope);
+  controls.images = _core->settings().value<bool>("content.images", scope);
+  controls.autoplay = _core->settings().value<std::string>("content.autoplay", scope);
+  NSLog(@"Liora: content controls for %@ js=%d images=%d autoplay=%s", host,
+        (int)controls.javascript, (int)controls.images, controls.autoplay.c_str());
+  view->setContentControls(controls);
+
+  // User scripts that match this host, injected alongside the policy scripts.
+  std::vector<liora::InjectedScript> scripts;
+  for (const auto* script : _core->userScripts().match(stdString(host))) {
+    liora::InjectedScript injected;
+    injected.code = script->code;
+    injected.runAt = liora::UserScript::runAtName(script->runAt);
+    scripts.push_back(std::move(injected));
+  }
+  if (!scripts.empty()) {
+    NSLog(@"Liora: injecting %zu user script(s) for %@", scripts.size(), host);
+  }
+  view->setUserScripts(scripts);
+}
+
 - (liora::IKernelView*)viewForTab:(int64_t)tab {
   auto existing = _views.find(tab);
   if (existing != _views.end()) return existing->second.get();
@@ -1223,6 +1262,12 @@ NSString* jsonEscape(id object) {
       [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text, @"tab" : @(tab)}];
     });
   };
+  events.onFavicon = [weakSelf, tab](const std::string& dataUrl) {
+    NSString* text = ns(dataUrl);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf notifyInterface:@"browser.favicon" params:@{@"icon" : text, @"tab" : @(tab)}];
+    });
+  };
   events.onError = [weakSelf, tab](const std::string& url, int code, const std::string& message) {
     NSString* failedUrl = ns(url);
     NSString* reason = ns(message);
@@ -1272,6 +1317,12 @@ NSString* jsonEscape(id object) {
 
   auto view = kernel->createView(options, std::move(events));
   if (!view) return nullptr;
+
+  // A view created with a URL loads it inside createView, so the policy must
+  // be applied here too, not only on the ui.navigate path.
+  if (!options.url.empty()) {
+    [self applyContentControls:view.get() url:ns(options.url)];
+  }
 
   NSView* native = (__bridge NSView*)view->nativeHandle();
   if (native) [self.container addSubview:native positioned:NSWindowAbove relativeTo:self.ui];
@@ -2006,6 +2057,7 @@ NSString* jsonEscape(id object) {
     liora::IKernelView* view = [self viewForTab:tab];
     if (!view) return;
     [self layoutContent];
+    [self applyContentControls:view url:url];
     view->load(stdString(url));
     return;
   }

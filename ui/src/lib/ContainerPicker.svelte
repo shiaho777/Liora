@@ -3,6 +3,8 @@
   import Icon from './Icon.svelte';
   import { t } from './i18n.svelte';
   import { value } from './settings-store.svelte';
+  import { identityPalette } from './palette';
+  import { trapFocus } from './focus-trap';
 
   export interface ContainerItem {
     id: string;
@@ -20,10 +22,16 @@
 
   let { containers, url, onclose, onopen, oncreate }: Props = $props();
 
-  const palette = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+  const palette = identityPalette;
   let name = $state('');
   let color = $state(palette[0]);
   let nameEl = $state<HTMLInputElement | null>(null);
+  let dialogEl = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!dialogEl) return;
+    return trapFocus(dialogEl);
+  });
   const compatCef = $derived(
     String(value('kernel.default') ?? 'system') === 'cef' &&
       value<boolean>('kernel.cef.singleProcess') === true,
@@ -47,6 +55,7 @@
 <div class="container-backdrop" role="presentation" onclick={onclose}>
   <div
     class="container-dialog"
+    bind:this={dialogEl}
     role="dialog"
     aria-modal="true"
     aria-label={t('containers.open')}
@@ -178,14 +187,14 @@
   }
 
   .container-dialog__title {
-    font-size: 13.5px;
-    font-weight: 650;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
   }
 
   .container-dialog__url {
     margin-top: 2px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -238,13 +247,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .container-option__hint {
     flex: none;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -258,8 +267,8 @@
   }
 
   .container-create__title {
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
@@ -296,7 +305,7 @@
 
   .container-note {
     margin: 13px 0 0;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     color: var(--text-muted);
   }

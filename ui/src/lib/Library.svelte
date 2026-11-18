@@ -1,5 +1,7 @@
 <script lang="ts">
+  import EmptyState from './EmptyState.svelte';
   import Icon from './Icon.svelte';
+  import LoadingState from './LoadingState.svelte';
   import Segmented from './Segmented.svelte';
   import { call } from './bridge';
   import { t } from './i18n.svelte';
@@ -154,21 +156,16 @@
 
   <div class="library__body">
     {#if loading}
-      <div class="library-loading" aria-busy="true">
-        {#each Array(4) as _, index (index)}
-          <span class="skeleton-row"></span>
-        {/each}
-      </div>
+      <LoadingState rows={4} />
     {:else if kind === 'bookmarks'}
       {#if items.length === 0}
-        <div class="empty-state library-empty">
-          <span class="empty-state__icon"><Icon name="star" size={19} /></span>
-          <div class="empty-state__title">{t('bookmarks.empty')}</div>
-          <p class="empty-state__body">{t('bookmarks.emptyHint')}</p>
-          <button class="button button--primary button--sm" onclick={() => onopen?.('newtab')}>
-            {t('bookmarks.emptyAction')}
-          </button>
-        </div>
+        <EmptyState
+          icon="star"
+          title={t('bookmarks.empty')}
+          body={t('bookmarks.emptyHint')}
+          actionLabel={t('bookmarks.emptyAction')}
+          onaction={() => onopen?.('newtab')}
+        />
       {:else}
         <div class="entries">
           {#each items as item (item.id)}
@@ -205,15 +202,11 @@
         </div>
       {/if}
     {:else if history.length === 0}
-      <div class="empty-state library-empty">
-        <span class="empty-state__icon"><Icon name="history" size={19} /></span>
-        <div class="empty-state__title">
-          {query.trim() ? t('history.noResults') : t('history.empty')}
-        </div>
-        <p class="empty-state__body">
-          {query.trim() ? t('history.noResultsHint') : t('history.emptyHint')}
-        </p>
-      </div>
+      <EmptyState
+        icon="history"
+        title={query.trim() ? t('history.noResults') : t('history.empty')}
+        body={query.trim() ? t('history.noResultsHint') : t('history.emptyHint')}
+      />
     {:else}
       <div class="entries">
         {#each history as item (item.url)}
@@ -292,14 +285,14 @@
 
   .library__title {
     margin: 0;
-    font-size: 16px;
-    font-weight: 650;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.01em;
   }
 
   .library__subtitle {
     margin-top: 1px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -355,7 +348,7 @@
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     background: var(--bg-sunken);
   }
@@ -374,15 +367,15 @@
   }
 
   .entry__title {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .entry__url {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -391,7 +384,7 @@
 
   .entry__time {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -402,39 +395,6 @@
 
   .entry:hover .entry__remove {
     opacity: 1;
-  }
-
-  .library-empty {
-    max-width: 560px;
-    margin: 40px auto;
-    padding: 34px 24px;
-  }
-
-  .library-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    max-width: 860px;
-    margin: 0 auto;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-
-  .skeleton-row {
-    height: 50px;
-    background: linear-gradient(90deg, var(--bg-sunken), var(--surface), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
   }
 
   @media (max-width: 760px) {

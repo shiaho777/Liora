@@ -64,6 +64,71 @@ int64_t fileSize(NSString* path) {
   return [attributes[NSFileSize] longLongValue];
 }
 
+// Runs in the page after load: pick the declared icon (largest first), fall
+// back to /favicon.ico, rasterise to a small PNG and hand it to the shell as a
+// data URL. Cross-origin icons fail the canvas read and are simply skipped.
+NSString* const kFaviconScript = @R"JS(
+(function () {
+  try {
+    var links = Array.prototype.slice.call(
+      document.querySelectorAll('link[rel~="icon" i], link[rel="shortcut icon" i], link[rel="apple-touch-icon" i], link[rel="apple-touch-icon-precomposed" i]'));
+    function sizeOf(link) {
+      var sizes = (link.getAttribute('sizes') || '').toLowerCase();
+      if (!sizes || sizes === 'any') return 64;
+      var best = 0;
+      sizes.split(/\s+/).forEach(function (token) {
+        var parts = token.split('x');
+        var value = parseInt(parts[0], 10);
+        if (value > best) best = value;
+      });
+      return best || 64;
+    }
+    links.sort(function (a, b) { return sizeOf(b) - sizeOf(a); });
+    var candidates = [];
+    links.forEach(function (link) {
+      var href = link.getAttribute('href');
+      if (!href) return;
+      try { candidates.push(new URL(href, document.baseURI).href); } catch (e) {}
+    });
+    candidates.push(new URL('/favicon.ico', location.href).href);
+    var seen = {};
+    candidates = candidates.filter(function (url) {
+      if (seen[url]) return false;
+      seen[url] = true;
+      return true;
+    }).slice(0, 4);
+    function finish(dataUrl) {
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.lioraFavicon) {
+        window.webkit.messageHandlers.lioraFavicon.postMessage(dataUrl || '');
+      }
+    }
+    function tryIndex(index) {
+      if (index >= candidates.length) { finish(''); return; }
+      var image = new Image();
+      image.onload = function () {
+        try {
+          var size = 64;
+          var canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          var context = canvas.getContext('2d');
+          var width = image.naturalWidth || size;
+          var height = image.naturalHeight || size;
+          var scale = Math.min(size / width, size / height);
+          var drawWidth = Math.max(1, Math.round(width * scale));
+          var drawHeight = Math.max(1, Math.round(height * scale));
+          context.drawImage(image, (size - drawWidth) / 2, (size - drawHeight) / 2, drawWidth, drawHeight);
+          finish(canvas.toDataURL('image/png'));
+        } catch (e) { tryIndex(index + 1); }
+      };
+      image.onerror = function () { tryIndex(index + 1); };
+      image.src = candidates[index];
+    }
+    tryIndex(0);
+  } catch (e) {}
+})();
+)JS";
+
 }  // namespace
 
 // ---- Download -------------------------------------------------------------
@@ -190,6 +255,67 @@ int64_t fileSize(NSString* path) {
 
 @end
 
+// ---- Favicon bridge ---------------------------------------------------------
+
+// Receives the data URL produced by kFaviconScript. A separate object so the
+// web view configuration does not retain the kernel view.
+@interface LioraFaviconHandler : NSObject <WKScriptMessageHandler>
+- (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events;
+@end
+
+@implementation LioraFaviconHandler {
+  std::weak_ptr<ViewEvents> _events;
+}
+
+- (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events {
+  if ((self = [super init])) _events = events;
+  return self;
+}
+
+- (void)userContentController:(WKUserContentController*)controller
+      didReceiveScriptMessage:(WKScriptMessage*)message {
+  auto events = _events.lock();
+  if (!events || !events->onFavicon) return;
+  if (![message.body isKindOfClass:[NSString class]]) return;
+  NSString* text = (NSString*)message.body;
+  // Only small inline images; anything else is ignored rather than trusted.
+  if (text.length > 200000 || ![text hasPrefix:@"data:image/"]) return;
+  events->onFavicon(toStdString(text));
+}
+
+@end
+
+// ---- Title observation ------------------------------------------------------
+
+// WKWebView.title is KVO-compliant. Forward changes so a title set by page
+// script (or a user script) after load reaches the tab.
+@interface LioraTitleObserver : NSObject
+- (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events;
+@end
+
+@implementation LioraTitleObserver {
+  std::weak_ptr<ViewEvents> _events;
+}
+
+- (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events {
+  if ((self = [super init])) _events = events;
+  return self;
+}
+
+- (void)observeValueForKeyPath:(NSString*)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey, id>*)change
+                       context:(void*)context {
+  if (![keyPath isEqualToString:@"title"]) return;
+  auto events = _events.lock();
+  if (!events || !events->onTitle) return;
+  NSString* title = change[NSKeyValueChangeNewKey];
+  if (![title isKindOfClass:[NSString class]] || !title.length) return;
+  events->onTitle(toStdString(title));
+}
+
+@end
+
 // ---- Navigation and permissions -------------------------------------------
 
 @interface LioraWebViewDelegate : NSObject <WKNavigationDelegate, WKUIDelegate>
@@ -270,6 +396,9 @@ int64_t fileSize(NSString* path) {
   if (_events->onTitle) _events->onTitle(toStdString(webView.title));
   if (_events->onLoading) _events->onLoading(false, 1.0);
   if (_events->onHistory) _events->onHistory(webView.canGoBack, webView.canGoForward);
+  if (_events->onFavicon) {
+    [webView evaluateJavaScript:kFaviconScript completionHandler:nil];
+  }
 }
 
 - (void)webView:(WKWebView*)webView didStartProvisionalNavigation:(WKNavigation*)navigation {
@@ -419,6 +548,10 @@ class WebViewKernelView final : public IKernelView {
     }
     configuration.defaultWebpagePreferences.allowsContentJavaScript = YES;
 
+    faviconHandler_ = [[LioraFaviconHandler alloc] initWithEvents:events_];
+    [configuration.userContentController addScriptMessageHandler:faviconHandler_
+                                                            name:@"lioraFavicon"];
+
     delegate_ = [[LioraWebViewDelegate alloc] initWithEvents:events_ options:options];
 
     view_ = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration];
@@ -429,10 +562,18 @@ class WebViewKernelView final : public IKernelView {
     if (@available(macOS 13.3, *)) {
       view_.inspectable = YES;
     }
+    // Pages and user scripts can change document.title after load; observe it
+    // so the tab title stays current instead of freezing at navigation time.
+    titleObserver_ = [[LioraTitleObserver alloc] initWithEvents:events_];
+    [view_ addObserver:titleObserver_ forKeyPath:@"title" options:NSKeyValueObservingOptionNew context:nil];
     if (!options.url.empty()) load(options.url);
   }
 
-  ~WebViewKernelView() override { events_.reset(); }
+  ~WebViewKernelView() override {
+    [view_ removeObserver:titleObserver_ forKeyPath:@"title"];
+    [view_.configuration.userContentController removeScriptMessageHandlerForName:@"lioraFavicon"];
+    events_.reset();
+  }
 
   void load(const std::string& url) override {
     NSURL* parsed = [NSURL URLWithString:toNSString(url)];
@@ -460,6 +601,66 @@ class WebViewKernelView final : public IKernelView {
   }
   void setVisible(bool visible) override { view_.hidden = !visible; }
   void setZoom(double percent) override { view_.pageZoom = percent / 100.0; }
+
+  void setContentControls(const liora::ContentControls& controls) override {
+    controls_ = controls;
+    // JavaScript is a real WebKit preference; it applies to the next load.
+    view_.configuration.defaultWebpagePreferences.allowsContentJavaScript =
+        controls.javascript ? YES : NO;
+    rebuildInjectedScripts();
+  }
+
+  void setUserScripts(const std::vector<liora::InjectedScript>& scripts) override {
+    userScripts_ = scripts;
+    rebuildInjectedScripts();
+  }
+
+  // Content-policy scripts and user scripts share one WKUserContentController.
+  // Rebuild both together so neither wipes the other.
+  void rebuildInjectedScripts() {
+    WKUserContentController* controller = view_.configuration.userContentController;
+    [controller removeAllUserScripts];
+
+    // Images and autoplay have no native per-view switch, so a document-start
+    // script enforces them.
+    NSMutableString* policy = [NSMutableString string];
+    if (!controls_.images) {
+      [policy appendString:@"img, picture, source[type^='image'], svg image "
+                           "{ visibility: hidden !important; }"];
+    }
+    if (controls_.autoplay != "allow") {
+      NSString* condition = controls_.autoplay == "block"
+                                ? @"true"
+                                : @"!media.muted && media.volume > 0";
+      [policy appendFormat:
+          @"(function(){var stop=function(media){if(%@){try{media.pause();}catch(e){}}};"
+           "document.addEventListener('play',function(e){stop(e.target);},true);"
+           "var mo=new MutationObserver(function(){document.querySelectorAll('video,audio')"
+           ".forEach(function(m){if(m.autoplay){stop(m);}});});"
+           "mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,"
+           "attributeFilter:['autoplay']});})();",
+          condition];
+    }
+    if (policy.length) {
+      [controller addUserScript:[[WKUserScript alloc]
+                                    initWithSource:policy
+                                     injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                  forMainFrameOnly:NO]];
+    }
+
+    for (const auto& script : userScripts_) {
+      if (script.code.empty()) continue;
+      // "start" runs before page scripts; "end"/"idle" run after the document
+      // is parsed. WebKit has no idle time, so idle maps to document end.
+      WKUserScriptInjectionTime time = script.runAt == "start"
+                                           ? WKUserScriptInjectionTimeAtDocumentStart
+                                           : WKUserScriptInjectionTimeAtDocumentEnd;
+      [controller addUserScript:[[WKUserScript alloc]
+                                    initWithSource:toNSString(script.code)
+                                     injectionTime:time
+                                  forMainFrameOnly:NO]];
+    }
+  }
 
   void find(const std::string& text, bool forward, bool matchCase) override {
     if (text.empty()) return;
@@ -508,7 +709,11 @@ class WebViewKernelView final : public IKernelView {
  private:
   WKWebView* view_ = nil;
   LioraWebViewDelegate* delegate_ = nil;
+  LioraFaviconHandler* faviconHandler_ = nil;
+  LioraTitleObserver* titleObserver_ = nil;
   std::shared_ptr<ViewEvents> events_;
+  liora::ContentControls controls_;
+  std::vector<liora::InjectedScript> userScripts_;
 };
 
 }  // namespace
@@ -533,7 +738,7 @@ KernelInfo SystemKernel::info() const {
   // WebKit can be pointed at a local HTTP proxy only from macOS 14, so encrypted
   // DNS via liora-net is advertised only there. ECH and forced QUIC are never
   // available: the page's TLS is owned by WebKit.
-  uint32_t caps = 0;
+  uint32_t caps = kCapContentControls;
   if (@available(macOS 14.0, *)) caps |= kCapProxy;
   info.caps = caps;
   info.available = true;

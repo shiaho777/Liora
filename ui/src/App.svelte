@@ -23,38 +23,17 @@
   } from './lib/downloads.svelte';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
+  import { addressBadges, type HostRule } from './lib/address-badges';
+  import { runCommand } from './lib/commands';
+  import { runTestScenario } from './lib/test-commands';
+  import TabStrip from './lib/TabStrip.svelte';
+  import TabRail from './lib/TabRail.svelte';
+  import Toolbar from './lib/Toolbar.svelte';
+  import { internalIcon, type Tab, type TabGroup } from './lib/tab-types';
+  import { identityPalette } from './lib/palette';
   import { call, describeSettings, notify, onNotification } from './lib/bridge';
   import { t } from './lib/i18n.svelte';
   import { settingsStore } from './lib/settings-store.svelte';
-
-  interface Tab {
-    id: number;
-    title: string;
-    url: string;
-    page:
-      | 'newtab'
-      | 'settings'
-      | 'bookmarks'
-      | 'history'
-      | 'diagnostics'
-      | 'downloads'
-      | 'watches'
-      | 'containers'
-      | 'web';
-    error?: { url: string; code: number; message: string };
-    security?: { host: string; subject: string; valid: boolean; notAfter: number; https: boolean };
-    canBack?: boolean;
-    canForward?: boolean;
-    groupId?: string;
-    containerId?: string;
-  }
-
-  interface TabGroup {
-    id: string;
-    name: string;
-    color: string;
-    collapsed: boolean;
-  }
 
   interface Container {
     id: string;
@@ -83,13 +62,8 @@
   let contentEl = $state<HTMLDivElement | null>(null);
   let addressEl = $state<HTMLInputElement | null>(null);
   let siteCardOpen = $state(false);
-  let tabQuery = $state('');
   let paletteOpen = $state(false);
   let groups = $state<TabGroup[]>([]);
-  let renamingGroup = $state('');
-  let groupNameDraft = $state('');
-  let draggingTab = $state(0);
-  let dragOverGroup = $state('');
   let closedTabs = $state<Array<{ title: string; url: string; page: Tab['page']; groupId?: string }>>(
     [],
   );
@@ -107,8 +81,68 @@
   let watchDialogTitle = $state('');
   let containers = $state<Container[]>([]);
   let containerPickerOpen = $state(false);
+  // Address bar badges are derived from real state, never hard-coded.
+  let activeRule = $state<HostRule | null>(null);
+  let kernelCaps = $state<Record<string, string[]>>({});
+  let resolverRunning = $state(false);
+  let badgeEpoch = $state(0);
+  // Favicon cache shared by tabs and the start page. Persisted in Core so a
+  // restart shows real icons immediately, without any third-party service.
+  let faviconCache = $state<Record<string, string>>({});
 
   const active = $derived(tabs.find((tab) => tab.id === activeId) ?? tabs[0]);
+
+  const activeHost = $derived.by(() => {
+    try {
+      return new URL(active?.url ?? '').hostname;
+    } catch {
+      return '';
+    }
+  });
+
+  // Only claims what a matched rule asks for and this kernel can honour.
+  const badges = $derived.by(() => {
+    void badgeEpoch;
+    if (!active || active.page !== 'web') return [];
+    const kernelId = activeRule?.kernel ?? '';
+    return addressBadges({
+      url: active.url,
+      rule: activeRule,
+      caps: kernelCaps[kernelId] ?? [],
+      resolverRunning,
+    });
+  });
+
+  async function loadAddressState(): Promise<void> {
+    const url = active?.url ?? '';
+    if (active?.page !== 'web' || !activeHost) {
+      activeRule = null;
+      return;
+    }
+    const [matched, kernels, runtime] = await Promise.allSettled([
+      call<HostRule>('rules.match', { host: activeHost }),
+      call<Array<{ id: string; caps?: string[] }>>('kernels.list'),
+      call<{ running?: boolean }>('net.runtime'),
+    ]);
+    // The user may have navigated again while these were in flight.
+    if ((active?.url ?? '') !== url) return;
+    activeRule = matched.status === 'fulfilled' ? matched.value : null;
+    if (kernels.status === 'fulfilled') {
+      const next: Record<string, string[]> = {};
+      for (const kernel of kernels.value) next[kernel.id] = kernel.caps ?? [];
+      kernelCaps = next;
+    }
+    resolverRunning = runtime.status === 'fulfilled' ? Boolean(runtime.value.running) : false;
+  }
+
+  $effect(() => {
+    void active?.url;
+    void active?.page;
+    void activeHost;
+    void badgeEpoch;
+    void loadAddressState();
+  });
+
   const showTabs = $derived(app.tabsPosition !== 'hidden');
   const verticalTabs = $derived(app.tabsPosition === 'vertical');
   const readerActive = $derived(
@@ -119,7 +153,7 @@
     split ? (tabs.find((tab) => tab.id === split!.secondary) ?? null) : null,
   );
   const webTabCount = $derived(tabs.filter((tab) => tab.page === 'web').length);
-  const containerColors = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+  const containerColors = identityPalette;
   const activeContainer = $derived(
     containers.find((container) => container.id === active?.containerId) ?? null,
   );
@@ -145,6 +179,14 @@
     const item = settingsStore.items.find((entry) => entry.key === 'search.engine');
     return typeof item?.value === 'string' ? item.value : 'duckduckgo';
   });
+  const homePage = $derived.by(() => {
+    const item = settingsStore.items.find((entry) => entry.key === 'home.page');
+    return typeof item?.value === 'string' && item.value ? item.value : 'liora://newtab';
+  });
+  const showHomeButton = $derived.by(() => {
+    const item = settingsStore.items.find((entry) => entry.key === 'ui.showHomeButton');
+    return item?.value === true;
+  });
   let bookmarks = $state<Array<{ id: number; title: string; url: string }>>([]);
   let sessionReady = $state(false);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -157,6 +199,7 @@
       sessionReady = true;
       await loadBookmarks();
       await loadDownloadHistory();
+      await loadFaviconCache();
       void refreshNetworkStatus();
       // The shell's first-paint push can arrive before the bridge is ready.
       notify('ui.runtime', {});
@@ -256,13 +299,38 @@
     }
   }
 
+  async function loadFaviconCache(): Promise<void> {
+    try {
+      const list = await call<Array<{ host: string; dataUrl: string }>>('favicon.list', {});
+      const next: Record<string, string> = {};
+      for (const item of list) {
+        if (item.host && item.dataUrl) next[item.host] = item.dataUrl;
+      }
+      faviconCache = next;
+      // Restored tabs get their icons back without waiting for a reload.
+      let changed = false;
+      for (const tab of tabs) {
+        if (tab.page !== 'web' || tab.favicon) continue;
+        const icon = next[hostOfUrl(tab.url)];
+        if (icon) {
+          tab.favicon = icon;
+          changed = true;
+        }
+      }
+      if (changed) tabs = [...tabs];
+    } catch {
+      /* the cache is an enhancement; browsing works without it */
+    }
+  }
+
   async function loadBookmarks(): Promise<void> {    try {
       const tree = await call<Record<string, { children?: Array<{ id: number; type: string; title: string; url?: string }> }>>(
         'bookmarks.tree',
       );
+      // Every bookmark on the bar stays reachable; the bar scrolls instead of
+      // silently dropping everything past an arbitrary cut-off.
       bookmarks = (tree.bar?.children ?? [])
         .filter((node) => node.type === 'url' && node.url)
-        .slice(0, 12)
         .map((node) => ({ id: node.id, title: node.title || node.url!, url: node.url! }));
     } catch {
       bookmarks = [];
@@ -273,15 +341,7 @@
     active.page === 'web' && bookmarks.some((entry) => entry.url === active.url),
   );
 
-  const visibleTabs = $derived.by(() => {
-    const query = tabQuery.trim().toLowerCase();
-    if (!query) return tabs;
-    return tabs.filter((tab) =>
-      `${tab.title} ${tab.url}`.toLowerCase().includes(query),
-    );
-  });
-
-  const groupColors = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+  const groupColors = identityPalette;
 
   const groupedTabs = $derived(
     groups.map((group) => ({
@@ -420,6 +480,7 @@
       message.method === 'core.reloaded'
     ) {
       scheduleNetworkStatus();
+      badgeEpoch += 1;
     }
     if (message.method === 'browser.kernelRestarted' && applyState === 'applying') {
       const params = (message.params ?? {}) as { proxy?: string };
@@ -502,6 +563,9 @@
       if (!url || url === 'about:blank') return;
       const tab = tabs.find((entry) => entry.id === Number(params.tab));
       if (tab && tab.page === 'web' && !tab.error) {
+        // A different site must not keep the previous site's icon while the
+        // new page loads. Same-host navigations keep it.
+        if (tab.favicon && hostOfUrl(url) !== hostOfUrl(tab.url)) tab.favicon = undefined;
         tab.url = url;
         tabs = [...tabs];
         void applyStoredZoom(url, tab.id);
@@ -518,6 +582,26 @@
       if (tab && tab.page === 'web' && !tab.error) {
         tab.title = title;
         tabs = [...tabs];
+      }
+      return;
+    }
+    if (message.method === 'browser.favicon' && message.params) {
+      const params = message.params as { tab?: number; icon?: string };
+      const icon = params.icon ?? '';
+      // Only small inline images; the kernel already filters, this is belt
+      // and braces for anything reaching the interface.
+      if (icon && (!icon.startsWith('data:image/') || icon.length > 200000)) return;
+      const tab = tabs.find((entry) => entry.id === Number(params.tab));
+      if (tab && tab.page === 'web' && tab.favicon !== icon) {
+        tab.favicon = icon || undefined;
+        tabs = [...tabs];
+      }
+      if (tab && icon) {
+        const host = hostOfUrl(tab.url);
+        if (host && faviconCache[host] !== icon) {
+          faviconCache = { ...faviconCache, [host]: icon };
+          void call('favicon.set', { host, icon }).catch(() => {});
+        }
       }
       return;
     }
@@ -720,399 +804,76 @@
   });
 
   // Used by the shell's menu shortcuts, which work regardless of which view
-  // has keyboard focus.
+  // has keyboard focus. Dispatch lives in lib/commands.ts; the DOM-driven
+  // test scenarios are only registered when the shell runs in test mode.
   $effect(() => {
-    const hooks = window as unknown as { __lioraCommand?: (name: string) => void };
+    const hooks = window as unknown as {
+      __lioraCommand?: (name: string) => void;
+      __lioraTestMode?: boolean;
+      __lioraCopyReport?: () => void;
+      __lioraSaveReport?: () => void;
+      __lioraRestartKernel?: () => void;
+      __lioraSaveTimeline?: () => void;
+      __lioraOpenUrl?: (url: string) => void;
+    };
     hooks.__lioraCommand = (name: string) => {
-      if (name.startsWith('settings:')) {
-        openSettings(name.slice('settings:'.length));
-        return;
-      }
-      if (name.startsWith('open:')) {
-        navigate(name.slice('open:'.length));
-        return;
-      }
-      if (name.startsWith('suggest:')) {
-        const input = document.querySelector<HTMLInputElement>('.search input');
-        if (input) {
-          input.value = name.slice('suggest:'.length);
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.focus();
-        }
-        return;
-      }
-      if (name.startsWith('filtersettings:')) {
-        const input = document.querySelector<HTMLInputElement>('.settings__search input');
-        if (input) {
-          input.value = name.slice('filtersettings:'.length);
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.focus();
-        }
-        return;
-      }
-      if (name.startsWith('find:')) {
-        findOpen = true;
-        findTabId = activeId;
-        findAutoAdvanced = false;
-        findText = name.slice('find:'.length);
-        setTimeout(() => runFind(true), 50);
-        return;
-      }
-      switch (name) {
-        case 'newTab': newTab(); break;
-        case 'closeTab': closeTab(activeId); break;
-        case 'reload': navigate(active.url); break;
-        case 'focusAddress': addressEl?.focus(); addressEl?.select(); break;
-        case 'settings': openSettings(); break;
-        case 'fullscreen':
-          notify('ui.testFullscreen', { fullscreen: true });
-          break;
-        case 'unfullscreen':
-          notify('ui.testFullscreen', { fullscreen: false });
-          break;
-        case 'find': openFind(); break;
-        case 'findnext': runFind(true); break;
-        case 'findprev': runFind(false); break;
-        case 'findclose': closeFind(); break;
-        case 'devTools': notify('ui.devTools', { tab: activeId }); break;
-        case 'back': goBack(); break;
-        case 'forward': goForward(); break;
-        case 'zoomIn': void changeZoom(10); break;
-        case 'zoomOut': void changeZoom(-10); break;
-        case 'zoomReset': void changeZoom(0); break;
-        case 'downloads': openDownloads(); break;
-        case 'palette': openPalette(); break;
-        case 'reader': requestReader(false); break;
-        case 'summary': requestReader(true); break;
-        case 'split': toggleSplit(); break;
-        case 'splitfocus2':
-          if (split) activeId = split.secondary;
-          break;
-        case 'splitclose': closeSplit(); break;
-        case 'splitratio':
-          splitRatio = 0.35;
+      runCommand(name, {
+        activeId,
+        activeUrl: active?.url ?? '',
+        groups,
+        splitSecondary: split?.secondary ?? null,
+        siteCardOpen,
+        addressEl,
+        newTab,
+        closeTab,
+        navigate,
+        openSettings,
+        openFind,
+        runFind,
+        closeFind,
+        openFindWith: (text) => {
+          findOpen = true;
+          findTabId = activeId;
+          findAutoAdvanced = false;
+          findText = text;
+          setTimeout(() => runFind(true), 50);
+        },
+        goBack,
+        goForward,
+        changeZoom: (delta) => void changeZoom(delta),
+        openDownloads,
+        openPalette,
+        closePalette,
+        requestReader,
+        closeReader,
+        toggleSplit,
+        closeSplit,
+        setSplitRatio: (ratio) => {
+          splitRatio = ratio;
           scheduleContentLayout();
-          break;
-        case 'splitdrag': {
-          const splitNode = document.querySelector<HTMLElement>('.split');
-          const divider = document.querySelector<HTMLElement>('.split__divider');
-          if (!splitNode || !divider) break;
-          const splitRect = splitNode.getBoundingClientRect();
-          const dividerRect = divider.getBoundingClientRect();
-          const options = {
-            bubbles: true,
-            pointerId: 1,
-            clientY: dividerRect.top + 10,
-          } as PointerEventInit;
-          divider.dispatchEvent(
-            new PointerEvent('pointerdown', { ...options, clientX: dividerRect.left + 2 }),
-          );
-          const x = splitRect.left + splitRect.width * 0.35;
-          window.dispatchEvent(new PointerEvent('pointermove', { ...options, clientX: x }));
-          window.dispatchEvent(new PointerEvent('pointerup', { ...options, clientX: x }));
-          break;
-        }
-        case 'readerclose': closeReader(); break;
-        case 'watchdialog': openWatchDialog(); break;
-        case 'containerdialog': openContainerPicker(); break;
-        case 'mini': openMiniWindow(); break;
-        case 'watchsubmit':
-          document.querySelector<HTMLElement>('.watch-dialog .button--primary')?.click();
-          break;
-        case 'newgroup': createGroup(); break;
-        case 'reopentab': reopenClosedTab(); break;
-        case 'grouptab':
-          if (groups[0]) assignGroup(activeId, groups[0].id);
-          break;
-        case 'paletteclose': closePalette(); break;
-        case 'sitecard': siteCardOpen = !siteCardOpen; break;
-        case 'copyreport':
-          (window as unknown as { __lioraCopyReport?: () => void }).__lioraCopyReport?.();
-          break;
-        case 'savereport':
-          (window as unknown as { __lioraSaveReport?: () => void }).__lioraSaveReport?.();
-          break;
-        case 'restartkernel':
-          (window as unknown as { __lioraRestartKernel?: () => void }).__lioraRestartKernel?.();
-          break;
-        case 'dnschange': {
-          // Test hook: switch the DNS provider from the panel without
-          // restarting, so the pending-changes state can be inspected.
-          const mode = [...document.querySelectorAll('button')].find(
-            (button) => button.textContent.trim() === '选择提供商',
-          );
-          mode?.click();
-          setTimeout(() => {
-            const quad9 = [...document.querySelectorAll<HTMLElement>('.provider')].find((card) =>
-              card.textContent?.includes('Quad9'),
-            );
-            quad9?.click();
-          }, 600);
-          break;
-        }
-        case 'restartnetwork': {
-          const restart = [...document.querySelectorAll('button')].find((button) =>
-            button.textContent?.includes('重启'),
-          );
-          restart?.click();
-          break;
-        }
-        case 'revealtoast': {
-          const action = document.querySelector<HTMLElement>(
-            '.toast__action[data-kind="folder"]',
-          );
-          action?.click();
-          break;
-        }
-        case 'openfiletoast': {
-          const action = document.querySelector<HTMLElement>(
-            '.toast__action[data-kind="file"]',
-          );
-          action?.click();
-          break;
-        }
-        case 'savetimeline': {
-          (window as unknown as { __lioraSaveTimeline?: () => void }).__lioraSaveTimeline?.();
-          break;
-        }
-        case 'setprovider': {
-          void call('settings.set', { key: 'dns.mode', value: 'provider' });
-          void call('settings.set', { key: 'dns.provider', value: 'quad9' });
-          break;
-        }
-        case 'restartservice': {
-          notify('ui.restartKernel', {});
-          break;
-        }
-        case 'applyfrombadge': {
-          document.querySelector<HTMLElement>('.network-pending')?.click();
-          break;
-        }
-        case 'dnschangeback': {
-          const mode = [...document.querySelectorAll('button')].find(
-            (button) => button.textContent.trim() === '选择提供商',
-          );
-          mode?.click();
-          setTimeout(() => {
-            const cloudflare = [...document.querySelectorAll<HTMLElement>('.provider')].find(
-              (card) => card.textContent?.includes('Cloudflare'),
-            );
-            cloudflare?.click();
-          }, 600);
-          break;
-        }
-        case 'openfail': {
-          (window as unknown as { __lioraOpenUrl?: (url: string) => void }).__lioraOpenUrl?.(
-            'https://this-host-does-not-exist.invalid/',
-          );
-          break;
-        }
-        case 'saverefreshed': {
-          const save = [...document.querySelectorAll('button')].find((button) =>
-            button.textContent?.includes('保存当前状态'),
-          );
-          save?.click();
-          break;
-        }
-        case 'openrecent': {
-          document.querySelector<HTMLElement>('.recent__item')?.click();
-          break;
-        }
-        case 'deleterecent': {
-          document.querySelector<HTMLElement>('.recent__delete')?.click();
-          break;
-        }
-        case 'clearrecent': {
-          const clear = [...document.querySelectorAll('button')].find((button) =>
-            button.textContent?.includes('清理旧文件'),
-          );
-          clear?.click();
-          break;
-        }
-        case 'openrecenttimeline': {
-          document.querySelector<HTMLElement>('.recent__item[data-kind="timeline"]')?.click();
-          break;
-        }
-        case 'tab1': {
-          document.querySelectorAll<HTMLElement>('.tab')[0]?.click();
-          break;
-        }
-        case 'tab2': {
-          document.querySelectorAll<HTMLElement>('.tab')[1]?.click();
-          break;
-        }
-        case 'tab3': {
-          document.querySelectorAll<HTMLElement>('.tab')[2]?.click();
-          break;
-        }
-        case 'refreshcatalog': {
-          document.querySelector<HTMLElement>('.catalog-refresh')?.click();
-          break;
-        }
-        case 'rulesadd': {
-          const add = [...document.querySelectorAll('button')].find(
-            (button) => button.textContent?.trim() === '添加规则',
-          );
-          add?.click();
-          break;
-        }
-        case 'rulespreset': {
-          const preset = [...document.querySelectorAll('button')].find((button) =>
-            button.textContent?.includes('Twitter'),
-          );
-          preset?.click();
-          break;
-        }
-        case 'updatecomponent': {
-          document.querySelector<HTMLElement>('.component-update')?.click();
-          break;
-        }
-        case 'cefdownload': {
-          const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
-            item.textContent?.includes('Chromium (CEF)'),
-          );
-          [...(card?.querySelectorAll<HTMLElement>('button') ?? [])]
-            .find((button) => button.textContent?.includes('下载'))
-            ?.click();
-          break;
-        }
-        case 'cefselect': {
-          const card = [...document.querySelectorAll<HTMLElement>('.card')].find((item) =>
-            item.textContent?.includes('Chromium (CEF)'),
-          );
-          [...(card?.querySelectorAll<HTMLElement>('button') ?? [])]
-            .find((button) => button.textContent?.trim() === '默认内核')
-            ?.click();
-          break;
-        }
-        case 'cefkeep': {
-          [...document.querySelectorAll<HTMLElement>('.confirm button')]
-            .find((button) => button.textContent?.includes('保持系统 WebView'))
-            ?.click();
-          break;
-        }
-        case 'cefconfirmselect': {
-          [...document.querySelectorAll<HTMLElement>('.confirm button')]
-            .find((button) => button.textContent?.includes('仍要选择'))
-            ?.click();
-          break;
-        }
-        case 'cefconfirm': {
-          [...document.querySelectorAll<HTMLElement>('.confirm button')]
-            .find((button) => button.textContent?.includes('仍要下载'))
-            ?.click();
-          break;
-        }
-        case 'cefcancel': {
-          [...document.querySelectorAll<HTMLElement>('.confirm button')]
-            .find((button) => button.textContent?.includes('取消'))
-            ?.click();
-          break;
-        }
-        case 'opendns': {
-          const dns = [...document.querySelectorAll<HTMLElement>('.nav-item')].find((item) =>
-            item.textContent?.includes('DNS 与直连'),
-          );
-          dns?.click();
-          break;
-        }
-        case 'leavepage': {
-          const appearance = [...document.querySelectorAll<HTMLElement>('.nav-item')].find(
-            (item) => item.textContent.trim() === '外观',
-          );
-          appearance?.click();
-          break;
-        }
-        case 'opendnsrestart': {
-          const chip = document.querySelector<HTMLElement>('.network-pending');
-          chip?.click();
-          setTimeout(() => {
-            const restart = [...document.querySelectorAll('button')].find((button) =>
-              button.textContent?.includes('重启'),
-            );
-            restart?.click();
-          }, 1500);
-          break;
-        }
-        case 'advanced': {
-          document.querySelector<HTMLElement>('.settings__footer .toggle')?.click();
-          break;
-        }
-        case 'settingsdone': {
-          document.querySelector<HTMLElement>('.settings__done')?.click();
-          break;
-        }
-        case 'scrollsettings': {
-          const main = document.querySelector<HTMLElement>('.settings__main');
-          if (main) main.scrollTop = main.scrollHeight;
-          break;
-        }
-        case 'scrollrules':
-          document.querySelector('.rules')?.scrollIntoView({ block: 'start' });
-          break;
-        case 'pagedump': {
-          const errors = (window as unknown as { __lioraErrors?: string[] }).__lioraErrors ?? [];
-          const content = document.querySelector('.content');
-          const badge = document.querySelector<HTMLElement>('.network-pending');
-          (window as unknown as { __lioraPageText?: string }).__lioraPageText = [
-            document.body.innerText,
-            '-- active nav --',
-            document.querySelector('.nav-item--active')?.textContent?.trim() ?? 'none',
-            '-- nav states --',
-            JSON.stringify(
-              [...document.querySelectorAll('.nav-item')].map((item) => ({
-                text: item.textContent?.trim(),
-                active: item.classList.contains('nav-item--active'),
-                background: getComputedStyle(item).backgroundColor,
-              })),
-            ),
-            '-- pane title --',
-            document.querySelector('.settings__title')?.textContent?.trim() ?? 'none',
-            '-- section --',
-            (() => {
-              const el = document.querySelector('.settings__main .section');
-              if (!el) return 'none';
-              const style = getComputedStyle(el);
-              const rect = el.getBoundingClientRect();
-              return JSON.stringify({
-                opacity: style.opacity,
-                transform: style.transform,
-                animation: style.animationName,
-                display: style.display,
-                top: rect.top,
-                height: rect.height,
-                scrollTop: document.querySelector('.settings__main')?.scrollTop,
-              });
-            })(),
-            '-- split --',
-            (() => {
-              const el = document.querySelector('.split');
-              if (!el) return 'none';
-              const style = getComputedStyle(el);
-              return JSON.stringify({
-                inline: el.getAttribute('style'),
-                columns: style.gridTemplateColumns,
-                width: el.getBoundingClientRect().width,
-              });
-            })(),
-            '-- active icons --',
-            JSON.stringify(
-              [...document.querySelectorAll('.toolbar .icon-button--active')].map(
-                (item) => item.getAttribute('aria-label') || item.getAttribute('title'),
-              ),
-            ),
-            '-- badge --',
-            badge
-              ? JSON.stringify({ text: badge.textContent?.trim(), title: badge.title })
-              : 'none',
-            '-- content --',
-            content?.innerHTML.slice(0, 700) ?? 'no content element',
-            '-- errors --',
-            JSON.stringify(errors),
-          ].join('\n');
-          break;
-        }
-      }
+        },
+        focusSplitSecondary: () => {
+          if (split) activeId = split.secondary;
+        },
+        openWatchDialog,
+        openContainerPicker,
+        openMiniWindow,
+        createGroup: () => void createGroup(),
+        assignGroup,
+        reopenClosedTab,
+        toggleSiteCard: () => {
+          siteCardOpen = !siteCardOpen;
+        },
+        copyReport: () => hooks.__lioraCopyReport?.(),
+        saveReport: () => hooks.__lioraSaveReport?.(),
+        restartKernel: () => hooks.__lioraRestartKernel?.(),
+        saveTimeline: () => hooks.__lioraSaveTimeline?.(),
+        openUrl: (url) => hooks.__lioraOpenUrl?.(url),
+        setFullscreen: (fullscreen) => notify('ui.testFullscreen', { fullscreen }),
+        notify,
+        setSetting: (key, value) => void call('settings.set', { key, value }),
+        runTestCommand: hooks.__lioraTestMode ? runTestScenario : undefined,
+      });
     };
   });
 
@@ -1158,6 +919,14 @@
     if (index >= 0) tabs[index] = { ...tabs[index], ...patch };
   }
 
+  function hostOfUrl(url: string): string {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return '';
+    }
+  }
+
   function newTab(
     url = 'liora://newtab',
     containerId: string | null = active?.containerId ?? null,
@@ -1192,6 +961,7 @@
         page: 'newtab',
         groupId: undefined,
         containerId: undefined,
+        favicon: undefined,
       });
       notify('ui.setPage', { page: 'newtab' });
       return;
@@ -1229,17 +999,6 @@
     return t('tab.new');
   }
 
-  function internalIcon(page: string): string {
-    if (page === 'settings') return 'settings';
-    if (page === 'bookmarks') return 'star';
-    if (page === 'history') return 'history';
-    if (page === 'diagnostics') return 'info';
-    if (page === 'downloads') return 'download';
-    if (page === 'watches') return 'eye';
-    if (page === 'containers') return 'shield';
-    return 'home';
-  }
-
   function addressLabel(tab: Tab): string {
     return tab.page === 'web' ? tab.url : internalTitle(tab.page);
   }
@@ -1262,6 +1021,7 @@
       page: 'web',
       title: url.replace(/^https?:\/\//, '').split('/')[0],
       error: undefined,
+      favicon: faviconCache[hostOfUrl(url)],
     });
     const container = tabs.find((tab) => tab.id === activeId)?.containerId ?? '';
     notify('ui.navigate', { url, tab: activeId, container });
@@ -1387,21 +1147,6 @@
   function cycleGroupColor(group: TabGroup): void {
     const index = groupColors.indexOf(group.color);
     group.color = groupColors[(index + 1) % groupColors.length];
-  }
-
-  function beginRenameGroup(group: TabGroup): void {
-    renamingGroup = group.id;
-    groupNameDraft = group.name;
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>('.tabgroup__rename')?.select();
-    });
-  }
-
-  function commitGroupName(): void {
-    const group = groups.find((item) => item.id === renamingGroup);
-    const name = groupNameDraft.trim();
-    if (group && name) group.name = name;
-    renamingGroup = '';
   }
 
   function rememberClosed(tab: Tab): void {
@@ -1889,127 +1634,16 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#snippet tabstrip()}
-  <div class="tabstrip">
-    <div class="tabstrip__rail">
-      {#each tabs as tab (tab.id)}
-        <div
-          class="tab"
-          class:tab--active={tab.id === activeId}
-          class:tab--grouped={Boolean(tab.groupId)}
-          style:--group-color={groupColor(tab.groupId)}
-          role="tab"
-          tabindex="0"
-          aria-selected={tab.id === activeId}
-          onclick={() => (activeId = tab.id)}
-          onkeydown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              activeId = tab.id;
-            }
-          }}
-          ondblclick={() => newTab()}
-          title={tab.title}
-        >
-          <span class="tab__favicon">
-            {#if tab.page === 'web'}
-              <Icon name="globe" size={10} />
-            {:else if tab.page === 'newtab'}
-              L
-            {:else}
-              <Icon name={internalIcon(tab.page)} size={10} />
-            {/if}
-          </span>
-          {#if tab.containerId}
-            <span
-              class="tab__container"
-              style:background={containerColor(tab.containerId)}
-              title={containerName(tab.containerId)}
-            ></span>
-          {/if}
-          <span class="tab__title">{tab.title}</span>
-          <button
-            class="tab__close"
-            title={t('tab.close')}
-            aria-label={t('tab.close')}
-            onclick={(event) => {
-              event.stopPropagation();
-              closeTab(tab.id);
-            }}
-          >
-            <Icon name="close" size={10} />
-          </button>
-        </div>
-      {/each}
-    </div>
-    <button class="icon-button" title={t('tab.new')} onclick={() => newTab()}>
-      <Icon name="plus" />
-    </button>
-  </div>
-{/snippet}
-
-{#snippet verticalTab(tab: Tab, showGroup = false)}
-  <div
-    class="tabrow"
-    class:tabrow--active={tab.id === activeId}
-    class:tabrow--dragging={draggingTab === tab.id}
-    role="tab"
-    tabindex="0"
-    aria-selected={tab.id === activeId}
-    draggable="true"
-    onclick={() => (activeId = tab.id)}
-    onkeydown={(event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        activeId = tab.id;
-      }
-    }}
-    ondragstart={(event) => {
-      draggingTab = tab.id;
-      event.dataTransfer?.setData('text/liora-tab', String(tab.id));
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    }}
-    ondragend={() => {
-      draggingTab = 0;
-      dragOverGroup = '';
-    }}
-    title={tab.groupId ? `${tab.url} · ${groupName(tab.groupId)}` : tab.url}
-  >
-    <span class="tabrow__favicon">
-      {#if tab.page === 'web'}
-        <Icon name="globe" size={11} />
-      {:else if tab.page === 'newtab'}
-        L
-      {:else}
-        <Icon name={internalIcon(tab.page)} size={11} />
-      {/if}
-    </span>
-    {#if tab.containerId}
-      <span
-        class="tabrow__container"
-        style:background={containerColor(tab.containerId)}
-        title={containerName(tab.containerId)}
-      ></span>
-    {/if}
-    <span class="tabrow__title">{tab.title}</span>
-    {#if showGroup && tab.groupId}
-      <span
-        class="tabrow__group"
-        style:background={groupColor(tab.groupId)}
-        title={groupName(tab.groupId)}
-      ></span>
-    {/if}
-    <button
-      class="tabrow__close"
-      title={t('tab.close')}
-      aria-label={t('tab.close')}
-      onclick={(event) => {
-        event.stopPropagation();
-        closeTab(tab.id);
-      }}
-    >
-      <Icon name="close" size={9} />
-    </button>
-  </div>
+  <TabStrip
+    {tabs}
+    {activeId}
+    {groupColor}
+    {containerColor}
+    {containerName}
+    onselect={(id) => (activeId = id)}
+    onclose={closeTab}
+    onnew={() => newTab()}
+  />
 {/snippet}
 
 {#if !app.ready}
@@ -2018,6 +1652,14 @@
   </div>
 {:else}
   <div class="app">
+    {#if app.transport === 'mock'}
+      <!-- Never let a preview pass for the real browser: without the shell the
+           data below comes from an in-memory demo backend. -->
+      <div class="mockbanner" role="status">
+        <Icon name="info" size={13} />
+        <span>{t('mock.banner')}</span>
+      </div>
+    {/if}
     {#if app.platform === 'macos'}
       <div class="titlebar titlebar--mac" class:titlebar--tabs={showTabs && !verticalTabs}>
         {#if verticalTabs}
@@ -2034,338 +1676,70 @@
 
     <div class="workbench">
       {#if verticalTabs}
-        <aside class="tabrail" aria-label={t('tabs.label')}>
-          <div class="tabrail__head">
-            <span class="tabrail__label">
-              {t('tabs.label')}
-              <span class="tabrail__count">{tabs.length}</span>
-            </span>
-            <button
-              class="icon-button"
-              title={t('groups.new')}
-              aria-label={t('groups.new')}
-              onclick={() => createGroup()}
-            >
-              <Icon name="folder" />
-            </button>
-            <button
-              class="icon-button"
-              title={t('tab.new')}
-              aria-label={t('tab.new')}
-              onclick={() => {
-                tabQuery = '';
-                newTab();
-              }}
-            >
-              <Icon name="plus" />
-            </button>
-          </div>
-
-          <label class="tabrail__search">
-            <Icon name="search" size={12} />
-            <input
-              bind:value={tabQuery}
-              placeholder={t('tabs.search')}
-              aria-label={t('tabs.search')}
-              spellcheck="false"
-            />
-            {#if tabQuery}
-              <button
-                class="tabrail__clear"
-                title={t('tabs.clear')}
-                aria-label={t('tabs.clear')}
-                onclick={() => (tabQuery = '')}
-              >
-                <Icon name="close" size={9} />
-              </button>
-            {/if}
-          </label>
-
-          <div class="tabrail__list">
-            {#if tabQuery.trim()}
-              {#if visibleTabs.length === 0}
-                <div class="tabrail__empty">{t('tabs.none')}</div>
-              {:else}
-                {#each visibleTabs as tab (tab.id)}
-                  {@render verticalTab(tab, true)}
-                {/each}
-              {/if}
-            {:else}
-              {#each groupedTabs as group (group.id)}
-                <div class="tabgroup">
-                  <div
-                    class="tabgroup__head"
-                    class:tabgroup__head--active={group.tabs.some((tab) => tab.id === activeId)}
-                    class:tabgroup__head--drop={dragOverGroup === group.id}
-                    role="button"
-                    tabindex="0"
-                    onclick={() => (group.collapsed = !group.collapsed)}
-                    onkeydown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        group.collapsed = !group.collapsed;
-                      }
-                    }}
-                    ondragover={(event) => {
-                      event.preventDefault();
-                      dragOverGroup = group.id;
-                    }}
-                    ondragleave={() => {
-                      if (dragOverGroup === group.id) dragOverGroup = '';
-                    }}
-                    ondrop={(event) => {
-                      event.preventDefault();
-                      const id = Number(event.dataTransfer?.getData('text/liora-tab'));
-                      if (id) assignGroup(id, group.id);
-                      dragOverGroup = '';
-                      draggingTab = 0;
-                    }}
-                  >
-                    <span
-                      class="tabgroup__chevron"
-                      class:tabgroup__chevron--open={!group.collapsed}
-                    >
-                      <Icon name="chevron" size={9} />
-                    </span>
-                    <button
-                      class="tabgroup__dot"
-                      style:background={group.color}
-                      title={t('groups.color')}
-                      aria-label={t('groups.color')}
-                      onclick={(event) => {
-                        event.stopPropagation();
-                        cycleGroupColor(group);
-                      }}
-                    ></button>
-                    {#if renamingGroup === group.id}
-                      <input
-                        class="tabgroup__rename"
-                        bind:value={groupNameDraft}
-                        onclick={(event) => event.stopPropagation()}
-                        onblur={commitGroupName}
-                        onkeydown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            commitGroupName();
-                          } else if (event.key === 'Escape') {
-                            event.preventDefault();
-                            renamingGroup = '';
-                          }
-                        }}
-                      />
-                    {:else}
-                      <span class="tabgroup__name">{group.name}</span>
-                    {/if}
-                    <span class="tabgroup__count">{group.tabs.length}</span>
-                    <button
-                      class="tabgroup__action"
-                      title={t('groups.rename')}
-                      aria-label={t('groups.rename')}
-                      onclick={(event) => {
-                        event.stopPropagation();
-                        beginRenameGroup(group);
-                      }}
-                    >
-                      <Icon name="pencil" size={11} />
-                    </button>
-                    <button
-                      class="tabgroup__action"
-                      title={t('groups.close')}
-                      aria-label={t('groups.close')}
-                      onclick={(event) => {
-                        event.stopPropagation();
-                        closeGroup(group.id);
-                      }}
-                    >
-                      <Icon name="close" size={10} />
-                    </button>
-                  </div>
-                  {#if !group.collapsed}
-                    {#each group.tabs as tab (tab.id)}
-                      {@render verticalTab(tab, false)}
-                    {/each}
-                  {/if}
-                </div>
-              {/each}
-
-              {#if groups.length > 0}
-                <div
-                  class="tabgroup__head tabgroup__head--plain"
-                  class:tabgroup__head--drop={dragOverGroup === 'none'}
-                  role="presentation"
-                  title={t('groups.dropHint')}
-                  ondragover={(event) => {
-                    event.preventDefault();
-                    dragOverGroup = 'none';
-                  }}
-                  ondragleave={() => {
-                    if (dragOverGroup === 'none') dragOverGroup = '';
-                  }}
-                  ondrop={(event) => {
-                    event.preventDefault();
-                    const id = Number(event.dataTransfer?.getData('text/liora-tab'));
-                    if (id) ungroupTab(id);
-                    dragOverGroup = '';
-                    draggingTab = 0;
-                  }}
-                >
-                  <span class="tabgroup__name">{t('groups.ungrouped')}</span>
-                  <span class="tabgroup__count">{ungroupedTabs.length}</span>
-                </div>
-              {/if}
-
-              {#each ungroupedTabs as tab (tab.id)}
-                {@render verticalTab(tab, false)}
-              {/each}
-            {/if}
-          </div>
-
-          <div class="tabrail__foot">{t('tabs.count', { count: tabs.length })}</div>
-        </aside>
+        <TabRail
+          {tabs}
+          {activeId}
+          {groups}
+          {groupedTabs}
+          {ungroupedTabs}
+          {groupColor}
+          {groupName}
+          {containerColor}
+          {containerName}
+          onselect={(id) => (activeId = id)}
+          onclose={closeTab}
+          onnew={() => newTab()}
+          oncreategroup={() => createGroup()}
+          onassigngroup={assignGroup}
+          onungroup={ungroupTab}
+          onclosegroup={closeGroup}
+          oncyclecolor={cycleGroupColor}
+          ontogglecollapse={(group) => (group.collapsed = !group.collapsed)}
+          onrenamegroup={(groupId, name) => {
+            const group = groups.find((item) => item.id === groupId);
+            if (group) group.name = name;
+          }}
+        />
       {/if}
 
       <div class="maincolumn">
-    <div class="toolbar">
-      <div class="toolbar__group">
-        <button class="icon-button" title={t('nav.back')} disabled={!active.canBack} onclick={goBack}>
-          <Icon name="back" />
-        </button>
-        <button
-          class="icon-button"
-          title={t('nav.forward')}
-          disabled={!active.canForward}
-          onclick={goForward}
-        >
-          <Icon name="forward" />
-        </button>
-        <button class="icon-button" title={t('nav.reload')} onclick={() => navigate(active.url)}>
-          <Icon name="reload" />
-        </button>
-      </div>
-
-      <form class="address" onsubmit={submitAddress}>
-        <span class="address__scheme">
-          {#if active.page === 'web'}
-            <button
-              type="button"
-              class="address__scheme-button"
-              title={t('site.title')}
-              aria-label={t('site.title')}
-              onclick={() => (siteCardOpen = !siteCardOpen)}
-            >
-              <Icon name="globe" size={12} />
-            </button>
-          {:else}
-            <span class="address__scheme-icon">
-              <Icon name={internalIcon(active.page)} size={12} />
-            </span>
-          {/if}
-        </span>
-        {#if activeContainer}
-          <button
-            type="button"
-            class="address__container"
-            style:background={activeContainer.color}
-            title={`${t('containers.title')} · ${activeContainer.name}`}
-            aria-label={`${t('containers.title')} · ${activeContainer.name}`}
-            onclick={openContainerPicker}
-          ></button>
-        {/if}
-        <input
-          class="address__input"
-          bind:this={addressEl}
-          bind:value={addressValue}
-          oninput={(event) => (addressValue = (event.target as HTMLInputElement).value)}
-          onfocus={onAddressFocus}
-          onblur={onAddressBlur}
-          placeholder={t('address.placeholder')}
-          spellcheck="false"
-          autocomplete="off"
-        />
-        {#if !addressFocused && active.page === 'web'}
-          <span class="address__hint">H3 · ECH</span>
-        {/if}
-      </form>
-
-      <div class="toolbar__group">
-        {#if networkPending() || applyState !== 'idle'}
-          <button
-            class="network-pending"
-            class:network-pending--applied={applyState === 'applied'}
-            class:network-pending--error={applyState === 'error'}
-            title={applyTitle}
-            disabled={applyState === 'applying' || applyState === 'applied'}
-            onclick={applyNetworkChanges}
-          >
-            <span class="dot"></span>
-            {applyState === 'applying'
-              ? t('network.applying')
-              : applyState === 'applied'
-                ? appliedProxyPort
-                  ? t('network.appliedWithPort', { port: appliedProxyPort })
-                  : t('network.applied')
-                : applyState === 'error'
-                  ? t('network.applyFailed')
-                  : t('network.pending')}
-          </button>
-        {/if}
-        <button
-          class="icon-button"
-          title={t('palette.shortcut')}
-          aria-label={t('palette.shortcut')}
-          onclick={openPalette}
-        >
-          <span class="command-glyph">⌘</span>
-        </button>
-        {#if active.page === 'web'}
-          {#if split || webTabCount > 1}
-            <button
-              class="icon-button"
-              class:icon-button--active={Boolean(split)}
-              title={split ? t('split.close') : t('split.open')}
-              aria-label={split ? t('split.close') : t('split.open')}
-              onclick={toggleSplit}
-            >
-              <Icon name="columns" />
-            </button>
-          {/if}
-          <button
-            class="icon-button"
-            class:icon-button--active={readerActive}
-            title={t('reader.open')}
-            aria-label={t('reader.open')}
-            onclick={() => requestReader(false)}
-          >
-            <Icon name="book" />
-          </button>
-          <button
-            class="icon-button"
-            class:icon-button--active={activeBookmarked}
-            title={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
-            aria-label={activeBookmarked ? t('bookmarks.remove') : t('bookmarks.add')}
-            onclick={toggleBookmark}
-          >
-            <Icon name="star" />
-          </button>
-        {/if}
-        <button
-          class="icon-button"
-          class:icon-button--active={active.page === 'downloads'}
-          title={t('downloads.title')}
-          aria-label={t('downloads.title')}
-          onclick={openDownloads}
-        >
-          <Icon name="download" />
-          {#if activeDownloadCount() > 0}
-            <span class="icon-badge">{activeDownloadCount()}</span>
-          {/if}
-        </button>
-        <button class="icon-button" title={t('nav.settings')} onclick={() => openSettings()}>
-          <Icon name="settings" />
-        </button>
-      </div>
-
-    </div>
+    <Toolbar
+      {active}
+      {addressValue}
+      {addressFocused}
+      {addressEl}
+      {badges}
+      {activeContainer}
+      {showHomeButton}
+      {homePage}
+      showNetworkPending={networkPending() || applyState !== 'idle'}
+      {applyState}
+      {applyTitle}
+      {appliedProxyPort}
+      splitActive={Boolean(split)}
+      showSplitButton={Boolean(split) || webTabCount > 1}
+      {readerActive}
+      {activeBookmarked}
+      downloadCount={activeDownloadCount()}
+      downloadsActive={active.page === 'downloads'}
+      onback={goBack}
+      onforward={goForward}
+      onreload={() => navigate(active.url)}
+      onhome={() => navigate(homePage)}
+      onaddressinput={(value) => (addressValue = value)}
+      onaddressfocus={onAddressFocus}
+      onaddressblur={onAddressBlur}
+      onsubmit={submitAddress}
+      onsitecard={() => (siteCardOpen = !siteCardOpen)}
+      oncontainer={openContainerPicker}
+      onapplynetwork={applyNetworkChanges}
+      onpalette={openPalette}
+      onsplit={toggleSplit}
+      onreader={() => requestReader(false)}
+      onbookmark={toggleBookmark}
+      ondownloads={openDownloads}
+      onsettings={() => openSettings()}
+    />
 
     {#if siteCardOpen && active.page === 'web'}
       <SiteCard
@@ -2411,9 +1785,15 @@
         <span class="findbar__count" class:findbar__count--empty={findMatches === 0}>
           {findLabel()}
         </span>
-        <button class="icon-button" title={t('find.previous')} onclick={() => runFind(false)}>↑</button>
-        <button class="icon-button" title={t('find.next')} onclick={() => runFind(true)}>↓</button>
-        <button class="icon-button" title={t('find.close')} onclick={closeFind}>✕</button>
+        <button class="icon-button" title={t('find.previous')} aria-label={t('find.previous')} onclick={() => runFind(false)}>
+          <Icon name="chevron-up" size={14} />
+        </button>
+        <button class="icon-button" title={t('find.next')} aria-label={t('find.next')} onclick={() => runFind(true)}>
+          <Icon name="chevron-down" size={14} />
+        </button>
+        <button class="icon-button" title={t('find.close')} aria-label={t('find.close')} onclick={closeFind}>
+          <Icon name="close" size={13} />
+        </button>
       </div>
     {/if}
 
@@ -2439,7 +1819,13 @@
                   }
                 }}
               >
-                <span class="split__favicon"><Icon name="globe" size={10} /></span>
+                <span class="split__favicon">
+                  {#if splitPrimary.favicon}
+                    <img src={splitPrimary.favicon} alt="" />
+                  {:else}
+                    <Icon name="globe" size={10} />
+                  {/if}
+                </span>
                 <span class="split__title">{splitPrimary.title || splitPrimary.url}</span>
                 {#if splitPrimary.containerId}
                   <span
@@ -2493,7 +1879,13 @@
                   }
                 }}
               >
-                <span class="split__favicon"><Icon name="globe" size={10} /></span>
+                <span class="split__favicon">
+                  {#if splitSecondary.favicon}
+                    <img src={splitSecondary.favicon} alt="" />
+                  {:else}
+                    <Icon name="globe" size={10} />
+                  {/if}
+                </span>
                 <span class="split__title">{splitSecondary.title || splitSecondary.url}</span>
                 {#if splitSecondary.containerId}
                   <span
@@ -2528,6 +1920,7 @@
       {:else}
       {#if active.page === 'newtab'}
         <NewTab
+          favicons={faviconCache}
           onnavigate={(url) => navigate(url)}
           onopen={(page) => navigate(`liora://${page}`)}
           onpanel={(section) => openSettings(section)}
@@ -2622,7 +2015,7 @@
       />
     {/if}
 
-    <div class="toasts">
+    <div class="toasts" aria-live="polite">
       {#each app.toasts as item (item.id)}
         <div class="toast" class:toast--error={item.kind === 'error'}>
           <span>{item.text}</span>
@@ -2650,22 +2043,16 @@
     animation: fade 240ms var(--ease);
   }
 
-  .command-glyph {
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 1;
-  }
-
   .boot__mark {
     width: 52px;
     height: 52px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     display: grid;
     place-items: center;
-    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    background: linear-gradient(145deg, var(--accent), var(--accent-highlight));
     color: #fff;
-    font-size: 24px;
-    font-weight: 700;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
     letter-spacing: -0.02em;
     box-shadow: 0 12px 34px var(--accent-soft);
   }

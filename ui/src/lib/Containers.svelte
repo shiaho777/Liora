@@ -3,6 +3,7 @@
   import PageHeader from './PageHeader.svelte';
   import { t } from './i18n.svelte';
   import { value } from './settings-store.svelte';
+  import { identityPalette } from './palette';
 
   export interface ContainerItem {
     id: string;
@@ -32,7 +33,7 @@
     onopen,
   }: Props = $props();
 
-  const palette = ['#5b8cff', '#2bb673', '#f2a93b', '#e06464', '#a879ff', '#e06bb5'];
+  const palette = identityPalette;
   let name = $state('');
   let color = $state(palette[0]);
   let renaming = $state('');
@@ -236,13 +237,13 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
   }
 
   .container-row__desc {
     margin-top: 1px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -256,7 +257,7 @@
     outline: none;
     background: var(--surface);
     color: var(--text);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
   }
 
   .container-row__control {
@@ -269,7 +270,7 @@
   .containers-empty {
     padding: 14px 0 3px;
     text-align: center;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -283,8 +284,8 @@
   }
 
   .container-create__title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 

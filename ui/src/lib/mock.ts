@@ -334,6 +334,26 @@ function matches(rule: Rule, host: string): boolean {
 }
 
 export function createMockBackend(): MockBackend {
+  const faviconCache: Record<string, string> = {};
+  const userScripts: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    matches: string[];
+    runAt: string;
+    code: string;
+    created: number;
+    modified: number;
+  }> = [];
+  const matchPattern = (pattern: string, host: string): boolean => {
+    if (pattern === '*') return true;
+    if (pattern.startsWith('=')) return pattern.slice(1) === host;
+    if (pattern.startsWith('*.')) {
+      const parent = pattern.slice(2);
+      return host.endsWith(parent) && host.length > parent.length && host[host.length - parent.length - 1] === '.';
+    }
+    return host === pattern || (host.endsWith(pattern) && host.length > pattern.length && host[host.length - pattern.length - 1] === '.');
+  };
   const stored = localStorage.getItem('liora.mock.state');
   const state: {
     settings: Record<string, unknown>;
@@ -415,10 +435,19 @@ export function createMockBackend(): MockBackend {
     );
   };
 
-  const get = (key: string) => (key in state.settings ? state.settings[key] : DEFAULTS[key]);
-  const set = (key: string, value: unknown) => {
-    if (JSON.stringify(value) === JSON.stringify(DEFAULTS[key])) delete state.settings[key];
-    else state.settings[key] = value;
+  const get = (key: string, site?: string) => {
+    if (site && state.sites[site] && key in state.sites[site]) return state.sites[site][key];
+    return key in state.settings ? state.settings[key] : DEFAULTS[key];
+  };
+  const set = (key: string, value: unknown, site?: string) => {
+    if (site) {
+      state.sites[site] ??= {};
+      state.sites[site][key] = value;
+    } else if (JSON.stringify(value) === JSON.stringify(DEFAULTS[key])) {
+      delete state.settings[key];
+    } else {
+      state.settings[key] = value;
+    }
     persist();
   };
 
@@ -532,7 +561,7 @@ export function createMockBackend(): MockBackend {
     'core.ping': () => ({ ok: true, time: Date.now() }),
     'rpc.discover': () => ({ methods: Object.keys(methods), namespaces: {} }),
 
-    'settings.describe': () => ({
+    'settings.describe': (p) => ({
       items: Object.keys(DEFAULTS).map((key) => ({
         key,
         default: DEFAULTS[key],
@@ -542,23 +571,25 @@ export function createMockBackend(): MockBackend {
         ...(CHOICES[key] ? { choices: CHOICES[key] } : {}),
       })),
       sites: Object.entries(state.sites).map(([site, values]) => ({ site, values })),
+      ...(p.site ? { overrides: state.sites[p.site] ?? {} } : {}),
     }),
     'settings.get': (p) => {
-      if (p.key) return { [p.key]: get(p.key) };
+      if (p.key) return { [p.key]: get(p.key, p.site) };
       const prefix = p.prefix ? `${p.prefix}.` : '';
       const out: Record<string, unknown> = {};
-      for (const key of Object.keys(DEFAULTS)) if (key.startsWith(prefix)) out[key] = get(key);
+      for (const key of Object.keys(DEFAULTS)) if (key.startsWith(prefix)) out[key] = get(key, p.site);
       return out;
     },
     'settings.set': (p) => {
       if (p.values) Object.assign(state.settings, p.values);
-      else set(p.key, p.value);
+      else set(p.key, p.value, p.site);
       persist();
       queueMicrotask(() => respond({ jsonrpc: '2.0', method: 'settings.changed', params: {} }));
       return { ok: true };
     },
     'settings.reset': (p) => {
-      delete state.settings[p.key];
+      if (p.site && state.sites[p.site]) delete state.sites[p.site][p.key];
+      else delete state.settings[p.key];
       persist();
       return { ok: true };
     },
@@ -566,6 +597,49 @@ export function createMockBackend(): MockBackend {
       delete state.sites[p.site];
       persist();
       return { ok: true };
+    },
+
+    'userscript.list': () => userScripts,
+    'userscript.add': (p) => {
+      const script = {
+        id: `script-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        name: String(p.name ?? ''),
+        enabled: p.enabled !== false,
+        matches: Array.isArray(p.matches) ? p.matches : [],
+        runAt: String(p.runAt ?? 'end'),
+        code: String(p.code ?? ''),
+        created: Date.now(),
+        modified: Date.now(),
+      };
+      userScripts.push(script);
+      return script;
+    },
+    'userscript.update': (p) => {
+      const script = userScripts.find((s) => s.id === p.id);
+      if (!script) throw new Error('unknown script');
+      Object.assign(script, {
+        name: String(p.name ?? script.name),
+        matches: Array.isArray(p.matches) ? p.matches : script.matches,
+        runAt: String(p.runAt ?? script.runAt),
+        code: String(p.code ?? script.code),
+        enabled: p.enabled !== false,
+        modified: Date.now(),
+      });
+      return script;
+    },
+    'userscript.remove': (p) => {
+      const index = userScripts.findIndex((s) => s.id === p.id);
+      if (index >= 0) userScripts.splice(index, 1);
+      return { ok: true };
+    },
+    'userscript.setEnabled': (p) => {
+      const script = userScripts.find((s) => s.id === p.id);
+      if (script) script.enabled = Boolean(p.enabled);
+      return { ok: true };
+    },
+    'userscript.forHost': (p) => {
+      const host = String(p.host ?? '');
+      return userScripts.filter((s) => s.enabled && s.matches.some((m) => matchPattern(m, host)));
     },
 
     'dns.catalog': () => ({
@@ -713,7 +787,8 @@ export function createMockBackend(): MockBackend {
         name: 'Chromium (CEF)',
         version: '126.0',
         component: 'kernel-cef',
-        caps: ['secureDns', 'httpsRecords', 'ech', 'forceQuic', 'proxy', 'extensions', 'devtools', 'isolatedProfiles'],
+        // Mirrors KernelManager: no extension runtime exists yet.
+        caps: ['secureDns', 'httpsRecords', 'ech', 'forceQuic', 'proxy', 'devtools', 'isolatedProfiles'],
         available: state.installed.some((i) => i.id === 'kernel-cef' && i.current),
         netNeedsRestart: true,
       },
@@ -817,6 +892,18 @@ export function createMockBackend(): MockBackend {
       persist();
       return { ok: true };
     },
+
+    'favicon.set': (p) => {
+      const host = String(p.host ?? '');
+      const icon = String(p.icon ?? '');
+      if (!host) throw new Error('host is required');
+      if (!icon) delete faviconCache[host];
+      else faviconCache[host] = icon;
+      return { ok: true };
+    },
+    'favicon.get': (p) => ({ icon: faviconCache[String(p.host ?? '')] ?? '' }),
+    'favicon.list': () =>
+      Object.entries(faviconCache).map(([host, dataUrl]) => ({ host, dataUrl, updated: Date.now() })),
 
     'backup.list': () => [],
     'backup.now': () => ({ path: 'mock/backups/manual.liora' }),

@@ -38,7 +38,7 @@
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     color: var(--accent);
     background: var(--accent-soft);
     box-shadow: inset 0 0 0 1px rgba(59, 108, 246, 0.08);
@@ -52,8 +52,8 @@
 
   .page-head__title {
     margin: 0;
-    font-size: 22px;
-    font-weight: 700;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
     letter-spacing: -0.02em;
     line-height: 1.25;
   }
@@ -61,7 +61,7 @@
   .page-head__subtitle {
     margin: 5px 0 0;
     max-width: 66ch;
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.55;
     color: var(--text-muted);
   }

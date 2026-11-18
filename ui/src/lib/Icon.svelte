@@ -27,6 +27,8 @@
     warning: 'M8 2.5 14.5 13.5h-13zM8 6.5v3.2M8 11.6v.6',
     info: 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 7.2v4M8 5v.6',
     chevron: 'M6 4l4 4-4 4',
+    'chevron-up': 'M4 10l4-4 4 4',
+    'chevron-down': 'M4 6l4 4 4-4',
     trash: 'M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 9h5.8l.6-9',
     refresh: 'M13.5 8a5.5 5.5 0 1 1-1.7-4M13.5 2v3h-3',
     external: 'M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5',

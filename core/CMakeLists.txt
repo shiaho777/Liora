@@ -42,6 +42,8 @@ add_library(liora_core STATIC
   src/core_data.cpp
   src/core_components.cpp
   src/core_watches.cpp
+  src/userscripts.cpp
+  src/core_userscripts.cpp
   ${EMBED_DNS}
   ${EMBED_PRESETS}
   ${EMBED_SEARCH}

@@ -14,6 +14,7 @@ constexpr std::pair<uint32_t, const char*> kCapList[] = {
     {kCapEch, "ech"},             {kCapForceQuic, "forceQuic"},
     {kCapProxy, "proxy"},         {kCapExtensions, "extensions"},
     {kCapDevTools, "devtools"},   {kCapIsolatedProfiles, "isolatedProfiles"},
+    {kCapContentControls, "contentControls"},
 };
 
 std::string chromiumMode(const std::string& mode) {
@@ -56,8 +57,10 @@ KernelManager::KernelManager() {
   cef.id = kCef;
   cef.name = "Chromium (CEF)";
   cef.component = "kernel-cef";
-  cef.caps = kCapSecureDns | kCapHttpsRecords | kCapEch | kCapForceQuic | kCapProxy | kCapExtensions |
-             kCapDevTools | kCapIsolatedProfiles;
+  // No extension runtime exists yet, so kCapExtensions stays off: the panel
+  // must not offer a capability the kernel cannot deliver.
+  cef.caps = kCapSecureDns | kCapHttpsRecords | kCapEch | kCapForceQuic | kCapProxy | kCapDevTools |
+             kCapIsolatedProfiles;
   cef.netNeedsRestart = true;
   kernels_.push_back(std::move(cef));
 }

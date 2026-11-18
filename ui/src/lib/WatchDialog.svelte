@@ -4,6 +4,7 @@
   import { call, notify } from './bridge';
   import { toast } from './state.svelte';
   import { t } from './i18n.svelte';
+  import { trapFocus } from './focus-trap';
 
   interface Props {
     url: string;
@@ -19,6 +20,12 @@
   let busy = $state(false);
   let error = $state('');
   let keywordEl = $state<HTMLInputElement | null>(null);
+  let dialogEl = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!dialogEl) return;
+    return trapFocus(dialogEl);
+  });
 
   const intervals = $derived([
     { value: 15, label: t('watch.interval.15') },
@@ -62,6 +69,7 @@
 <div class="watch-backdrop" role="presentation" onclick={onclose}>
   <div
     class="watch-dialog"
+    bind:this={dialogEl}
     role="dialog"
     aria-modal="true"
     aria-label={t('watch.dialogTitle')}
@@ -173,14 +181,14 @@
   }
 
   .watch-dialog__title {
-    font-size: 13.5px;
-    font-weight: 650;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
   }
 
   .watch-dialog__url {
     margin-top: 2px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -201,13 +209,13 @@
   }
 
   .field__label {
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
   }
 
   .field__hint {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -219,7 +227,7 @@
     padding: 9px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg-sunken);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
     color: var(--text-muted);
   }
