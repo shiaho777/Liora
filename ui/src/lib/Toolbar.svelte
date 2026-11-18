@@ -1,8 +1,10 @@
 <script lang="ts">
+  import AddressSuggest from './AddressSuggest.svelte';
   import Icon from './Icon.svelte';
   import { t } from './i18n.svelte';
   import { internalIcon, type Tab } from './tab-types';
   import type { AddressBadge } from './address-badges';
+  import type { Suggestion } from './suggest';
 
   interface Props {
     active: Tab;
@@ -10,6 +12,11 @@
     addressFocused: boolean;
     addressEl: HTMLInputElement | null;
     badges: AddressBadge[];
+    suggestions: Suggestion[];
+    suggestSelected: number;
+    onsuggestpick: (item: Suggestion) => void;
+    onsuggesthover: (index: number) => void;
+    onaddresskeydown: (event: KeyboardEvent) => void;
     activeContainer: { name: string; color: string } | null;
     showHomeButton: boolean;
     homePage: string;
@@ -48,6 +55,11 @@
     addressFocused,
     addressEl,
     badges,
+    suggestions,
+    suggestSelected,
+    onsuggestpick,
+    onsuggesthover,
+    onaddresskeydown,
     activeContainer,
     showHomeButton,
     homePage,
@@ -134,8 +146,13 @@
       oninput={(event) => onaddressinput((event.target as HTMLInputElement).value)}
       onfocus={onaddressfocus}
       onblur={onaddressblur}
+      onkeydown={onaddresskeydown}
       placeholder={t('address.placeholder')}
       aria-label={t('address.placeholder')}
+      role="combobox"
+      aria-expanded={addressFocused && suggestions.length > 0}
+      aria-controls="address-suggest-list"
+      aria-activedescendant={suggestSelected >= 0 ? `address-suggest-${suggestSelected}` : undefined}
       spellcheck="false"
       autocomplete="off"
     />
@@ -145,6 +162,14 @@
           {badge.label}
         </span>
       {/each}
+    {/if}
+    {#if addressFocused}
+      <AddressSuggest
+        items={suggestions}
+        selected={suggestSelected}
+        onpick={onsuggestpick}
+        onhover={onsuggesthover}
+      />
     {/if}
   </form>
 

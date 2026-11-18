@@ -66,6 +66,26 @@ export function runTestScenario(name: string): boolean {
     case 'watchsubmit':
       document.querySelector<HTMLElement>('.watch-dialog .button--primary')?.click();
       return true;
+    case 'addresstype': {
+      // Type into the real address input so the suggestion pipeline runs.
+      const input = document.querySelector<HTMLInputElement>('.address__input');
+      if (!input) return false;
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'example');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      setTimeout(() => {
+        const rows = [...document.querySelectorAll('.address-suggest__row')].map((row) =>
+          row.textContent?.trim(),
+        );
+        (window as unknown as { __lioraSuggestDump?: string }).__lioraSuggestDump = JSON.stringify({
+          focused: document.activeElement === input,
+          value: input.value,
+          rows,
+        });
+      }, 600);
+      return true;
+    }
     case 'homeclick':
       [...document.querySelectorAll<HTMLElement>('.toolbar button')]
         .find((button) => button.getAttribute('aria-label') === '主页' || button.getAttribute('title') === '主页')
@@ -161,6 +181,30 @@ export function runTestScenario(name: string): boolean {
     case 'restartnetwork':
       clickButtonByText('重启');
       return true;
+    case 'downloadcancel': {
+      const control = document.querySelector('.download-row__control');
+      const button = control?.querySelector<HTMLButtonElement>('.icon-button');
+      button?.click();
+      return true;
+    }
+    case 'dldiag': {
+      // Read after a tick so Svelte has flushed any pending state change.
+      setTimeout(() => {
+        const rows = document.querySelectorAll('.download-row');
+        const control = document.querySelector('.download-row__control');
+        (window as unknown as { __lioraDlDump?: string }).__lioraDlDump = JSON.stringify({
+          rows: rows.length,
+          controlHtml: control?.innerHTML.slice(0, 200) ?? 'none',
+          states: [...rows].map((row) => row.querySelector('.download-row__status')?.textContent?.trim()),
+        });
+      }, 400);
+      return true;
+    }
+    case 'downloadretry': {
+      const row = document.querySelector('.download-row');
+      row?.querySelector<HTMLButtonElement>('.download-row__control .button')?.click();
+      return true;
+    }
     case 'revealtoast':
       document.querySelector<HTMLElement>('.toast__action[data-kind="folder"]')?.click();
       return true;

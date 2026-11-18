@@ -93,6 +93,9 @@ struct DownloadEvent {
   int64_t total = 0;
   DownloadState state = DownloadState::kStarted;
   std::string error;
+  // True when the kernel handed back resume data after a failure, so the
+  // interface can offer a retry that continues instead of starting over.
+  bool resumable = false;
 };
 
 // Summary of the TLS session the kernel actually established.
@@ -201,6 +204,21 @@ class IKernelView {
   }
   virtual void postMessage(const std::string& json) = 0;
   virtual void* nativeHandle() const = 0;
+  // True when this view started the given download and still tracks it.
+  virtual bool hasDownload(const std::string& downloadId) {
+    (void)downloadId;
+    return false;
+  }
+  // Cancels an in-flight download started by this view. Kernels without
+  // download control ignore it; the UI only offers the action when a
+  // download is actually running.
+  virtual void cancelDownload(const std::string& downloadId) { (void)downloadId; }
+  // Retries a failed download, continuing from resume data when the kernel
+  // kept it. Returns false when the id is unknown or cannot be resumed.
+  virtual bool retryDownload(const std::string& downloadId) {
+    (void)downloadId;
+    return false;
+  }
 };
 
 // Implemented by each shell for each kernel it can host.

@@ -247,10 +247,8 @@ const DEFAULTS: Record<string, unknown> = {
   'content.autoplay': 'block-audible',
   'content.zoom': 100,
   'content.userAgent': 'default',
-  'content.adblock': true,
   'downloads.dir': '',
   'downloads.ask': false,
-  'extensions.enabled': true,
   'components.autoUpdate': true,
   'components.channel': 'stable',
   'diagnostics.crashReports': false,
@@ -278,7 +276,6 @@ const ADVANCED = new Set([
   'net.echOuter',
   'privacy.doNotTrack',
   'content.javascript',
-  'extensions.enabled',
   'components.autoUpdate',
   'components.channel',
 ]);
@@ -290,7 +287,6 @@ const SITE_SCOPES = new Set([
   'content.zoom',
   'content.userAgent',
   'content.autoplay',
-  'content.adblock',
   'privacy.httpsUpgrade',
   'privacy.thirdPartyCookies',
 ]);
@@ -852,6 +848,13 @@ export function createMockBackend(): MockBackend {
       mobile: { id: 3, type: 'folder', title: '移动端书签', children: [] },
     }),
     'bookmarks.forUrl': (p) => state.bookmarks.filter((entry) => entry.url === p.url),
+    'bookmarks.search': (p) => {
+      const query = String(p.query ?? '').toLowerCase();
+      const limit = Number(p.limit ?? 50);
+      return state.bookmarks
+        .filter((entry) => !query || entry.url.toLowerCase().includes(query) || entry.title.toLowerCase().includes(query))
+        .slice(0, limit);
+    },
     'bookmarks.add': (p) => {
       const entry = { id: 100 + state.bookmarks.length, title: p.title || p.url, url: p.url };
       state.bookmarks.push(entry);
@@ -884,7 +887,14 @@ export function createMockBackend(): MockBackend {
       return { ok: true };
     },
     'history.top': () => state.history.slice(0, 8),
-    'history.suggest': () => [],
+    'history.suggest': (p) => {
+      const input = String(p.input ?? '').toLowerCase();
+      const limit = Number(p.limit ?? 6);
+      if (!input) return [];
+      return state.history
+        .filter((item) => item.url.toLowerCase().includes(input) || item.title.toLowerCase().includes(input))
+        .slice(0, limit);
+    },
     'history.search': (p) => {
       const query = String(p.query ?? '').toLowerCase();
       const limit = Number(p.limit ?? 100);

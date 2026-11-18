@@ -21,6 +21,7 @@
     seedDownloadHistory,
     type DownloadRecord,
   } from './lib/downloads.svelte';
+  import { buildSuggestions, moveSelection, type Suggestion } from './lib/suggest';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
   import { addressBadges, type HostRule } from './lib/address-badges';
@@ -52,10 +53,14 @@
   let activeId = $state(firstTab.id);
   let addressValue = $state('');
   let addressFocused = $state(false);
+  let suggestions = $state<Suggestion[]>([]);
+  let suggestSelected = $state(-1);
+  let suggestEnabled = $state(true);
   let findOpen = $state(false);
   let findText = $state('');
   let findMatches = $state(0);
   let findActive = $state(0);
+  let findMatchCase = $state(false);
   let findInputEl = $state<HTMLInputElement | null>(null);
   let findTabId = $state(0);
   let findAutoAdvanced = $state(false);
@@ -179,6 +184,15 @@
     const item = settingsStore.items.find((entry) => entry.key === 'search.engine');
     return typeof item?.value === 'string' ? item.value : 'duckduckgo';
   });
+  const searchEngineNames: Record<string, string> = {
+    duckduckgo: 'DuckDuckGo',
+    google: 'Google',
+    bing: 'Bing',
+    brave: 'Brave Search',
+    startpage: 'Startpage',
+    baidu: '百度',
+    sogou: '搜狗',
+  };
   const homePage = $derived.by(() => {
     const item = settingsStore.items.find((entry) => entry.key === 'home.page');
     return typeof item?.value === 'string' && item.value ? item.value : 'liora://newtab';
@@ -190,6 +204,12 @@
   let bookmarks = $state<Array<{ id: number; title: string; url: string }>>([]);
   let sessionReady = $state(false);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // The address bar shares the start page's local-suggestions switch.
+  $effect(() => {
+    const item = settingsStore.items.find((entry) => entry.key === 'search.suggest');
+    suggestEnabled = item ? item.value !== false : true;
+  });
 
   boot()
     .then(async () => {
@@ -374,7 +394,7 @@
     ...(active.page === 'web'
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
-          { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⇧R' },
+          { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⌥R' },
           { id: 'summary', label: t('summary.command'), icon: 'sparkles' },
           { id: 'mini', label: t('mini.open'), icon: 'external' },
           ...(split || webTabCount > 1
@@ -872,7 +892,9 @@
         setFullscreen: (fullscreen) => notify('ui.testFullscreen', { fullscreen }),
         notify,
         setSetting: (key, value) => void call('settings.set', { key, value }),
-        runTestCommand: hooks.__lioraTestMode ? runTestScenario : undefined,
+        // Read the flag at call time: the shell sets it after the interface
+        // mounts, so a snapshot taken here would always be false.
+        runTestCommand: (name) => (hooks.__lioraTestMode ? runTestScenario(name) : false),
       });
     };
   });
@@ -1045,7 +1067,7 @@
       notify('ui.stopFind', { tab: activeId });
       return;
     }
-    notify('ui.find', { tab: activeId, text, forward, matchCase: false });
+    notify('ui.find', { tab: activeId, text, forward, matchCase: findMatchCase });
   }
 
   function closeFind(): void {
@@ -1492,7 +1514,75 @@
 
   function onAddressBlur(): void {
     addressFocused = false;
+    suggestions = [];
+    suggestSelected = -1;
     addressValue = addressLabel(active);
+  }
+
+  function onAddressInput(value: string): void {
+    addressValue = value;
+    suggestSelected = -1;
+  }
+
+  // Suggestions come only from local history and bookmarks — no remote
+  // service, matching the start page's privacy stance.
+  $effect(() => {
+    const text = addressValue.trim();
+    if (!addressFocused || !text || !suggestEnabled || active.page !== 'web') {
+      suggestions = [];
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      Promise.allSettled([
+        call<Array<{ url: string; title: string }>>('history.suggest', { input: text, limit: 6 }),
+        call<Array<{ url: string; title: string }>>('bookmarks.search', { query: text, limit: 4 }),
+      ]).then(([history, bookmarks]) => {
+        if (!current) return;
+        const engineName = searchEngineNames[searchEngine] ?? searchEngine;
+        suggestions = buildSuggestions(
+          text,
+          history.status === 'fulfilled' && Array.isArray(history.value) ? history.value : [],
+          bookmarks.status === 'fulfilled' && Array.isArray(bookmarks.value)
+            ? bookmarks.value.filter((entry) => entry.url)
+            : [],
+          engineName,
+          looksLikeUrl,
+        );
+        suggestSelected = -1;
+      });
+    }, 80);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  });
+
+  function pickSuggestion(item: Suggestion): void {
+    suggestions = [];
+    suggestSelected = -1;
+    navigate(item.value);
+    addressEl?.blur();
+  }
+
+  function onAddressKeydown(event: KeyboardEvent): void {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (suggestions.length === 0) return;
+      event.preventDefault();
+      suggestSelected = moveSelection(suggestSelected, event.key === 'ArrowDown' ? 1 : -1, suggestions.length);
+      return;
+    }
+    if (event.key === 'Enter' && suggestSelected >= 0 && suggestions[suggestSelected]) {
+      event.preventDefault();
+      pickSuggestion(suggestions[suggestSelected]);
+      return;
+    }
+    if (event.key === 'Escape' && suggestions.length > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      suggestions = [];
+      suggestSelected = -1;
+    }
   }
 
   // Zoom is remembered per site, matching the settings model.
@@ -1580,6 +1670,12 @@
       return;
     }
     if (key === 'r' && event.shiftKey) {
+      // Hard reload, the universal convention; reader mode moved to ⌘⌥R.
+      event.preventDefault();
+      if (active.page === 'web') notify('ui.reload', { tab: activeId, bypassCache: true });
+      return;
+    }
+    if (key === 'r' && event.altKey) {
       event.preventDefault();
       requestReader();
       return;
@@ -1587,6 +1683,16 @@
     if (key === 'r') {
       event.preventDefault();
       navigate(active.url);
+      return;
+    }
+    if (event.key === '[') {
+      event.preventDefault();
+      goBack();
+      return;
+    }
+    if (event.key === ']') {
+      event.preventDefault();
+      goForward();
       return;
     }
     if (key === ',') {
@@ -1622,13 +1728,15 @@
       return;
     }
     if (/^[1-9]$/.test(key)) {
-      const index = Number(key) - 1;
-      if (index < tabs.length) {
+      // ⌘9 jumps to the last tab, not the ninth — browser convention.
+      const index = key === '9' ? tabs.length - 1 : Number(key) - 1;
+      if (index >= 0 && index < tabs.length) {
         event.preventDefault();
         activeId = tabs[index].id;
       }
     }
   }
+
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -1722,11 +1830,16 @@
       {activeBookmarked}
       downloadCount={activeDownloadCount()}
       downloadsActive={active.page === 'downloads'}
+      {suggestions}
+      {suggestSelected}
+      onsuggestpick={pickSuggestion}
+      onsuggesthover={(index) => (suggestSelected = index)}
+      onaddresskeydown={onAddressKeydown}
       onback={goBack}
       onforward={goForward}
       onreload={() => navigate(active.url)}
       onhome={() => navigate(homePage)}
-      onaddressinput={(value) => (addressValue = value)}
+      onaddressinput={onAddressInput}
       onaddressfocus={onAddressFocus}
       onaddressblur={onAddressBlur}
       onsubmit={submitAddress}
@@ -1785,6 +1898,20 @@
         <span class="findbar__count" class:findbar__count--empty={findMatches === 0}>
           {findLabel()}
         </span>
+        <button
+          class="icon-button findbar__case"
+          class:icon-button--active={findMatchCase}
+          title={t('find.matchCase')}
+          aria-label={t('find.matchCase')}
+          aria-pressed={findMatchCase}
+          onclick={() => {
+            findMatchCase = !findMatchCase;
+            findAutoAdvanced = false;
+            runFind(true);
+          }}
+        >
+          Aa
+        </button>
         <button class="icon-button" title={t('find.previous')} aria-label={t('find.previous')} onclick={() => runFind(false)}>
           <Icon name="chevron-up" size={14} />
         </button>

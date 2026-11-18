@@ -6,9 +6,11 @@
   import {
     downloads,
     activeDownloadCount,
+    cancelDownload,
     clearFinishedDownloads,
     humanSize,
     percentOf,
+    retryDownload,
     revealDownload,
   } from './downloads.svelte';
   import { t } from './i18n.svelte';
@@ -70,7 +72,9 @@
                   <div class="download-row__title" title={item.path}>{filenameOf(item)}</div>
                   {#if item.state === 'failed'}
                     <div class="download-row__status download-row__status--error">
-                      {item.error || t('downloads.failed')}
+                      {item.error === 'cancelled'
+                        ? t('downloads.cancelled')
+                        : item.error || t('downloads.failed')}
                     </div>
                   {:else if item.state === 'finished'}
                     <div class="download-row__status">
@@ -101,9 +105,24 @@
                       <Icon name="folder" size={14} />
                     </button>
                   {:else if item.state === 'failed'}
-                    <span class="badge badge--danger">{t('downloads.failed')}</span>
+                    <button
+                      class="button button--sm"
+                      title={item.resumable ? t('downloads.resumeHint') : t('downloads.retryHint')}
+                      onclick={() => retryDownload(item)}
+                    >
+                      <Icon name="reload" size={12} />
+                      {item.resumable ? t('downloads.resume') : t('downloads.retry')}
+                    </button>
                   {:else}
                     <span class="badge badge--accent">{percentOf(item)}%</span>
+                    <button
+                      class="icon-button"
+                      title={t('downloads.cancel')}
+                      aria-label={t('downloads.cancel')}
+                      onclick={() => cancelDownload(item)}
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
                   {/if}
                 </div>
               </div>
