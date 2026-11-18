@@ -8,9 +8,14 @@
 
   let { name, size = 16, stroke = 1.7 }: Props = $props();
 
+  // Keep the rendered stroke near 1.7px at every size: a fixed viewBox stroke
+  // scales with the icon, which made 10px icons hairline-thin and 18px icons
+  // chunky. Explicit stroke props still win.
+  const effectiveStroke = $derived(stroke === 1.7 ? Math.min(2.2, (1.7 * 16) / size) : stroke);
+
   const paths: Record<string, string> = {
     back: 'M10 3 5 8l5 5M5 8h6.5A4.5 4.5 0 0 1 16 12.5V13',
-    forward: 'M6 3l5 5-5 5M11 8H4.5A4.5 4.5 0 0 0 0 12.5V13',
+    forward: 'M6 3l5 5-5 5M11 8H5.5A4.5 4.5 0 0 0 1 12.5V13',
     reload: 'M13.5 8a5.5 5.5 0 1 1-1.7-4M13.5 2v3h-3',
     home: 'M2.5 7 8 2.5 13.5 7v6.5h-4v-4h-3v4h-4z',
     plus: 'M8 3v10M3 8h10',
@@ -41,6 +46,9 @@
     columns: 'M2.5 3.5h11v9h-11zM8 3.5v9',
     eye: 'M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
     sparkles: 'M8 1.8l.9 2.8 2.8.9-2.8.9L8 9.2l-.9-2.8-2.8-.9 2.8-.9zM12.5 8.5l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6z',
+    command:
+      'M6 6V4.5A1.5 1.5 0 1 0 4.5 6H6zm0 0h4m-4 0v4m4-4V4.5A1.5 1.5 0 1 1 11.5 6H10zm0 0v4m0 0H6m4 0v1.5a1.5 1.5 0 1 0 1.5-1.5H10zM6 10v1.5A1.5 1.5 0 1 1 4.5 10H6z',
+    case: 'M1.5 12 4.5 4l3 8M2.6 9.4h3.8M13.5 7.6v4.4M13.5 9.8a2.2 2.2 0 1 1-4.4 0 2.2 2.2 0 0 1 4.4 0z',
   };
 </script>
 
@@ -50,14 +58,10 @@
   viewBox="0 0 16 16"
   fill="none"
   stroke="currentColor"
-  stroke-width={stroke}
+  stroke-width={effectiveStroke}
   stroke-linecap="round"
   stroke-linejoin="round"
   aria-hidden="true"
 >
-  {#if name === 'settings'}
-    <path d={paths.settings} />
-  {:else}
-    <path d={paths[name] ?? paths.info} />
-  {/if}
+  <path d={paths[name] ?? paths.info} />
 </svg>

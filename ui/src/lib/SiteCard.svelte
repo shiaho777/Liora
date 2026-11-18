@@ -6,6 +6,7 @@
   import { toast } from './state.svelte';
   import { t } from './i18n.svelte';
   import { trapFocus } from './focus-trap';
+  import { dismissWith } from './dismiss';
 
   interface Props {
     url: string;
@@ -112,13 +113,21 @@
     toast(t('site.contentReset'));
   }
 
+  let closing = $state(false);
+
+  function close(): void {
+    if (closing) return;
+    closing = true;
+    dismissWith(cardEl, 'overlay-out', () => onclose?.());
+  }
+
   // A dialog must be closable from the keyboard and must take focus when it
   // opens, otherwise keyboard users are stranded behind it.
   $effect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onclose?.();
+        close();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -240,7 +249,7 @@
       <div class="sitecard__host">{host || url}</div>
       <div class="sitecard__origin mono">{origin}</div>
     </div>
-    <button class="icon-button" title={t('site.close')} onclick={() => onclose?.()}>
+    <button class="icon-button" title={t('site.close')} onclick={close}>
       <Icon name="close" size={12} />
     </button>
   </header>
@@ -407,7 +416,23 @@
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: var(--surface-strong);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
+    animation: sitecard-in var(--normal) var(--ease-out);
+  }
+
+  .sitecard:global(.overlay-out) {
+    animation: dialog-out var(--fast) var(--ease) forwards;
+  }
+
+  @keyframes sitecard-in {
+    from {
+      opacity: 0;
+      transform: translateY(-5px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 
   .sitecard:focus {

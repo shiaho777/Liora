@@ -74,3 +74,38 @@ export function renameTile(pinned: Tile[], url: string, title: string): Tile[] {
 export function isPinned(pinned: Tile[], url: string): boolean {
   return pinned.some((tile) => tile.url === url);
 }
+
+/**
+ * First-run shortcuts. A brand-new profile has no history, and an empty start
+ * page reads as a demo; these well-known sites give the grid something real
+ * to show. They are display defaults only — never written to settings — and
+ * disappear as soon as the user pins tiles or builds history.
+ */
+export const DEFAULT_TILES: Tile[] = [
+  { url: 'https://www.wikipedia.org', title: 'Wikipedia' },
+  { url: 'https://github.com', title: 'GitHub' },
+  { url: 'https://www.bilibili.com', title: '哔哩哔哩' },
+  { url: 'https://www.zhihu.com', title: '知乎' },
+  { url: 'https://www.youtube.com', title: 'YouTube' },
+  { url: 'https://news.ycombinator.com', title: 'Hacker News' },
+  { url: 'https://www.reddit.com', title: 'Reddit' },
+  { url: 'https://x.com', title: 'X' },
+];
+
+/**
+ * The visible grid including first-run defaults: pinned tiles and top sites
+ * win; defaults only fill the remaining slots when both are empty-ish.
+ */
+export function gridTiles(pinned: Tile[], top: TopSite[], limit = 8): Tile[] {
+  const merged = mergeTiles(pinned, top, limit);
+  if (merged.length >= limit) return merged;
+  const seen = new Set(merged.map((tile) => tile.url));
+  const out = [...merged];
+  for (const tile of DEFAULT_TILES) {
+    if (out.length >= limit) break;
+    if (seen.has(tile.url)) continue;
+    seen.add(tile.url);
+    out.push(tile);
+  }
+  return out;
+}

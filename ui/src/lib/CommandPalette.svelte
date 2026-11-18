@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import { t } from './i18n.svelte';
   import { trapFocus } from './focus-trap';
+  import { dismissWith } from './dismiss';
 
   interface PaletteTab {
     id: number;
@@ -43,6 +44,14 @@
   let selected = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
   let paletteEl = $state<HTMLDivElement | null>(null);
+  let backdropEl = $state<HTMLDivElement | null>(null);
+  let closing = $state(false);
+
+  function close(): void {
+    if (closing) return;
+    closing = true;
+    dismissWith(backdropEl, 'overlay-out', onclose);
+  }
 
   $effect(() => {
     if (!paletteEl) return;
@@ -124,13 +133,13 @@
       run(selected);
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      onclose();
+      close();
     }
   }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="palette-backdrop" role="presentation" onclick={onclose}>
+<div class="palette-backdrop" bind:this={backdropEl} role="presentation" onclick={close}>
   <div
     class="palette"
     bind:this={paletteEl}
@@ -213,9 +222,17 @@
     justify-content: center;
     align-items: flex-start;
     padding: 12vh 20px 20px;
-    background: rgba(8, 10, 14, 0.46);
+    background: var(--scrim);
     backdrop-filter: blur(5px);
     animation: palette-fade 120ms var(--ease);
+  }
+
+  .palette-backdrop:global(.overlay-out) {
+    animation: overlay-out var(--fast) var(--ease) forwards;
+  }
+
+  .palette-backdrop:global(.overlay-out) .palette {
+    animation: dialog-out var(--fast) var(--ease) forwards;
   }
 
   .palette {

@@ -5,6 +5,7 @@
   import { value } from './settings-store.svelte';
   import { identityPalette } from './palette';
   import { trapFocus } from './focus-trap';
+  import { dismissWith } from './dismiss';
 
   export interface ContainerItem {
     id: string;
@@ -27,6 +28,14 @@
   let color = $state(palette[0]);
   let nameEl = $state<HTMLInputElement | null>(null);
   let dialogEl = $state<HTMLDivElement | null>(null);
+  let backdropEl = $state<HTMLDivElement | null>(null);
+  let closing = $state(false);
+
+  function close(): void {
+    if (closing) return;
+    closing = true;
+    dismissWith(backdropEl, 'overlay-out', onclose);
+  }
 
   $effect(() => {
     if (!dialogEl) return;
@@ -40,7 +49,7 @@
   onMount(() => nameEl?.focus());
 
   function onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') onclose();
+    if (event.key === 'Escape') close();
   }
 
   function create(): void {
@@ -52,7 +61,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="container-backdrop" role="presentation" onclick={onclose}>
+<div class="container-backdrop" bind:this={backdropEl} role="presentation" onclick={close}>
   <div
     class="container-dialog"
     bind:this={dialogEl}
@@ -68,7 +77,7 @@
         <div class="container-dialog__title">{t('containers.open')}</div>
         <div class="container-dialog__url">{url}</div>
       </div>
-      <button class="icon-button" title={t('palette.close')} aria-label={t('palette.close')} onclick={onclose}>
+      <button class="icon-button" title={t('palette.close')} aria-label={t('palette.close')} onclick={close}>
         <Icon name="close" size={13} />
       </button>
     </header>
@@ -143,9 +152,17 @@
     justify-content: center;
     align-items: flex-start;
     padding: 13vh 20px 20px;
-    background: rgba(8, 10, 14, 0.46);
+    background: var(--scrim);
     backdrop-filter: blur(5px);
     animation: container-fade 120ms var(--ease);
+  }
+
+  .container-backdrop:global(.overlay-out) {
+    animation: overlay-out var(--fast) var(--ease) forwards;
+  }
+
+  .container-backdrop:global(.overlay-out) .container-dialog {
+    animation: dialog-out var(--fast) var(--ease) forwards;
   }
 
   .container-dialog {

@@ -31,6 +31,9 @@ std::vector<SettingDef> buildSchema() {
   add("search.customEngines", Json::array());
   // Pinned start-page tiles: [{url, title}]; empty means show top sites.
   add("start.tiles", Json::array());
+  add("start.background", "default", kScopeGlobal,
+      {"default", "dawn", "dusk", "forest", "mono", "custom"});
+  add("start.backgroundCustom", "#3b6cf6");
   add("home.page", "liora://newtab");
   add("startup.restore", true);
 

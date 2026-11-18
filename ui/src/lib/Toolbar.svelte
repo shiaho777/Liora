@@ -202,7 +202,7 @@
       </button>
     {/if}
     <button class="icon-button" title={t('palette.shortcut')} aria-label={t('palette.shortcut')} onclick={onpalette}>
-      <span class="command-glyph">⌘</span>
+      <Icon name="command" />
     </button>
     {#if active.page === 'web'}
       {#if showSplitButton}
@@ -253,10 +253,3 @@
   </div>
 </div>
 
-<style>
-  .command-glyph {
-    font-size: var(--text-lg);
-    font-weight: var(--weight-medium);
-    line-height: 1;
-  }
-</style>
