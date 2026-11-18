@@ -813,6 +813,9 @@ NSString* jsonEscape(id object) {
                                          action:@selector(devToolsCommand:)
                                   keyEquivalent:@"i"];
   devTools.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
+  [view addItem:[NSMenuItem separatorItem]];
+  [view addItemWithTitle:@"打印…" action:@selector(printCommand:) keyEquivalent:@"p"];
+  [view addItemWithTitle:@"保存页面截图" action:@selector(screenshotCommand:) keyEquivalent:@""];
   [view addItemWithTitle:@"下载" action:@selector(showDownloadsCommand:) keyEquivalent:@"J"];
   [view addItemWithTitle:@"设置…" action:@selector(openSettingsCommand:) keyEquivalent:@","];
   viewItem.submenu = view;
@@ -937,6 +940,8 @@ NSString* jsonEscape(id object) {
 - (void)zoomOutCommand:(id)sender { [self sendUICommand:@"zoomOut"]; }
 - (void)zoomResetCommand:(id)sender { [self sendUICommand:@"zoomReset"]; }
 - (void)devToolsCommand:(id)sender { [self sendUICommand:@"devTools"]; }
+- (void)printCommand:(id)sender { [self sendUICommand:@"print"]; }
+- (void)screenshotCommand:(id)sender { [self sendUICommand:@"screenshot"]; }
 - (void)showDownloadsCommand:(id)sender { [self sendUICommand:@"downloads"]; }
 
 - (void)startCore {
@@ -1685,6 +1690,37 @@ NSString* jsonEscape(id object) {
   return NO;
 }
 
+- (BOOL)saveDataFile:(NSData*)data
+              prefix:(NSString*)prefix
+           extension:(NSString*)extension
+                path:(NSString**)outPath
+               error:(NSString**)error {
+  NSString* directory = nil;
+  if (_core) {
+    std::string configured = _core->settings().get("downloads.dir").get<std::string>();
+    if (!configured.empty()) directory = ns(configured);
+  }
+  if (!directory.length) {
+    directory =
+        [NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES) firstObject];
+  }
+  if (!directory.length) directory = NSTemporaryDirectory();
+
+  NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+  formatter.dateFormat = @"yyyyMMdd-HHmmss";
+  NSString* stamp = [formatter stringFromDate:[NSDate date]];
+  NSString* path = [directory
+      stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@.%@", prefix, stamp, extension]];
+
+  NSError* writeError = nil;
+  if ([data writeToFile:path options:NSDataWritingAtomic error:&writeError]) {
+    if (outPath) *outPath = path;
+    return YES;
+  }
+  if (error) *error = writeError.localizedDescription ?: @"";
+  return NO;
+}
+
 // ---- Component install -----------------------------------------------------
 
 // Components are fetched by the shell because Core deliberately has no network
@@ -2179,6 +2215,41 @@ NSString* jsonEscape(id object) {
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
     liora::IKernelView* view = [self viewForTab:tab];
     if (view) view->openDevTools();
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.print"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (!view || !view->printPage()) {
+      [self notifyInterface:@"browser.printFailed" params:@{}];
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.screenshot"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    __weak LioraController* weakSelf = self;
+    bool started = view && view->capturePage([weakSelf](const std::string& png) {
+      LioraController* strongSelf = weakSelf;
+      if (!strongSelf) return;
+      if (png.empty()) {
+        [strongSelf notifyInterface:@"browser.screenshotFailed" params:@{}];
+        return;
+      }
+      NSData* data = [NSData dataWithBytes:png.data() length:png.size()];
+      NSString* path = nil;
+      NSString* message = nil;
+      if ([strongSelf saveDataFile:data prefix:@"liora-screenshot" extension:@"png" path:&path error:&message]) {
+        NSLog(@"Liora: screenshot saved %@", path);
+        [strongSelf notifyInterface:@"browser.screenshotSaved" params:@{@"path" : path ?: @""}];
+      } else {
+        [strongSelf notifyInterface:@"browser.screenshotFailed"
+                             params:@{@"message" : message ?: @"cannot save the screenshot"}];
+      }
+    });
+    if (!started) [self notifyInterface:@"browser.screenshotFailed" params:@{}];
     return;
   }
 

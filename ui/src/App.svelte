@@ -386,6 +386,8 @@
     ...(active.page === 'web'
       ? [
           { id: 'find', label: t('nav.find'), icon: 'search', hint: '⌘F' },
+          { id: 'print', label: t('page.print'), icon: 'book', hint: '⌘P' },
+          { id: 'screenshot', label: t('page.screenshot'), icon: 'eye' },
           { id: 'reader', label: t('reader.open'), icon: 'book', hint: '⌘⌥R' },
           { id: 'summary', label: t('summary.command'), icon: 'sparkles' },
           { id: 'mini', label: t('mini.open'), icon: 'external' },
@@ -542,6 +544,28 @@
     if (message.method === 'browser.diagnosticFailed' && message.params) {
       const params = message.params as { message?: string };
       toast(params.message || t('error.saveFailed'), 'error');
+      return;
+    }
+    if (message.method === 'browser.screenshotSaved' && message.params) {
+      const params = message.params as { path?: string };
+      const path = params.path ?? '';
+      const name = path.split('/').pop() ?? '';
+      const directory = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+      const actions = [];
+      if (path) actions.push({ label: t('downloads.openFile'), path, kind: 'file' as const });
+      if (directory) {
+        actions.push({ label: t('downloads.reveal'), path: directory, kind: 'folder' as const });
+      }
+      toast(t('page.screenshotSaved', { name }), 'info', actions);
+      return;
+    }
+    if (message.method === 'browser.screenshotFailed') {
+      const params = (message.params ?? {}) as { message?: string };
+      toast(params.message || t('page.screenshotFailed'), 'error');
+      return;
+    }
+    if (message.method === 'browser.printFailed') {
+      toast(t('page.printFailed'), 'error');
       return;
     }
     if (message.method === 'browser.findResult' && message.params) {
@@ -1661,6 +1685,11 @@
     if (key === 'f') {
       event.preventDefault();
       openFind();
+      return;
+    }
+    if (key === 'p') {
+      event.preventDefault();
+      if (active.page === 'web') notify('ui.print', { tab: activeId });
       return;
     }
     if (key === 'l') {
