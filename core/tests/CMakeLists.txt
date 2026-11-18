@@ -8,6 +8,7 @@ add_executable(liora_tests
   test_components_rpc.cpp
   test_watches.cpp
   test_userscripts.cpp
+  test_kernels.cpp
 )
 
 target_include_directories(liora_tests PRIVATE

@@ -8,10 +8,11 @@ endif()
 add_executable(liora
   macos/main.mm
   macos/SystemKernel.mm
+  macos/KitesurfKernel.mm
   macos/LioraNet.mm
 )
 
-set_source_files_properties(macos/main.mm macos/SystemKernel.mm macos/LioraNet.mm
+set_source_files_properties(macos/main.mm macos/SystemKernel.mm macos/KitesurfKernel.mm macos/LioraNet.mm
   PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
 target_include_directories(liora PRIVATE

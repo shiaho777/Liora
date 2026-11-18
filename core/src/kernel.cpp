@@ -63,6 +63,20 @@ KernelManager::KernelManager() {
              kCapIsolatedProfiles;
   cef.netNeedsRestart = true;
   kernels_.push_back(std::move(cef));
+
+  KernelInfo kitesurf;
+  kitesurf.id = kKitesurf;
+  kitesurf.name = "Kitesurf (experimental)";
+  // No downloadable component exists: the engine runs from a local checkout
+  // (scripts/kitesurf.sh) and the shell attaches it when the endpoint answers.
+  kitesurf.component = "";
+  // Only what the engine actually implements: DevTools over CDP and a fresh
+  // isolate per page. Its outbound fetch has no proxy or DNS hook yet, and
+  // media playback, WebGL and extensions are out of scope upstream, so none
+  // of those bits are advertised.
+  kitesurf.caps = kCapDevTools | kCapIsolatedProfiles;
+  kitesurf.netNeedsRestart = false;
+  kernels_.push_back(std::move(kitesurf));
 }
 
 void KernelManager::registerKernel(KernelInfo info) {

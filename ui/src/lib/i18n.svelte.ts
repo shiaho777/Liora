@@ -710,6 +710,27 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'kernels.cap.extensions': 'MV3 扩展',
     'kernels.cap.devtools': '开发者工具',
     'kernels.cap.isolatedProfiles': '独立配置',
+    'kernels.cap.contentControls': '内容控制',
+    'kernels.kitesurfDesc':
+      'Cloudflare 的实验性引擎：不用 Chromium，在独立隔离环境中解析 HTML/CSS、运行页面脚本并渲染画面，通过 CDP 接入。需要先在本地运行引擎（scripts/kitesurf.sh）。视频音频播放、WebGL、扩展尚不支持；加密 DNS 与代理暂未接入。',
+    'kernels.kitesurfKind': '本地引擎',
+    'kernels.kitesurfNotRunning': '引擎未运行',
+    'kernels.kitesurfNotRunningBody':
+      '先在终端运行 scripts/kitesurf.sh 启动本地引擎，再点击“连接引擎”。引擎源码位于 third_party/kitesurf，首次构建需要 Bazel 与 Node 22+。',
+    'kitesurf.connect': '连接引擎',
+    'kitesurf.connecting': '连接中…',
+    'kitesurf.connected': 'Kitesurf 引擎已连接',
+    'kitesurf.failed': 'Kitesurf 引擎连接失败',
+    'kernels.kitesurfEndpoint': '引擎端点',
+    'kernels.kitesurfEndpointSave': '保存',
+    'kernels.kitesurfEndpointHint': '本地引擎的 CDP 端点，默认 ws://127.0.0.1:8787/devtools/browser。',
+    'kernels.kitesurfWarningTitle': '实验性引擎，不是加固沙箱',
+    'kernels.kitesurfWarningBody':
+      'Kitesurf 官方明确警告：本地运行时页面脚本不在加固沙箱中，不要用它打开不受信任的网站。它也不支持视频音频播放、WebGL、WebRTC 与扩展；加密 DNS、代理与按站点内容策略尚未接入。适合尝鲜与对比测试，日常浏览请继续使用系统 WebView 或 CEF。',
+    'kernels.confirmKitesurfTitle': '选择 Kitesurf 前请确认',
+    'kernels.confirmKitesurfBody':
+      '这是实验性引擎：页面脚本不在加固沙箱中运行，请勿打开不受信任的网站；视频、WebGL 与扩展不可用。系统 WebView 仍然可用，可以随时切回。',
+    'kernels.confirmKitesurfAction': '仍要选择',
 
     'data.title': '数据与备份',
     'data.lede': '书签、历史、设置和规则都属于 Liora，不属于某个内核。',
@@ -1482,6 +1503,27 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'kernels.cap.extensions': 'MV3 extensions',
     'kernels.cap.devtools': 'DevTools',
     'kernels.cap.isolatedProfiles': 'Isolated profiles',
+    'kernels.cap.contentControls': 'Content controls',
+    'kernels.kitesurfDesc':
+      'Cloudflare\'s experimental engine: no Chromium — it parses HTML/CSS, runs page scripts and renders frames in isolated workers, connected over CDP. Run the engine locally first (scripts/kitesurf.sh). Media playback, WebGL and extensions are not supported; encrypted DNS and proxy are not wired up yet.',
+    'kernels.kitesurfKind': 'Local engine',
+    'kernels.kitesurfNotRunning': 'Engine not running',
+    'kernels.kitesurfNotRunningBody':
+      'Start the local engine with scripts/kitesurf.sh in a terminal, then click "Connect engine". The engine source lives in third_party/kitesurf; the first build needs Bazel and Node 22+.',
+    'kitesurf.connect': 'Connect engine',
+    'kitesurf.connecting': 'Connecting…',
+    'kitesurf.connected': 'Kitesurf engine connected',
+    'kitesurf.failed': 'Could not connect to the Kitesurf engine',
+    'kernels.kitesurfEndpoint': 'Engine endpoint',
+    'kernels.kitesurfEndpointSave': 'Save',
+    'kernels.kitesurfEndpointHint': 'CDP endpoint of the local engine; defaults to ws://127.0.0.1:8787/devtools/browser.',
+    'kernels.kitesurfWarningTitle': 'Experimental engine, not a hardened sandbox',
+    'kernels.kitesurfWarningBody':
+      'Kitesurf\'s own warning: locally, page scripts do not run in a hardened sandbox — do not open untrusted sites with it. It also lacks media playback, WebGL, WebRTC and extensions; encrypted DNS, proxy and per-site content controls are not wired up yet. Good for experiments and comparison; keep the system WebView or CEF for daily browsing.',
+    'kernels.confirmKitesurfTitle': 'Confirm before selecting Kitesurf',
+    'kernels.confirmKitesurfBody':
+      'This is an experimental engine: page scripts do not run in a hardened sandbox, so do not open untrusted sites; media, WebGL and extensions are unavailable. The system WebView stays available and you can switch back at any time.',
+    'kernels.confirmKitesurfAction': 'Select anyway',
 
     'data.title': 'Data & backup',
     'data.lede': 'Bookmarks, history, settings and rules belong to Liora, not to a kernel.',

@@ -218,6 +218,7 @@ class KernelManager {
  public:
   static constexpr const char* kSystem = "system";
   static constexpr const char* kCef = "cef";
+  static constexpr const char* kKitesurf = "kitesurf";
 
   KernelManager();
 

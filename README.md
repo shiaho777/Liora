@@ -29,6 +29,7 @@ WebUI (Svelte 5)  ──  JSON-RPC  ──  Shell (C++ / Cocoa · Win32 · GTK �
 | liora-net（本地 DoH、DoT 上游、HTTPS 记录改写、CONNECT 代理） | 可用，已对真实 Cloudflare 上游验证 |
 | Windows / Linux / Android / iOS 壳 | 未实现，接口已预留 |
 | CEF 内核适配 | 可编译、可渲染；无 Apple 证书时可用“单进程兼容模式”本地运行，正式多进程分发仍需 Developer ID（见 `kernels/cef/README.md`） |
+| Kitesurf 内核适配（实验性） | 已接线：通过 CDP 连接本地运行的 Cloudflare Kitesurf 引擎，画面帧 + 输入转发。`scripts/kitesurf.sh` 构建并启动引擎。**不是加固沙箱，勿开不受信任站点**；视频音频/WebGL/扩展不支持，加密 DNS 与代理未接入 |
 | MV3 扩展 | 未实现 |
 
 ## 快速开始

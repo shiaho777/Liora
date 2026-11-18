@@ -206,6 +206,12 @@ export function runTestScenario(name: string): boolean {
     case 'updatecomponent':
       document.querySelector<HTMLElement>('.component-update')?.click();
       return true;
+    case 'kitesurfconnect':
+      clickButtonByText('连接引擎', true);
+      return true;
+    case 'kitesurfselect':
+      clickButtonByText('设为默认', true);
+      return true;
     case 'cefdownload':
       clickCefCardButton('下载');
       return true;
