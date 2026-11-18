@@ -8,6 +8,8 @@ export interface DownloadItem {
   total: number;
   state: 'started' | 'progress' | 'finished' | 'failed';
   error?: string;
+  /** The kernel kept resume data, so a retry continues instead of restarting. */
+  resumable?: boolean;
 }
 
 export interface DownloadRecord {
@@ -35,10 +37,19 @@ export function handleDownloadEvent(params: Partial<DownloadItem> & { id: string
     total: params.total ?? 0,
     state: params.state,
     error: params.error,
+    resumable: params.resumable ?? false,
   };
 
   if (index >= 0) downloads.items[index] = { ...downloads.items[index], ...merged };
   else downloads.items = [merged, ...downloads.items];
+}
+
+export function cancelDownload(item: DownloadItem): void {
+  notify('ui.cancelDownload', { id: item.id });
+}
+
+export function retryDownload(item: DownloadItem): void {
+  notify('ui.retryDownload', { id: item.id });
 }
 
 export function activeDownloadCount(): number {

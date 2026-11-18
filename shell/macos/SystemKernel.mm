@@ -135,6 +135,14 @@ NSString* const kFaviconScript = @R"JS(
 
 @interface LioraDownloadDelegate : NSObject <WKDownloadDelegate>
 - (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events options:(const ViewOptions&)options;
+@property(nonatomic, weak) WKDownload* download;
+@property(nonatomic, strong, nullable) NSData* resumeData;
+@property(nonatomic, copy, nullable) NSString* sourceURL;
+@property(nonatomic, strong, nullable) NSURL* lastDestination;
+@property(nonatomic, assign) BOOL cancelled;
+- (NSString*)identifier;
+- (void)cancel;
+- (void)restartProgressTimer;
 @end
 
 @implementation LioraDownloadDelegate {
@@ -156,6 +164,53 @@ NSString* const kFaviconScript = @R"JS(
   return self;
 }
 
+- (NSString*)identifier {
+  return _identifier;
+}
+
+- (void)cancel {
+  self.cancelled = YES;
+  [_timer invalidate];
+  _timer = nil;
+  if (self.download) {
+    [self.download cancel:^(NSData* resumeData) {
+      // Keep the resume data so a retry can continue where this left off.
+      if (resumeData) self.resumeData = resumeData;
+      // WebKit does not call didFailWithError after a user cancel, so report
+      // the cancelled state here instead of leaving the row stuck at its
+      // last progress value.
+      [self reportCancelled];
+    }];
+  } else {
+    [self reportCancelled];
+  }
+}
+
+- (void)restartProgressTimer {
+  [_timer invalidate];
+  _timer = [NSTimer scheduledTimerWithTimeInterval:0.4
+                                           repeats:YES
+                                             block:^(NSTimer* timer) {
+                                               [self tick];
+                                             }];
+}
+
+- (void)reportCancelled {
+  DownloadEvent event;
+  event.id = toStdString(_identifier);
+  event.path = _destination ? toStdString(_destination.path) : std::string();
+  event.filename = _destination ? toStdString(_destination.lastPathComponent) : std::string();
+  event.received = _destination ? fileSize(_destination.path) : 0;
+  event.total = _expected;
+  event.tab = _options.tab;
+  event.state = DownloadState::kFailed;
+  event.error = "cancelled";
+  event.resumable = self.resumeData != nil;
+  emitDownload(_events, event);
+  NSLog(@"Liora: download cancelled %@", _destination.path);
+  untrackDownload(self);
+}
+
 - (void)download:(WKDownload*)download
     decideDestinationUsingResponse:(NSURLResponse*)response
                  suggestedFilename:(NSString*)suggestedFilename
@@ -173,7 +228,11 @@ NSString* const kFaviconScript = @R"JS(
   NSString* name = suggestedFilename.length ? suggestedFilename : @"download";
   NSURL* target = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:name]];
 
-  if (_options.askWhereToSave) {
+  if (self.lastDestination) {
+    // A retry continues into the same file instead of asking again or
+    // creating a "(1)" copy next to the partial one.
+    target = self.lastDestination;
+  } else if (_options.askWhereToSave) {
     NSSavePanel* panel = [NSSavePanel savePanel];
     panel.nameFieldStringValue = name;
     panel.directoryURL = [NSURL fileURLWithPath:directory];
@@ -181,9 +240,11 @@ NSString* const kFaviconScript = @R"JS(
   } else {
     target = uniqueURL(target);
   }
+  self.lastDestination = target;
 
   _destination = target;
   _expected = response.expectedContentLength;
+  if ([response.URL isKindOfClass:[NSURL class]]) self.sourceURL = response.URL.absoluteString;
 
   DownloadEvent event;
   event.id = toStdString(_identifier);
@@ -241,15 +302,20 @@ NSString* const kFaviconScript = @R"JS(
   [_timer invalidate];
   _timer = nil;
 
+  if (resumeData) self.resumeData = resumeData;
+
   DownloadEvent event;
   event.id = toStdString(_identifier);
   event.path = _destination ? toStdString(_destination.path) : std::string();
   event.filename = _destination ? toStdString(_destination.lastPathComponent) : std::string();
+  event.received = _destination ? fileSize(_destination.path) : 0;
+  event.total = _expected;
   event.tab = _options.tab;
   event.state = DownloadState::kFailed;
-  event.error = toStdString(error.localizedDescription);
+  event.error = self.cancelled ? "cancelled" : toStdString(error.localizedDescription);
+  event.resumable = self.resumeData != nil;
   emitDownload(_events, event);
-  NSLog(@"Liora: download failed: %@", error.localizedDescription);
+  NSLog(@"Liora: download %@: %@", self.cancelled ? @"cancelled" : @"failed", error.localizedDescription);
   untrackDownload(self);
 }
 
@@ -320,6 +386,9 @@ NSString* const kFaviconScript = @R"JS(
 
 @interface LioraWebViewDelegate : NSObject <WKNavigationDelegate, WKUIDelegate>
 - (instancetype)initWithEvents:(std::shared_ptr<ViewEvents>)events options:(const ViewOptions&)options;
+// Downloads started by this view, keyed by the id reported to the interface.
+// Delegates stay here after failure so a retry can reuse their resume data.
+@property(nonatomic, readonly) NSMutableDictionary<NSString*, LioraDownloadDelegate*>* downloads;
 @end
 
 @implementation LioraWebViewDelegate {
@@ -331,6 +400,7 @@ NSString* const kFaviconScript = @R"JS(
   if ((self = [super init])) {
     _events = std::move(events);
     _options = options;
+    _downloads = [NSMutableDictionary dictionary];
   }
   return self;
 }
@@ -494,7 +564,9 @@ NSString* const kFaviconScript = @R"JS(
 
 - (void)attachDownload:(WKDownload*)download {
   LioraDownloadDelegate* delegate = [[LioraDownloadDelegate alloc] initWithEvents:_events options:_options];
+  delegate.download = download;
   download.delegate = delegate;
+  self.downloads[[delegate identifier]] = delegate;
   trackDownload(delegate);
 }
 
@@ -705,6 +777,54 @@ class WebViewKernelView final : public IKernelView {
   }
 
   void* nativeHandle() const override { return (__bridge void*)view_; }
+
+  bool hasDownload(const std::string& downloadId) override {
+    return delegate_.downloads[toNSString(downloadId)] != nil;
+  }
+
+  void cancelDownload(const std::string& downloadId) override {
+    LioraDownloadDelegate* delegate = delegate_.downloads[toNSString(downloadId)];
+    if (delegate) [delegate cancel];
+  }
+
+  bool retryDownload(const std::string& downloadId) override {
+    LioraDownloadDelegate* delegate = delegate_.downloads[toNSString(downloadId)];
+    if (!delegate) return false;
+
+    // Reuse the delegate: same id, so the interface updates the failed row in
+    // place, and the saved destination/ask options carry over.
+    delegate.cancelled = NO;
+    NSData* resumeData = delegate.resumeData;
+    delegate.resumeData = nil;
+    NSString* sourceURL = delegate.sourceURL;
+    WKWebView* view = view_;
+
+    void (^attach)(WKDownload*) = ^(WKDownload* replacement) {
+      if (!replacement) return;
+      replacement.delegate = delegate;
+      delegate.download = replacement;
+      // A resumed download does not call decideDestination again, so restart
+      // the progress timer here instead of waiting for a callback that never
+      // comes.
+      [delegate restartProgressTimer];
+      trackDownload(delegate);
+    };
+
+    if (resumeData) {
+      [view resumeDownloadFromResumeData:resumeData completionHandler:attach];
+      return true;
+    }
+    if (sourceURL.length) {
+      // No resume data (e.g. the server does not support ranges): start the
+      // same request again rather than pretending to continue.
+      NSURL* url = [NSURL URLWithString:sourceURL];
+      if (url) {
+        [view startDownloadUsingRequest:[NSURLRequest requestWithURL:url] completionHandler:attach];
+        return true;
+      }
+    }
+    return false;
+  }
 
  private:
   WKWebView* view_ = nil;

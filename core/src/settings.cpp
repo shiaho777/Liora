@@ -52,12 +52,12 @@ std::vector<SettingDef> buildSchema() {
   add("content.autoplay", "block-audible", kGlobalSite, {"allow", "block-audible", "block"});
   add("content.zoom", 100, kGlobalSite);
   add("content.userAgent", "default", kAll, {"default", "desktop", "mobile"});
-  add("content.adblock", true, kGlobalSite);
+  // No content.adblock / extensions.enabled defaults: neither feature exists
+  // yet, and a default of true would pretend they are on.
 
   add("downloads.dir", "");
   add("downloads.ask", false);
 
-  add("extensions.enabled", true, kScopeGlobal, {}, true);
   add("components.autoUpdate", true, kScopeGlobal, {}, true);
   add("components.channel", "stable", kScopeGlobal, {"stable", "beta"}, true);
   add("components.catalogUrl", "", kScopeGlobal, {}, true);

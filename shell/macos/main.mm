@@ -201,8 +201,11 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, strong) NSTimer* watchTimer;
 @property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabContainers;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabLastUrl;
 @property(nonatomic, strong) NSMutableArray<LioraMiniWindow*>* miniWindows;
 
+- (void)recordVisit:(const std::string&)url title:(const std::string&)title tab:(int64_t)tab;
+- (void)recordTitle:(const std::string&)title tab:(int64_t)tab;
 - (void)refreshNetworkNow;
 - (void)scheduleNetworkRefresh;
 - (void)publishDownload:(const liora::DownloadEvent&)event hideContent:(BOOL)hide;
@@ -247,6 +250,7 @@ NSString* jsonEscape(id object) {
   [self buildInterface];
   self.checkingWatches = [NSMutableSet set];
   self.tabContainers = [NSMutableDictionary dictionary];
+  self.tabLastUrl = [NSMutableDictionary dictionary];
   self.miniWindows = [NSMutableArray array];
   [self startWatchTimer];
 
@@ -475,6 +479,30 @@ NSString* jsonEscape(id object) {
   };
 }
 
+// Browsing history is recorded here, at the point a kernel reports a real
+// navigation. Internal pages and duplicate reports for the same URL are
+// skipped so a reload or a title change does not inflate the visit count.
+- (void)recordVisit:(const std::string&)url title:(const std::string&)title tab:(int64_t)tab {
+  if (!_core) return;
+  if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return;
+  NSNumber* key = @(tab);
+  NSString* previous = self.tabLastUrl[key];
+  NSString* current = ns(url);
+  if (previous && [previous isEqualToString:current]) {
+    if (!title.empty()) _core->storage().setTitle(url, title);
+    return;
+  }
+  self.tabLastUrl[key] = current;
+  _core->storage().addVisit(url, title);
+  NSLog(@"Liora: history recorded %@", current);
+}
+
+- (void)recordTitle:(const std::string&)title tab:(int64_t)tab {
+  if (!_core || title.empty()) return;
+  NSString* url = self.tabLastUrl[@(tab)];
+  if (url.length) _core->storage().setTitle(stdString(url), title);
+}
+
 - (void)publishDownload:(const liora::DownloadEvent&)event hideContent:(BOOL)hide {
   NSString* state = @"started";
   switch (event.state) {
@@ -507,6 +535,7 @@ NSString* jsonEscape(id object) {
     @"tab" : @(event.tab),
     @"state" : state,
     @"error" : ns(event.error),
+    @"resumable" : @(event.resumable),
   };
   __weak LioraController* weakSelf = self;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -806,6 +835,25 @@ NSString* jsonEscape(id object) {
                   NSLog(@"Liora: page dump unavailable: %@", error.localizedDescription);
                 } else {
                   NSLog(@"Liora: page\n%@", result);
+                }
+              }];
+  }
+  // Verification hook: print the download-row state the interface recorded.
+  if ([name isEqualToString:@"dldump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraDlDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: dldump\n%@", result);
+              }];
+  }
+  // Verification hook: print the address-bar suggestion state the interface
+  // recorded after a scripted input.
+  if ([name isEqualToString:@"suggestdump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraSuggestDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (error) {
+                  NSLog(@"Liora: suggest dump unavailable: %@", error.localizedDescription);
+                } else {
+                  NSLog(@"Liora: suggest\n%@", result);
                 }
               }];
   }
@@ -1280,8 +1328,14 @@ NSString* jsonEscape(id object) {
   __weak LioraController* weakSelf = self;
   events.onUrl = [weakSelf, tab](const std::string& url) {
     NSString* text = ns(url);
+    // Copy by value: the block runs later, after the callback's reference is
+    // gone, so capturing the reference itself would dangle.
+    std::string urlCopy = url;
     dispatch_async(dispatch_get_main_queue(), ^{
-      [weakSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
+      LioraController* strongSelf = weakSelf;
+      if (!strongSelf) return;
+      [strongSelf recordVisit:urlCopy title:"" tab:tab];
+      [strongSelf notifyInterface:@"browser.urlChanged" params:@{@"url" : text, @"tab" : @(tab)}];
     });
   };
   events.onFullscreen = [weakSelf, tab](bool fullscreen) {
@@ -1303,8 +1357,12 @@ NSString* jsonEscape(id object) {
   };
   events.onTitle = [weakSelf, tab](const std::string& title) {
     NSString* text = ns(title);
+    std::string titleCopy = title;
     dispatch_async(dispatch_get_main_queue(), ^{
-      [weakSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text, @"tab" : @(tab)}];
+      LioraController* strongSelf = weakSelf;
+      if (!strongSelf) return;
+      [strongSelf recordTitle:titleCopy tab:tab];
+      [strongSelf notifyInterface:@"browser.titleChanged" params:@{@"title" : text, @"tab" : @(tab)}];
     });
   };
   events.onFavicon = [weakSelf, tab](const std::string& dataUrl) {
@@ -2083,6 +2141,29 @@ NSString* jsonEscape(id object) {
       view->back();
     } else {
       view->forward();
+    }
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.reload"]) {
+    int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
+    liora::IKernelView* view = [self viewForTab:tab];
+    if (view) view->reload([params[@"bypassCache"] boolValue]);
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.cancelDownload"] || [method isEqualToString:@"ui.retryDownload"]) {
+    NSString* downloadId = params[@"id"];
+    if (!downloadId.length) return;
+    // The download belongs to the view that started it; act only there.
+    for (auto& [tab, view] : _views) {
+      if (!view->hasDownload(stdString(downloadId))) continue;
+      if ([method isEqualToString:@"ui.cancelDownload"]) {
+        view->cancelDownload(stdString(downloadId));
+      } else {
+        view->retryDownload(stdString(downloadId));
+      }
+      break;
     }
     return;
   }
