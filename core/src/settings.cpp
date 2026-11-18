@@ -27,6 +27,10 @@ std::vector<SettingDef> buildSchema() {
 
   add("search.engine", "duckduckgo");
   add("search.suggest", true);
+  // Custom engines: [{id, name, template}] where template contains %s.
+  add("search.customEngines", Json::array());
+  // Pinned start-page tiles: [{url, title}]; empty means show top sites.
+  add("start.tiles", Json::array());
   add("home.page", "liora://newtab");
   add("startup.restore", true);
 

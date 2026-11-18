@@ -845,6 +845,20 @@ NSString* jsonEscape(id object) {
                 if (!error) NSLog(@"Liora: finddump %@", result);
               }];
   }
+  // Verification hook: print the custom-engine state the interface recorded.
+  if ([name isEqualToString:@"enginedump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraEngineDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: enginedump %@", result);
+              }];
+  }
+  // Verification hook: print the start-page tile state the interface recorded.
+  if ([name isEqualToString:@"tiledump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraTileDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: tiledump %@", result);
+              }];
+  }
   // Verification hook: print the bookmark folders the interface recorded.
   if ([name isEqualToString:@"bookmarkdump"]) {
     [self.ui evaluateJavaScript:@"window.__lioraBookmarkDump || 'not-set'"

@@ -3,8 +3,17 @@
   import Icon from './Icon.svelte';
   import { call } from './bridge';
   import { t, i18n } from './i18n.svelte';
-  import { app } from './state.svelte';
-  import { loadSettings, settingsStore, value } from './settings-store.svelte';
+  import { app, toast } from './state.svelte';
+  import { loadSettings, settingsStore, value, set } from './settings-store.svelte';
+  import {
+    addTile,
+    isPinned,
+    mergeTiles,
+    parseTiles,
+    removeTile,
+    renameTile,
+    type Tile,
+  } from './start-tiles';
 
   interface Props {
     /** Host → data: URL, cached locally by the shell. Never a third party. */
@@ -28,6 +37,33 @@
   let suggestEnabled = $state(true);
   let now = $state(new Date());
   let searchEl = $state<HTMLInputElement | null>(null);
+
+  // Pinned tiles are user-managed; top sites fill the remaining slots.
+  const pinned = $derived(parseTiles(value<unknown>('start.tiles')));
+  const tiles = $derived(mergeTiles(pinned, sites, 8));
+  let editingTiles = $state(false);
+  let tileDialog = $state<{ mode: 'add' | 'edit'; url: string; title: string } | null>(null);
+
+  async function saveTiles(next: Tile[]): Promise<void> {
+    await set('start.tiles', next);
+  }
+
+  async function saveTileDialog(): Promise<void> {
+    if (!tileDialog) return;
+    const url = tileDialog.url.trim();
+    if (!url) {
+      toast(t('start.tiles.errUrl'), 'error');
+      return;
+    }
+    const normalized = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+    if (tileDialog.mode === 'add') {
+      await saveTiles(addTile(pinned, normalized, tileDialog.title));
+    } else {
+      // Editing an existing tile: rename it (URL stays the identity).
+      await saveTiles(renameTile(pinned, tileDialog.url, tileDialog.title));
+    }
+    tileDialog = null;
+  }
 
   // Only the minute matters for the clock; a 1s timer would wake the page 60x
   // more often than needed on a start page that can stay open for hours.
@@ -196,37 +232,96 @@
       {/if}
     </section>
 
-    {#if !query.trim() && sites.length > 0}
+    {#if !query.trim() && (tiles.length > 0 || editingTiles)}
       <section class="block">
         <div class="block__head">
           <h2 class="block__title">{t('start.frequent')}</h2>
-          <button class="text-button" onclick={() => onopen?.('history')}>
-            {t('start.allHistory')}
-            <Icon name="chevron" size={12} />
-          </button>
+          <div class="block__actions">
+            <button
+              class="text-button"
+              class:text-button--active={editingTiles}
+              onclick={() => (editingTiles = !editingTiles)}
+            >
+              <Icon name="pencil" size={12} />
+              {editingTiles ? t('start.tiles.done') : t('start.tiles.edit')}
+            </button>
+            <button class="text-button" onclick={() => onopen?.('history')}>
+              {t('start.allHistory')}
+              <Icon name="chevron" size={12} />
+            </button>
+          </div>
         </div>
         <div class="sites">
-          {#each sites as site (site.url)}
-            <button
-              class="site"
-              style:--site-hue={hue(site.url)}
-              onclick={() => onnavigate?.(site.url)}
-              title={site.url}
-            >
-              <span class="site__mark" class:site__mark--icon={Boolean(faviconFor(site.url))}>
-                {#if faviconFor(site.url)}
-                  <img src={faviconFor(site.url)} alt="" />
+          {#each tiles as tile (tile.url)}
+            <div class="site-wrap">
+              <button
+                class="site"
+                style:--site-hue={hue(tile.url)}
+                onclick={() => !editingTiles && onnavigate?.(tile.url)}
+                title={tile.url}
+              >
+                <span class="site__mark" class:site__mark--icon={Boolean(faviconFor(tile.url))}>
+                  {#if faviconFor(tile.url)}
+                    <img src={faviconFor(tile.url)} alt="" />
+                  {:else}
+                    {letter(tile.title || host(tile.url))}
+                  {/if}
+                </span>
+                <span class="site__text">
+                  <span class="site__title">{tile.title || host(tile.url)}</span>
+                  <span class="site__host">{host(tile.url)}</span>
+                </span>
+                {#if isPinned(pinned, tile.url)}
+                  <span class="site__pin" title={t('start.tiles.pinned')}><Icon name="star" size={11} /></span>
                 {:else}
-                  {letter(site.title || host(site.url))}
+                  <span class="site__arrow"><Icon name="chevron" size={12} /></span>
                 {/if}
-              </span>
-              <span class="site__text">
-                <span class="site__title">{site.title || host(site.url)}</span>
-                <span class="site__host">{host(site.url)}</span>
-              </span>
-              <span class="site__arrow"><Icon name="chevron" size={12} /></span>
-            </button>
+              </button>
+              {#if editingTiles}
+                <span class="site__edit">
+                  {#if isPinned(pinned, tile.url)}
+                    <button
+                      class="icon-button"
+                      title={t('start.tiles.rename')}
+                      aria-label={t('start.tiles.rename')}
+                      onclick={() => (tileDialog = { mode: 'edit', url: tile.url, title: tile.title })}
+                    >
+                      <Icon name="pencil" size={12} />
+                    </button>
+                    <button
+                      class="icon-button"
+                      title={t('start.tiles.unpin')}
+                      aria-label={t('start.tiles.unpin')}
+                      onclick={() => void saveTiles(removeTile(pinned, tile.url))}
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  {:else}
+                    <button
+                      class="icon-button"
+                      title={t('start.tiles.pin')}
+                      aria-label={t('start.tiles.pin')}
+                      onclick={() => void saveTiles(addTile(pinned, tile.url, tile.title))}
+                    >
+                      <Icon name="star" size={12} />
+                    </button>
+                  {/if}
+                </span>
+              {/if}
+            </div>
           {/each}
+          {#if editingTiles}
+            <button
+              class="site site--add"
+              onclick={() => (tileDialog = { mode: 'add', url: '', title: '' })}
+            >
+              <span class="site__mark site__mark--add"><Icon name="plus" size={15} /></span>
+              <span class="site__text">
+                <span class="site__title">{t('start.tiles.add')}</span>
+                <span class="site__host">{t('start.tiles.addHint')}</span>
+              </span>
+            </button>
+          {/if}
         </div>
       </section>
     {:else if !query.trim()}
@@ -309,6 +404,49 @@
       </div>
     </footer>
   </div>
+
+  {#if tileDialog}
+    <div class="tile-backdrop" role="presentation" onclick={() => (tileDialog = null)}>
+      <div
+        class="tile-dialog"
+        role="dialog"
+        tabindex="-1"
+        aria-modal="true"
+        aria-label={tileDialog.mode === 'add' ? t('start.tiles.add') : t('start.tiles.rename')}
+        onclick={(event) => event.stopPropagation()}
+        onkeydown={(event) => {
+          if (event.key === 'Escape') tileDialog = null;
+          if (event.key === 'Enter') void saveTileDialog();
+        }}
+      >
+        <div class="tile-dialog__title">
+          {tileDialog.mode === 'add' ? t('start.tiles.add') : t('start.tiles.rename')}
+        </div>
+        <label class="tile-dialog__field">
+          <span class="tile-dialog__label">{t('start.tiles.url')}</span>
+          <input
+            class="input input--mono"
+            bind:value={tileDialog.url}
+            placeholder="https://example.com"
+            spellcheck="false"
+            disabled={tileDialog.mode === 'edit'}
+          />
+        </label>
+        <label class="tile-dialog__field">
+          <span class="tile-dialog__label">{t('start.tiles.name')}</span>
+          <input class="input" bind:value={tileDialog.title} placeholder={t('start.tiles.namePlaceholder')} />
+        </label>
+        <div class="tile-dialog__actions">
+          <button class="button button--ghost button--sm" onclick={() => (tileDialog = null)}>
+            {t('kernels.cancel')}
+          </button>
+          <button class="button button--primary button--sm" onclick={() => void saveTileDialog()}>
+            {t('kernels.kitesurfEndpointSave')}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -609,6 +747,123 @@
   .site:hover .site__arrow {
     opacity: 1;
     transform: none;
+  }
+
+  .block__actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .text-button--active {
+    color: var(--accent);
+  }
+
+  .site-wrap {
+    position: relative;
+    min-width: 0;
+  }
+
+  .site-wrap .site {
+    width: 100%;
+  }
+
+  .site__pin {
+    flex: none;
+    margin-left: auto;
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+  }
+
+  .site__edit {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .site__edit .icon-button {
+    width: 22px;
+    height: 22px;
+  }
+
+  .site--add {
+    border: 1px dashed var(--border-strong);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .site--add:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .site__mark--add {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .tile-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    background: rgba(8, 10, 14, 0.46);
+    backdrop-filter: blur(5px);
+    animation: tile-fade var(--fast) var(--ease-out);
+  }
+
+  .tile-dialog {
+    width: min(420px, calc(100vw - 48px));
+    background: var(--surface-strong);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: tile-in var(--normal) var(--ease-out);
+  }
+
+  @keyframes tile-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes tile-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .tile-dialog__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+  }
+
+  .tile-dialog__field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .tile-dialog__label {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+
+  .tile-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   .starters {
