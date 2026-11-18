@@ -274,6 +274,31 @@ export function runTestScenario(name: string): boolean {
       }, 250);
       return true;
     }
+    case 'barfolder': {
+      // Seed a folder + bookmark on the bar through the real RPC, open the
+      // folder menu, click the bookmark, and record the resulting navigation.
+      void (async () => {
+        const folder = await call<{ id: number }>('bookmarks.addFolder', { parent: 1, title: 'Bar Folder' });
+        await call('bookmarks.add', { parent: folder.id, title: 'Nested Site', url: 'https://nested.example' });
+        setTimeout(() => {
+          const chip = [...document.querySelectorAll<HTMLButtonElement>('.bm-folder__chip')]
+            .find((button) => button.textContent?.includes('Bar Folder'));
+          chip?.click();
+          setTimeout(() => {
+            const item = [...document.querySelectorAll<HTMLButtonElement>('.bm-menu__item')]
+              .find((button) => button.textContent?.includes('Nested Site'));
+            const menuOpen = Boolean(document.querySelector('.bm-menu'));
+            item?.click();
+            setTimeout(() => {
+              (window as unknown as { __lioraBarDump?: string }).__lioraBarDump = JSON.stringify({
+                chip: Boolean(chip), menuOpen, item: Boolean(item),
+              });
+            }, 500);
+          }, 300);
+        }, 400);
+      })();
+      return true;
+    }
     case 'privatetab': {
       // Open a private tab through the real command and record its state.
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));

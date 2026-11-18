@@ -23,6 +23,8 @@
   } from './lib/downloads.svelte';
   import { buildSuggestions, moveSelection, type Suggestion } from './lib/suggest';
   import { buildSearchUrl, engineName, parseCustomEngines } from './lib/search-engines';
+  import BookmarksBar from './lib/BookmarksBar.svelte';
+  import type { BookmarkNode } from './lib/bookmark-tree';
   import { app, boot, internalPageFor, openPage, toast } from './lib/state.svelte';
   import { networkPending, refreshNetworkStatus } from './lib/network-status.svelte';
   import { addressBadges, type HostRule } from './lib/address-badges';
@@ -189,6 +191,7 @@
     return item?.value === true;
   });
   let bookmarks = $state<Array<{ id: number; title: string; url: string }>>([]);
+  let barNodes = $state<BookmarkNode[]>([]);
   let sessionReady = $state(false);
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -335,15 +338,15 @@
   });
 
   async function loadBookmarks(): Promise<void> {    try {
-      const tree = await call<Record<string, { children?: Array<{ id: number; type: string; title: string; url?: string }> }>>(
-        'bookmarks.tree',
-      );
-      // Every bookmark on the bar stays reachable; the bar scrolls instead of
-      // silently dropping everything past an arbitrary cut-off.
-      bookmarks = (tree.bar?.children ?? [])
+      const tree = await call<Record<string, BookmarkNode>>('bookmarks.tree');
+      // Keep the full bar tree (folders included) so the bar can offer folder
+      // menus; the flat URL list still drives the star's active state.
+      barNodes = tree.bar?.children ?? [];
+      bookmarks = barNodes
         .filter((node) => node.type === 'url' && node.url)
         .map((node) => ({ id: node.id, title: node.title || node.url!, url: node.url! }));
     } catch {
+      barNodes = [];
       bookmarks = [];
     }
   }
@@ -1911,19 +1914,7 @@
       />
     {/if}
 
-    {#if bookmarks.length > 0}
-      <div class="bookmarksbar">
-        <span class="bookmarksbar__label">
-          <Icon name="star" size={11} />
-          {t('bookmarks.bar')}
-        </span>
-        {#each bookmarks as entry (entry.id)}
-          <button class="bookmark-chip" title={entry.url} onclick={() => navigate(entry.url)}>
-            {entry.title}
-          </button>
-        {/each}
-      </div>
-    {/if}
+    <BookmarksBar nodes={barNodes} onnavigate={navigate} />
 
     {#if findOpen && active.page === 'web'}
       <div class="findbar">

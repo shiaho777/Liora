@@ -858,6 +858,13 @@ NSString* jsonEscape(id object) {
                 if (!error) NSLog(@"Liora: finddump %@", result);
               }];
   }
+  // Verification hook: print the bookmark-bar folder state the interface recorded.
+  if ([name isEqualToString:@"bardump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraBarDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: bardump %@", result);
+              }];
+  }
   // Verification hook: print the private-tab state the interface recorded.
   if ([name isEqualToString:@"privatedump"]) {
     [self.ui evaluateJavaScript:@"window.__lioraPrivateDump || 'not-set'"
