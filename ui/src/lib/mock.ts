@@ -28,6 +28,62 @@ interface CustomDns {
   protocol: string;
 }
 
+interface MockBookmarkNode {
+  id: number;
+  type: 'folder' | 'url';
+  title: string;
+  url?: string;
+  children?: MockBookmarkNode[];
+}
+
+function defaultBookmarkRoots(): MockBookmarkNode[] {
+  return [
+    {
+      id: 1,
+      type: 'folder',
+      title: 'Bookmarks bar',
+      children: [
+        { id: 10, type: 'url', title: 'Svelte', url: 'https://svelte.dev' },
+        { id: 11, type: 'url', title: 'Chromium', url: 'https://www.chromium.org' },
+      ],
+    },
+    { id: 2, type: 'folder', title: 'Other bookmarks', children: [] },
+    { id: 3, type: 'folder', title: 'Mobile bookmarks', children: [] },
+  ];
+}
+
+function findBookmarkNode(nodes: MockBookmarkNode[], id: number): MockBookmarkNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const hit = findBookmarkNode(node.children ?? [], id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function findBookmarkParent(nodes: MockBookmarkNode[], id: number): MockBookmarkNode | null {
+  for (const node of nodes) {
+    if ((node.children ?? []).some((child) => child.id === id)) return node;
+    const hit = findBookmarkParent(node.children ?? [], id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function flattenBookmarkUrls(nodes: MockBookmarkNode[]): Array<{ id: number; title: string; url: string }> {
+  const out: Array<{ id: number; title: string; url: string }> = [];
+  for (const node of nodes) {
+    if (node.type === 'url' && node.url) out.push({ id: node.id, title: node.title, url: node.url });
+    out.push(...flattenBookmarkUrls(node.children ?? []));
+  }
+  return out;
+}
+
+function isDescendant(node: MockBookmarkNode, id: number): boolean {
+  if (node.id === id) return true;
+  return (node.children ?? []).some((child) => isDescendant(child, id));
+}
+
 const SAMPLE_TIMELINE = `Liora diagnostics timeline
 Exported: 2026-11-10T08:53:48.271Z
 2026-11-10T08:53:35.565Z  resolver  run 2
@@ -356,7 +412,7 @@ export function createMockBackend(): MockBackend {
     sites: Record<string, Record<string, unknown>>;
     rules: Rule[];
     installed: Array<{ id: string; version: string; path: string; installedAt: number; current: boolean }>;
-    bookmarks: Array<{ id: number; title: string; url: string }>;
+    bookmarks: MockBookmarkNode[];
     history: Array<{ url: string; title: string; visitCount: number; lastVisit: number }>;
     permissions: Array<{ origin: string; name: string; value: string; modified: number }>;
   } = stored
@@ -366,10 +422,7 @@ export function createMockBackend(): MockBackend {
         sites: {},
         rules: [],
         installed: [],
-        bookmarks: [
-          { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
-          { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
-        ],
+        bookmarks: defaultBookmarkRoots(),
         permissions: [
           { origin: 'https://meet.example', name: 'camera', value: 'allow', modified: Date.now() },
           { origin: 'https://record.example', name: 'microphone', value: 'block', modified: Date.now() },
@@ -381,10 +434,14 @@ export function createMockBackend(): MockBackend {
           { url: 'https://github.com', title: 'GitHub', visitCount: 4, lastVisit: Date.now() - 259200000 },
         ],
       };
-  state.bookmarks ??= [
-    { id: 10, title: 'Svelte', url: 'https://svelte.dev' },
-    { id: 11, title: 'Chromium', url: 'https://www.chromium.org' },
-  ];
+  state.bookmarks ??= defaultBookmarkRoots();
+  // Migrate the old flat bookmark list into the bar root.
+  if (state.bookmarks.length && !state.bookmarks.some((node) => node.type === 'folder')) {
+    const flat = state.bookmarks as unknown as Array<{ id: number; title: string; url: string }>;
+    state.bookmarks = defaultBookmarkRoots();
+    const bar = state.bookmarks.find((node) => node.id === 1);
+    if (bar) bar.children = flat.map((entry) => ({ ...entry, type: 'url' as const }));
+  }
   state.permissions ??= [
     { origin: 'https://meet.example', name: 'camera', value: 'allow', modified: Date.now() },
     { origin: 'https://record.example', name: 'microphone', value: 'block', modified: Date.now() },
@@ -838,31 +895,64 @@ export function createMockBackend(): MockBackend {
     'components.installed': () => state.installed,
 
     'bookmarks.tree': () => ({
-      bar: {
-        id: 1,
-        type: 'folder',
-        title: '书签栏',
-        children: state.bookmarks.map((entry) => ({ ...entry, type: 'url' })),
-      },
-      other: { id: 2, type: 'folder', title: '其他书签', children: [] },
-      mobile: { id: 3, type: 'folder', title: '移动端书签', children: [] },
+      bar: findBookmarkNode(state.bookmarks, 1),
+      other: findBookmarkNode(state.bookmarks, 2),
+      mobile: findBookmarkNode(state.bookmarks, 3),
     }),
-    'bookmarks.forUrl': (p) => state.bookmarks.filter((entry) => entry.url === p.url),
+    'bookmarks.forUrl': (p) => flattenBookmarkUrls(state.bookmarks).filter((entry) => entry.url === p.url),
     'bookmarks.search': (p) => {
       const query = String(p.query ?? '').toLowerCase();
       const limit = Number(p.limit ?? 50);
-      return state.bookmarks
+      return flattenBookmarkUrls(state.bookmarks)
         .filter((entry) => !query || entry.url.toLowerCase().includes(query) || entry.title.toLowerCase().includes(query))
         .slice(0, limit);
     },
     'bookmarks.add': (p) => {
-      const entry = { id: 100 + state.bookmarks.length, title: p.title || p.url, url: p.url };
-      state.bookmarks.push(entry);
+      const parent = findBookmarkNode(state.bookmarks, Number(p.parent ?? 2)) ?? findBookmarkNode(state.bookmarks, 2);
+      const entry: MockBookmarkNode = {
+        id: 100 + flattenBookmarkUrls(state.bookmarks).length + Math.floor(Math.random() * 1000),
+        type: 'url',
+        title: p.title || p.url,
+        url: p.url,
+      };
+      if (parent) (parent.children ??= []).push(entry);
       persist();
       return entry;
     },
+    'bookmarks.addFolder': (p) => {
+      const parent = findBookmarkNode(state.bookmarks, Number(p.parent ?? 2)) ?? findBookmarkNode(state.bookmarks, 2);
+      const folder: MockBookmarkNode = {
+        id: 500 + Math.floor(Math.random() * 100000),
+        type: 'folder',
+        title: p.title || 'Folder',
+        children: [],
+      };
+      if (parent) (parent.children ??= []).push(folder);
+      persist();
+      return folder;
+    },
+    'bookmarks.update': (p) => {
+      const node = findBookmarkNode(state.bookmarks, Number(p.id));
+      if (!node) return { ok: false };
+      if (typeof p.title === 'string') node.title = p.title;
+      if (typeof p.url === 'string' && node.type === 'url') node.url = p.url;
+      persist();
+      return { ok: true };
+    },
+    'bookmarks.move': (p) => {
+      const node = findBookmarkNode(state.bookmarks, Number(p.id));
+      const target = findBookmarkNode(state.bookmarks, Number(p.parent));
+      if (!node || !target || target.type !== 'folder') return { ok: false };
+      if (node.type === 'folder' && isDescendant(node, target.id)) return { ok: false };
+      const oldParent = findBookmarkParent(state.bookmarks, node.id);
+      if (oldParent) oldParent.children = (oldParent.children ?? []).filter((child) => child.id !== node.id);
+      (target.children ??= []).push(node);
+      persist();
+      return { ok: true };
+    },
     'bookmarks.remove': (p) => {
-      state.bookmarks = state.bookmarks.filter((entry) => entry.id !== p.id);
+      const parent = findBookmarkParent(state.bookmarks, Number(p.id));
+      if (parent) parent.children = (parent.children ?? []).filter((child) => child.id !== Number(p.id));
       persist();
       return { ok: true };
     },

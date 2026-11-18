@@ -734,29 +734,193 @@ class WebViewKernelView final : public IKernelView {
     }
   }
 
-  void find(const std::string& text, bool forward, bool matchCase) override {
+  void find(const std::string& text, bool forward, bool matchCase, bool newQuery) override {
     if (text.empty()) return;
     WKFindConfiguration* configuration = [[WKFindConfiguration alloc] init];
     configuration.backwards = !forward;
     configuration.caseSensitive = matchCase;
     configuration.wraps = YES;
-    auto events = events_;
-    [view_ findString:toNSString(text)
-        withConfiguration:configuration
-      completionHandler:^(WKFindResult* result) {
-        if (events && events->onFindResult) {
-          const int matches = result.matchFound ? 1 : 0;
-          events->onFindResult(matches, matches);
+
+    if (newQuery || text != findText_ || matchCase != findCase_) {
+      findText_ = text;
+      findCase_ = matchCase;
+      findTotal_ = 0;
+      findActive_ = 0;
+      auto events = events_;
+      bool backwards = !forward;
+      recountMatches(text, matchCase, [this, text, configuration, events, backwards]() {
+        if (backwards) {
+          // Start a backwards search at the last match: select the first,
+          // then step back once — wraps=YES lands on the last occurrence.
+          [view_ findString:toNSString(text)
+              withConfiguration:configuration
+            completionHandler:^(WKFindResult* result) {
+              if (!result.matchFound) {
+                if (events && events->onFindResult) events->onFindResult(0, 0);
+                return;
+              }
+              if (findTotal_ <= 0) {
+                findTotal_ = 1;
+                findActive_ = 1;
+                if (events && events->onFindResult) events->onFindResult(1, 1);
+                return;
+              }
+              findActive_ = 1;
+              WKFindConfiguration* back = [[WKFindConfiguration alloc] init];
+              back.backwards = YES;
+              back.caseSensitive = findCase_;
+              back.wraps = YES;
+              stepFind(text, false, back);
+            }];
+          return;
         }
-      }];
+        // Report the total before a match is selected, then let WebKit pick
+        // the first match and locate its real index.
+        if (findTotal_ > 0 && events && events->onFindResult) events->onFindResult(findTotal_, 0);
+        [view_ findString:toNSString(text)
+            withConfiguration:configuration
+          completionHandler:^(WKFindResult* result) {
+            if (!result.matchFound) {
+              if (events && events->onFindResult) events->onFindResult(0, 0);
+              return;
+            }
+            if (findTotal_ <= 0) {
+              // WebKit found a match the DOM walk missed (shadow root etc.);
+              // report it honestly instead of claiming "no results".
+              findTotal_ = 1;
+              findActive_ = 1;
+              if (events && events->onFindResult) events->onFindResult(1, 1);
+              return;
+            }
+            locateActive(text, [this, events](int active) {
+              findActive_ = active > 0 ? active : 1;
+              if (events && events->onFindResult) events->onFindResult(findTotal_, findActive_);
+            });
+          }];
+      });
+      return;
+    }
+    stepFind(text, forward, configuration);
   }
 
   void stopFinding(bool clearSelection) override {
+    findText_.clear();
+    findTotal_ = 0;
+    findActive_ = 0;
     if (!clearSelection) return;
     [view_ evaluateJavaScript:@"window.getSelection().removeAllRanges()"
             completionHandler:nil];
   }
 
+ private:
+  // WebKit's findString reports only whether a match exists, so the total is
+  // counted from the DOM text (TreeWalker over visible text nodes) and the
+  // active index is derived from the selection offset within the same walk.
+  // Shadow DOM and iframes are outside this count; the selection itself is
+  // still owned by WebKit.
+  void recountMatches(const std::string& text, bool matchCase, void (^done)(void)) {
+    NSString* script = [NSString
+        stringWithFormat:@"(function(){var q=%@;var cs=%@;if(!q)return 0;"
+                          "var walker=document.createTreeWalker(document.documentElement,NodeFilter.SHOW_TEXT,{"
+                          "acceptNode:function(n){var p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;"
+                          "var tag=p.tagName;if(tag==='SCRIPT'||tag==='STYLE'||tag==='NOSCRIPT'||tag==='TEMPLATE')return NodeFilter.FILTER_REJECT;"
+                          "for(var a=p;a&&a!==document.documentElement;a=a.parentElement){"
+                          "var s=window.getComputedStyle(a);if(s.display==='none'||s.visibility==='hidden')return NodeFilter.FILTER_REJECT;}"
+                          "return NodeFilter.FILTER_ACCEPT;}});"
+                          "var total=0,node;var needle=cs?q:q.toLowerCase();"
+                          "while((node=walker.nextNode())){"
+                          "var hay=node.nodeValue;if(!cs)hay=hay.toLowerCase();"
+                          "var i=hay.indexOf(needle);while(i!==-1){total++;i=hay.indexOf(needle,i+needle.length);}}"
+                          "return total;})();",
+                         jsonLiteral(toNSString(text)), matchCase ? @"true" : @"false"];
+    auto events = events_;
+    [view_ evaluateJavaScript:script
+            completionHandler:^(id result, NSError* error) {
+              findTotal_ = (!error && [result isKindOfClass:[NSNumber class]]) ? [result intValue] : 0;
+              if (findTotal_ == 0 && events && events->onFindResult) {
+                events->onFindResult(0, 0);
+              }
+              done();
+            }];
+  }
+
+  void stepFind(const std::string& text, bool forward, WKFindConfiguration* configuration) {
+    auto events = events_;
+    bool backwards = !forward;
+    [view_ findString:toNSString(text)
+        withConfiguration:configuration
+      completionHandler:^(WKFindResult* result) {
+        if (!result.matchFound) {
+          findActive_ = 0;
+          if (events && events->onFindResult) events->onFindResult(0, 0);
+          return;
+        }
+        if (findTotal_ <= 0) {
+          // The DOM count missed (e.g. the match lives in a shadow root);
+          // report that a match is selected without inventing a total.
+          if (events && events->onFindResult) events->onFindResult(1, 1);
+          return;
+        }
+        // Advance the cached index by one step, wrapping like WebKit does.
+        if (findActive_ == 0) {
+          findActive_ = backwards ? findTotal_ : 1;
+        } else {
+          findActive_ = backwards ? (findActive_ == 1 ? findTotal_ : findActive_ - 1)
+                                  : (findActive_ == findTotal_ ? 1 : findActive_ + 1);
+        }
+        locateActive(text, [this, events](int active) {
+          const int reported = active > 0 ? active : findActive_;
+          if (events && events->onFindResult) events->onFindResult(findTotal_, reported);
+        });
+      }];
+  }
+
+  // Recomputes which occurrence the current selection is, so the reported
+  // index stays honest after wrap-around or a mid-page start.
+  void locateActive(const std::string& text, std::function<void(int)> done) {
+    NSString* script = [NSString
+        stringWithFormat:@"(function(){var q=%@;var cs=%@;var sel=window.getSelection();"
+                          "if(!sel||sel.rangeCount===0||!q)return 0;"
+                          "var range=sel.getRangeAt(0);"
+                          "var sc=range.startContainer,so=range.startOffset;"
+                          "if(sc.nodeType!==3){var txt=sel.toString();if(!txt)return 0;"
+                          "var w2=document.createTreeWalker(document.documentElement,NodeFilter.SHOW_TEXT,null);"
+                          "var n2;while((n2=w2.nextNode())){var v=n2.nodeValue,probe=txt;"
+                          "if(!cs){v=v.toLowerCase();probe=probe.toLowerCase();}"
+                          "var at=v.indexOf(probe);if(at!==-1){sc=n2;so=at;break;}}}"
+                          "var walker=document.createTreeWalker(document.documentElement,NodeFilter.SHOW_TEXT,{"
+                          "acceptNode:function(n){var p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;"
+                          "var tag=p.tagName;if(tag==='SCRIPT'||tag==='STYLE'||tag==='NOSCRIPT'||tag==='TEMPLATE')return NodeFilter.FILTER_REJECT;"
+                          "for(var a=p;a&&a!==document.documentElement;a=a.parentElement){"
+                          "var s=window.getComputedStyle(a);if(s.display==='none'||s.visibility==='hidden')return NodeFilter.FILTER_REJECT;}"
+                          "return NodeFilter.FILTER_ACCEPT;}});"
+                          "var index=0,node,fallback=0;while((node=walker.nextNode())){"
+                          "var hay=node.nodeValue,needle=q;if(!cs){hay=hay.toLowerCase();needle=needle.toLowerCase();}"
+                          "var i=hay.indexOf(needle);while(i!==-1){"
+                          "index++;"
+                          "if(node===sc){"
+                          "if(i===so)return index;"
+                          "if(!fallback&&so>=i&&so<=i+needle.length)fallback=index;}"
+                          "i=hay.indexOf(needle,i+needle.length);}}"
+                          "return fallback;})();",
+                         jsonLiteral(toNSString(text)), findCase_ ? @"true" : @"false"];
+    [view_ evaluateJavaScript:script
+            completionHandler:^(id result, NSError* error) {
+              int active = 0;
+              if (!error && [result isKindOfClass:[NSNumber class]]) active = [result intValue];
+              if (active > 0) findActive_ = active;
+              done(active);
+            }];
+  }
+
+  static NSString* jsonLiteral(NSString* value) {
+    NSData* data = [NSJSONSerialization dataWithJSONObject:@[ value ] options:0 error:nil];
+    NSString* array = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    // Strip the surrounding [ ] to get a safely escaped JSON string literal.
+    return [array substringWithRange:NSMakeRange(1, array.length - 2)];
+  }
+
+ public:
   void extractReader(std::function<void(const std::string&)> done) override {
     auto callback = std::make_shared<std::function<void(const std::string&)>>(std::move(done));
     [view_ evaluateJavaScript:toNSString(liora::kReaderScript)
@@ -834,6 +998,10 @@ class WebViewKernelView final : public IKernelView {
   std::shared_ptr<ViewEvents> events_;
   liora::ContentControls controls_;
   std::vector<liora::InjectedScript> userScripts_;
+  std::string findText_;
+  bool findCase_ = false;
+  int findTotal_ = 0;
+  int findActive_ = 0;
 };
 
 }  // namespace

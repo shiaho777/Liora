@@ -838,6 +838,20 @@ NSString* jsonEscape(id object) {
                 }
               }];
   }
+  // Verification hook: print the find-bar count the interface recorded.
+  if ([name isEqualToString:@"finddump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraFindDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: finddump %@", result);
+              }];
+  }
+  // Verification hook: print the bookmark folders the interface recorded.
+  if ([name isEqualToString:@"bookmarkdump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraBookmarkDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: bookmarkdump %@", result);
+              }];
+  }
   // Verification hook: print the download-row state the interface recorded.
   if ([name isEqualToString:@"dldump"]) {
     [self.ui evaluateJavaScript:@"window.__lioraDlDump || 'not-set'"
@@ -2060,7 +2074,8 @@ NSString* jsonEscape(id object) {
       NSString* text = params[@"text"] ?: @"";
       bool forward = [params[@"forward"] boolValue];
       bool matchCase = [params[@"matchCase"] boolValue];
-      view->find(stdString(text), forward, matchCase);
+      bool newQuery = params[@"newQuery"] ? [params[@"newQuery"] boolValue] : true;
+      view->find(stdString(text), forward, matchCase, newQuery);
     }
     return;
   }
@@ -2258,6 +2273,28 @@ NSString* jsonEscape(id object) {
                       return;
                     }
 
+                    NSDictionary* message = @{
+                      @"jsonrpc" : @"2.0",
+                      @"method" : @"ui.filePicked",
+                      @"params" : @{@"purpose" : purpose, @"path" : path},
+                    };
+                    NSData* data = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
+                    if (!data) return;
+                    [self deliver:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]];
+                  }];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.pickDirectory"]) {
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = NO;
+    panel.canChooseDirectories = YES;
+    panel.allowsMultipleSelection = NO;
+    [panel beginSheetModalForWindow:self.window
+                  completionHandler:^(NSModalResponse response) {
+                    if (response != NSModalResponseOK) return;
+                    NSString* path = panel.URL.path;
+                    NSString* purpose = params[@"purpose"] ?: @"";
                     NSDictionary* message = @{
                       @"jsonrpc" : @"2.0",
                       @"method" : @"ui.filePicked",

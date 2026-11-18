@@ -17,7 +17,7 @@ export interface CommandContext {
   navigate: (url: string) => void;
   openSettings: (section?: string) => void;
   openFind: () => void;
-  runFind: (forward: boolean) => void;
+  runFind: (forward: boolean, newQuery?: boolean) => void;
   closeFind: () => void;
   openFindWith: (text: string) => void;
   goBack: () => void;
@@ -94,8 +94,8 @@ export function runCommand(name: string, ctx: CommandContext): boolean {
     case 'fullscreen': ctx.setFullscreen(true); return true;
     case 'unfullscreen': ctx.setFullscreen(false); return true;
     case 'find': ctx.openFind(); return true;
-    case 'findnext': ctx.runFind(true); return true;
-    case 'findprev': ctx.runFind(false); return true;
+    case 'findnext': ctx.runFind(true, false); return true;
+    case 'findprev': ctx.runFind(false, false); return true;
     case 'findclose': ctx.closeFind(); return true;
     case 'devTools': ctx.notify('ui.devTools', { tab: ctx.activeId }); return true;
     case 'back': ctx.goBack(); return true;
