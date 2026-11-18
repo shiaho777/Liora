@@ -734,6 +734,45 @@ class WebViewKernelView final : public IKernelView {
     }
   }
 
+  bool printPage() override {
+    // The standard macOS print panel; the job runs through the system printing
+    // pipeline like any native app. The job name is derived by the system.
+    NSPrintInfo* info = [[NSPrintInfo alloc] init];
+    NSPrintOperation* operation = [view_ printOperationWithPrintInfo:info];
+    operation.showsPrintPanel = YES;
+    operation.showsProgressPanel = YES;
+    [operation runOperationModalForWindow:view_.window
+                                 delegate:nil
+                          didRunSelector:nil
+                             contextInfo:nil];
+    return true;
+  }
+
+  bool capturePage(std::function<void(const std::string&)> done) override {
+    // takeSnapshot delivers on the main thread; convert to PNG right there and
+    // hand the bytes back. Never block the main thread waiting for it — the
+    // callback runs on this same thread and would deadlock.
+    WKSnapshotConfiguration* config = [[WKSnapshotConfiguration alloc] init];
+    config.rect = view_.bounds;
+    auto callback = std::make_shared<std::function<void(const std::string&)>>(std::move(done));
+    [view_ takeSnapshotWithConfiguration:config
+                       completionHandler:^(NSImage* image, NSError* error) {
+                         std::string bytes;
+                         if (image && !error) {
+                           NSRect rect = NSMakeRect(0, 0, image.size.width, image.size.height);
+                           CGImageRef cg = [image CGImageForProposedRect:&rect context:nil hints:nil];
+                           if (cg) {
+                             NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:cg];
+                             NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG
+                                                              properties:@{}];
+                             if (png) bytes.assign(static_cast<const char*>(png.bytes), png.length);
+                           }
+                         }
+                         if (callback && *callback) (*callback)(bytes);
+                       }];
+    return true;
+  }
+
   void find(const std::string& text, bool forward, bool matchCase, bool newQuery) override {
     if (text.empty()) return;
     WKFindConfiguration* configuration = [[WKFindConfiguration alloc] init];

@@ -195,6 +195,15 @@ class IKernelView {
   }
   // Opens the kernel's developer tools when it has them. No-op otherwise.
   virtual void openDevTools() {}
+  // Prints the current page. Returns false when the kernel cannot print, so
+  // the interface can say so instead of pretending.
+  virtual bool printPage() { return false; }
+  // Captures the visible page as PNG bytes, delivered asynchronously on the
+  // UI thread (empty on failure). Returns false when unsupported.
+  virtual bool capturePage(std::function<void(const std::string& pngBytes)> done) {
+    (void)done;
+    return false;
+  }
   // newQuery is true when the text or options changed (recount matches),
   // false when stepping to the next/previous match of the same query.
   virtual void find(const std::string& text, bool forward, bool matchCase, bool newQuery = true) {

@@ -100,6 +100,8 @@ export function runCommand(name: string, ctx: CommandContext): boolean {
     case 'findprev': ctx.runFind(false, false); return true;
     case 'findclose': ctx.closeFind(); return true;
     case 'devTools': ctx.notify('ui.devTools', { tab: ctx.activeId }); return true;
+    case 'print': ctx.notify('ui.print', { tab: ctx.activeId }); return true;
+    case 'screenshot': ctx.notify('ui.screenshot', { tab: ctx.activeId }); return true;
     case 'back': ctx.goBack(); return true;
     case 'forward': ctx.goForward(); return true;
     case 'zoomIn': ctx.changeZoom(10); return true;
