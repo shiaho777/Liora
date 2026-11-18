@@ -16,6 +16,7 @@
 #include <string>
 
 #import "LioraNet.h"
+#include "KitesurfKernel.h"
 #include "SystemKernel.h"
 #include "liora/core.hpp"
 #include "liora/paths.hpp"
@@ -195,6 +196,7 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, assign) int64_t fullscreenTab;
 @property(nonatomic, assign) BOOL sentRuntimeInfo;
 @property(nonatomic, copy) NSString* cefStatus;
+@property(nonatomic, assign) BOOL kitesurfConnecting;
 @property(nonatomic, copy) NSString* appliedConfig;
 @property(nonatomic, strong) NSTimer* watchTimer;
 @property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
@@ -874,6 +876,7 @@ NSString* jsonEscape(id object) {
 #ifdef LIORA_WITH_CEF
   [self startCefIfSelected];
 #endif
+  [self startKitesurfIfSelected];
 
   // Refresh the signed catalog in the background when the user opted in and
   // configured a source. Components themselves are still installed explicitly.
@@ -898,6 +901,10 @@ NSString* jsonEscape(id object) {
       // Network settings changed: rebuild the local resolver and proxy.
       if (method == "net.rulesChanged" || method == "settings.changed") {
         [weakSelf scheduleNetworkRefresh];
+      }
+      // Selecting Kitesurf in the panel connects without an app restart.
+      if (method == "kernels.changed" || method == "settings.changed") {
+        [weakSelf startKitesurfIfSelected];
       }
     });
   });
@@ -971,6 +978,44 @@ NSString* jsonEscape(id object) {
         [switchList componentsJoinedByString:@" "]);
 }
 #endif
+
+// Kitesurf runs as a separate local engine (scripts/kitesurf.sh); the shell
+// only attaches it when the user selected it and the endpoint answers. There
+// is no bundled component and nothing is downloaded.
+- (void)startKitesurfIfSelected {
+  [self connectKitesurf:NO];
+}
+
+// force is the panel's "Connect engine" action: it retries even when the
+// kernel is not the default yet, so availability can be established first.
+- (void)connectKitesurf:(BOOL)force {
+  if (!_core || self.kitesurfConnecting) return;
+  if (!force) {
+    liora::Json chosen = _core->settings().get("kernel.default");
+    if (!chosen.is_string() || chosen.get<std::string>() != liora::KernelManager::kKitesurf) return;
+    if (_core->kernels().instance(liora::KernelManager::kKitesurf)) return;
+  }
+
+  std::string endpoint = "ws://127.0.0.1:8787/devtools/browser";
+  liora::Json configured = _core->settings().get("kernel.kitesurf.endpoint");
+  if (configured.is_string() && !configured.get<std::string>().empty()) {
+    endpoint = configured.get<std::string>();
+  }
+  self.kitesurfConnecting = YES;
+  __weak LioraController* weakSelf = self;
+  liora::shell::connectKitesurfKernel(_core->kernels(), endpoint, [weakSelf](const std::string& error) {
+    LioraController* strongSelf = weakSelf;
+    if (!strongSelf) return;
+    strongSelf.kitesurfConnecting = NO;
+    if (!error.empty()) {
+      NSLog(@"Liora: Kitesurf engine not reachable at the configured endpoint: %s", error.c_str());
+      [strongSelf notifyInterface:@"browser.kitesurfFailed"
+                           params:@{@"message" : ns(error)}];
+      return;
+    }
+    [strongSelf notifyInterface:@"browser.kitesurfReady" params:@{}];
+  });
+}
 
 - (void)scheduleNetworkRefresh {
   if (self.refreshPending) return;
@@ -1880,6 +1925,11 @@ NSString* jsonEscape(id object) {
 
   if ([method isEqualToString:@"ui.restartKernel"]) {
     [self restartKernel:params[@"kernel"]];
+    return;
+  }
+
+  if ([method isEqualToString:@"ui.connectKitesurf"]) {
+    [self connectKitesurf:YES];
     return;
   }
 

@@ -133,6 +133,11 @@
       pending = { kind: 'select', kernelId: kernel.id };
       return;
     }
+    // Kitesurf is not a hardened sandbox; make that explicit before switching.
+    if (kernel.id === 'kitesurf') {
+      pending = { kind: 'select', kernelId: kernel.id };
+      return;
+    }
     void choose(kernel);
   }
 
@@ -281,12 +286,52 @@
   }
 
   function kernelDescription(kernel: Kernel): string {
-    return kernel.id === 'system' ? t('kernels.systemDesc') : t('kernels.cefDesc');
+    if (kernel.id === 'system') return t('kernels.systemDesc');
+    if (kernel.id === 'kitesurf') return t('kernels.kitesurfDesc');
+    return t('kernels.cefDesc');
   }
 
   function kernelKind(kernel: Kernel): string {
-    return kernel.id === 'system' ? t('kernels.builtIn') : t('kernels.componentKind');
+    if (kernel.id === 'system') return t('kernels.builtIn');
+    if (kernel.id === 'kitesurf') return t('kernels.kitesurfKind');
+    return t('kernels.componentKind');
   }
+
+  // ---- Kitesurf: a local engine, connected over CDP instead of downloaded ----
+  let kitesurfBusy = $state(false);
+  let kitesurfEndpoint = $state(
+    String(value('kernel.kitesurf.endpoint') ?? 'ws://127.0.0.1:8787/devtools/browser'),
+  );
+
+  function connectKitesurf(): void {
+    kitesurfBusy = true;
+    notify('ui.connectKitesurf', {});
+  }
+
+  async function saveKitesurfEndpoint(): Promise<void> {
+    try {
+      await set('kernel.kitesurf.endpoint', kitesurfEndpoint.trim());
+      toast(t('settings.changed'));
+    } catch (error: any) {
+      toast(String(error?.message ?? error), 'error');
+    }
+  }
+
+  $effect(() => {
+    return onNotification((message) => {
+      if (message.method === 'browser.kitesurfReady') {
+        kitesurfBusy = false;
+        toast(t('kitesurf.connected'));
+        void load();
+      }
+      if (message.method === 'browser.kitesurfFailed') {
+        kitesurfBusy = false;
+        const params = (message.params ?? {}) as { message?: string };
+        toast(`${t('kitesurf.failed')}${params.message ? `: ${params.message}` : ''}`, 'error');
+        void load();
+      }
+    });
+  });
 </script>
 
 <div class="section">
@@ -353,7 +398,9 @@
               <div class="kernel__name">
                 {kernel.name}
                 {#if !kernel.available}
-                  <span class="badge">{t('kernels.notInstalled')}</span>
+                  <span class="badge">
+                    {kernel.id === 'kitesurf' ? t('kernels.kitesurfNotRunning') : t('kernels.notInstalled')}
+                  </span>
                 {/if}
               </div>
               <div class="kernel__meta">
@@ -375,6 +422,15 @@
                     {t('kernels.makeDefault')}
                   </button>
                 {/if}
+              {:else if kernel.id === 'kitesurf'}
+                <button
+                  class="button button--ghost button--sm"
+                  disabled={kitesurfBusy}
+                  onclick={connectKitesurf}
+                >
+                  <Icon name="refresh" size={13} />
+                  {kitesurfBusy ? t('kitesurf.connecting') : t('kitesurf.connect')}
+                </button>
               {:else}
                 <button
                   class="button button--ghost button--sm"
@@ -437,6 +493,43 @@
             </div>
           {/if}
 
+          {#if kernel.id === 'kitesurf'}
+            <div class="callout callout--warning kernel__notice">
+              <span class="callout__icon"><Icon name="warning" size={14} /></span>
+              <span>
+                <strong>{t('kernels.kitesurfWarningTitle')}</strong>
+                — {t('kernels.kitesurfWarningBody')}
+              </span>
+            </div>
+            {#if !kernel.available}
+              <div class="callout kernel__notice">
+                <span class="callout__icon"><Icon name="info" size={14} /></span>
+                <span>
+                  <strong>{t('kernels.kitesurfNotRunning')}</strong>
+                  — {t('kernels.kitesurfNotRunningBody')}
+                </span>
+              </div>
+            {/if}
+            <div class="kernel__setting kernel__setting--column">
+              <div class="kernel__setting-main">
+                <div class="kernel__setting-title">{t('kernels.kitesurfEndpoint')}</div>
+                <div class="kernel__setting-desc">{t('kernels.kitesurfEndpointHint')}</div>
+              </div>
+              <div class="cluster kitesurf-endpoint">
+                <input
+                  class="input input--mono"
+                  bind:value={kitesurfEndpoint}
+                  placeholder="ws://127.0.0.1:8787/devtools/browser"
+                  spellcheck="false"
+                  aria-label={t('kernels.kitesurfEndpoint')}
+                />
+                <button class="button button--sm" onclick={saveKitesurfEndpoint}>
+                  {t('kernels.kitesurfEndpointSave')}
+                </button>
+              </div>
+            </div>
+          {/if}
+
           {#if pending?.kernelId === kernel.id}
             <div class="confirm">
               <div class="confirm__icon"><Icon name="warning" size={15} /></div>
@@ -444,12 +537,16 @@
                 <div class="confirm__title">
                   {pending.kind === 'download'
                     ? t('kernels.confirmDownloadTitle')
-                    : t('kernels.confirmSelectTitle')}
+                    : pending.kernelId === 'kitesurf'
+                      ? t('kernels.confirmKitesurfTitle')
+                      : t('kernels.confirmSelectTitle')}
                 </div>
                 <p class="confirm__body">
                   {pending.kind === 'download'
                     ? t('kernels.confirmDownloadBody')
-                    : t('kernels.confirmSelectBody')}
+                    : pending.kernelId === 'kitesurf'
+                      ? t('kernels.confirmKitesurfBody')
+                      : t('kernels.confirmSelectBody')}
                 </p>
                 <div class="cluster">
                   <button class="button button--ghost button--sm" onclick={() => (pending = null)}>
@@ -458,7 +555,9 @@
                   <button class="button button--primary button--sm" onclick={confirmPending}>
                     {pending.kind === 'download'
                       ? t('kernels.confirmDownloadAction')
-                      : t('kernels.confirmSelectAction')}
+                      : pending.kernelId === 'kitesurf'
+                        ? t('kernels.confirmKitesurfAction')
+                        : t('kernels.confirmSelectAction')}
                   </button>
                 </div>
               </div>
@@ -739,6 +838,22 @@
   }
 
   .kernel__setting-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .kernel__setting--column {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 9px;
+  }
+
+  .kitesurf-endpoint {
+    display: flex;
+    gap: 8px;
+  }
+
+  .kitesurf-endpoint .input {
     flex: 1;
     min-width: 0;
   }

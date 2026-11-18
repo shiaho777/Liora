@@ -792,6 +792,16 @@ export function createMockBackend(): MockBackend {
         available: state.installed.some((i) => i.id === 'kernel-cef' && i.current),
         netNeedsRestart: true,
       },
+      {
+        id: 'kitesurf',
+        name: 'Kitesurf (experimental)',
+        version: '',
+        component: '',
+        // Mirrors KernelManager: DevTools over CDP and per-page isolates only.
+        caps: ['devtools', 'isolatedProfiles'],
+        available: false,
+        netNeedsRestart: false,
+      },
     ],
     'kernels.current': () => ({ id: get('kernel.default') }),
     'kernels.select': (p) => {
