@@ -156,6 +156,12 @@
       spellcheck="false"
       autocomplete="off"
     />
+    {#if !addressFocused && active.incognito}
+      <span class="address__hint address__hint--private" title={t('tab.private')}>
+        <Icon name="eye" size={11} />
+        {t('tab.private')}
+      </span>
+    {/if}
     {#if !addressFocused && active.page === 'web'}
       {#each badges as badge (badge.key)}
         <span class="address__hint address__hint--{badge.tone}" title={badge.detail}>

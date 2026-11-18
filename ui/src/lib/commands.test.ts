@@ -10,6 +10,7 @@ function makeContext(overrides: Partial<CommandContext> = {}): CommandContext {
     siteCardOpen: false,
     addressEl: null,
     newTab: vi.fn(),
+    newPrivateTab: vi.fn(),
     closeTab: vi.fn(),
     navigate: vi.fn(),
     openSettings: vi.fn(),
@@ -67,6 +68,13 @@ describe('runCommand', () => {
     expect(ctx.navigate).toHaveBeenCalledWith('https://example.com/');
     runCommand('devTools', ctx);
     expect(ctx.notify).toHaveBeenCalledWith('ui.devTools', { tab: 7 });
+  });
+
+  it('opens a private tab for newprivatetab', () => {
+    const ctx = makeContext();
+    expect(runCommand('newprivatetab', ctx)).toBe(true);
+    expect(ctx.newPrivateTab).toHaveBeenCalled();
+    expect(ctx.newTab).not.toHaveBeenCalled();
   });
 
   it('maps zoom commands to deltas', () => {

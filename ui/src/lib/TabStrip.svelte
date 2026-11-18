@@ -104,6 +104,11 @@
             title={containerName(tab.containerId)}
           ></span>
         {/if}
+        {#if tab.incognito}
+          <span class="tab__private" title={t('tab.private')} aria-label={t('tab.private')}>
+            <Icon name="eye" size={10} />
+          </span>
+        {/if}
         <span class="tab__title">{tab.title}</span>
         <button
           class="tab__close"

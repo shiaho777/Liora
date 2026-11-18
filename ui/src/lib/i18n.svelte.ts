@@ -8,6 +8,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'app.name': 'Liora',
     'mock.banner': '界面预览模式：未连接到 Liora 内核，以下数据来自内置演示后端，不是真实浏览。',
     'tab.new': '新标签页',
+    'tab.private': '无痕标签页',
+    'tab.privateNew': '新建无痕标签页',
     'palette.title': '快速切换',
     'palette.placeholder': '搜索标签页、设置或输入网址',
     'palette.action': '操作',
@@ -861,6 +863,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'mock.banner':
       'Interface preview: no Liora kernel is connected. The data below comes from a built-in demo backend, not real browsing.',
     'tab.new': 'New tab',
+    'tab.private': 'Private tab',
+    'tab.privateNew': 'New private tab',
     'palette.title': 'Quick switcher',
     'palette.placeholder': 'Search tabs and commands, or enter an address',
     'palette.action': 'Action',

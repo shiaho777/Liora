@@ -201,6 +201,7 @@ NSString* jsonEscape(id object) {
 @property(nonatomic, strong) NSTimer* watchTimer;
 @property(nonatomic, strong) NSMutableSet<NSString*>* checkingWatches;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabContainers;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSNumber*>* tabIncognito;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSString*>* tabLastUrl;
 @property(nonatomic, strong) NSMutableArray<LioraMiniWindow*>* miniWindows;
 
@@ -250,6 +251,7 @@ NSString* jsonEscape(id object) {
   [self buildInterface];
   self.checkingWatches = [NSMutableSet set];
   self.tabContainers = [NSMutableDictionary dictionary];
+  self.tabIncognito = [NSMutableDictionary dictionary];
   self.tabLastUrl = [NSMutableDictionary dictionary];
   self.miniWindows = [NSMutableArray array];
   [self startWatchTimer];
@@ -394,6 +396,7 @@ NSString* jsonEscape(id object) {
     options.containerPath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF" / "Containers" /
                                               stdString(container));
   }
+  options.incognito = [params[@"incognito"] boolValue];
   options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
   options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
   options.askPermission = [self permissionHandler];
@@ -484,6 +487,8 @@ NSString* jsonEscape(id object) {
 // skipped so a reload or a title change does not inflate the visit count.
 - (void)recordVisit:(const std::string&)url title:(const std::string&)title tab:(int64_t)tab {
   if (!_core) return;
+  // Private tabs leave no browsing history.
+  if ([self.tabIncognito[@(tab)] boolValue]) return;
   if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return;
   NSNumber* key = @(tab);
   NSString* previous = self.tabLastUrl[key];
@@ -499,6 +504,7 @@ NSString* jsonEscape(id object) {
 
 - (void)recordTitle:(const std::string&)title tab:(int64_t)tab {
   if (!_core || title.empty()) return;
+  if ([self.tabIncognito[@(tab)] boolValue]) return;
   NSString* url = self.tabLastUrl[@(tab)];
   if (url.length) _core->storage().setTitle(stdString(url), title);
 }
@@ -790,6 +796,10 @@ NSString* jsonEscape(id object) {
   NSMenuItem* viewItem = [[NSMenuItem alloc] init];
   NSMenu* view = [[NSMenu alloc] initWithTitle:@"显示"];
   [view addItemWithTitle:@"新建标签页" action:@selector(newTabCommand:) keyEquivalent:@"t"];
+  NSMenuItem* privateTab = [view addItemWithTitle:@"新建无痕标签页"
+                                           action:@selector(newPrivateTabCommand:)
+                                    keyEquivalent:@"n"];
+  privateTab.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   [view addItemWithTitle:@"关闭标签页" action:@selector(closeTabCommand:) keyEquivalent:@"w"];
   [view addItemWithTitle:@"重新加载" action:@selector(reloadCommand:) keyEquivalent:@"r"];
   [view addItem:[NSMenuItem separatorItem]];
@@ -843,6 +853,13 @@ NSString* jsonEscape(id object) {
     [self.ui evaluateJavaScript:@"window.__lioraFindDump || 'not-set'"
               completionHandler:^(id result, NSError* error) {
                 if (!error) NSLog(@"Liora: finddump %@", result);
+              }];
+  }
+  // Verification hook: print the private-tab state the interface recorded.
+  if ([name isEqualToString:@"privatedump"]) {
+    [self.ui evaluateJavaScript:@"window.__lioraPrivateDump || 'not-set'"
+              completionHandler:^(id result, NSError* error) {
+                if (!error) NSLog(@"Liora: privatedump %@", result);
               }];
   }
   // Verification hook: print the custom-engine state the interface recorded.
@@ -910,6 +927,7 @@ NSString* jsonEscape(id object) {
 }
 
 - (void)newTabCommand:(id)sender { [self sendUICommand:@"newTab"]; }
+- (void)newPrivateTabCommand:(id)sender { [self sendUICommand:@"newprivatetab"]; }
 - (void)closeTabCommand:(id)sender { [self sendUICommand:@"closeTab"]; }
 - (void)reloadCommand:(id)sender { [self sendUICommand:@"reload"]; }
 - (void)focusAddressCommand:(id)sender { [self sendUICommand:@"focusAddress"]; }
@@ -1348,6 +1366,7 @@ NSString* jsonEscape(id object) {
     options.containerPath = liora::pathToUtf8(liora::paths::dataRoot() / "CEF" / "Containers" /
                                               stdString(container));
   }
+  options.incognito = [self.tabIncognito[@(tab)] boolValue];
   options.downloadDir = _core->settings().get("downloads.dir").get<std::string>();
   options.askWhereToSave = _core->settings().get("downloads.ask").get<bool>();
   options.askPermission = [self permissionHandler];
@@ -2064,6 +2083,8 @@ NSString* jsonEscape(id object) {
   if ([method isEqualToString:@"ui.closeTab"]) {
     int64_t tab = [params[@"tab"] longLongValue];
     [self.tabContainers removeObjectForKey:@(tab)];
+    [self.tabIncognito removeObjectForKey:@(tab)];
+    [self.tabLastUrl removeObjectForKey:@(tab)];
     auto entry = _views.find(tab);
     if (entry != _views.end()) {
       NSView* native = (__bridge NSView*)entry->second->nativeHandle();
@@ -2203,7 +2224,11 @@ NSString* jsonEscape(id object) {
     int64_t tab = params[@"tab"] ? [params[@"tab"] longLongValue] : self.activeTab;
     NSString* oldContainer = self.tabContainers[@(tab)] ?: @"";
     NSString* container = params[@"container"] ?: oldContainer;
-    if (![container isEqualToString:oldContainer]) {
+    BOOL incognito = [params[@"incognito"] boolValue];
+    BOOL oldIncognito = [self.tabIncognito[@(tab)] boolValue];
+    // A change of container or privacy mode needs a fresh view: the data
+    // store is fixed when the kernel view is created.
+    if (![container isEqualToString:oldContainer] || incognito != oldIncognito) {
       auto existing = _views.find(tab);
       if (existing != _views.end()) {
         NSView* native = (__bridge NSView*)existing->second->nativeHandle();
@@ -2212,6 +2237,7 @@ NSString* jsonEscape(id object) {
       }
     }
     self.tabContainers[@(tab)] = container;
+    self.tabIncognito[@(tab)] = @(incognito);
     self.activeTab = tab;
     self.contentVisible = YES;
     liora::IKernelView* view = [self viewForTab:tab];

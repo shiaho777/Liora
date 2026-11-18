@@ -365,6 +365,7 @@
 
   const paletteCommands = $derived([
     { id: 'newtab', label: t('tab.new'), icon: 'plus', hint: '⌘T' },
+    { id: 'newprivatetab', label: t('tab.privateNew'), icon: 'eye', hint: '⌘⇧N' },
     { id: 'settings', label: t('nav.settings'), icon: 'settings', hint: '⌘,' },
     { id: 'downloads', label: t('nav.downloads'), icon: 'download' },
     { id: 'bookmarks', label: t('nav.bookmarks'), icon: 'star' },
@@ -601,7 +602,7 @@
         tab.favicon = icon || undefined;
         tabs = [...tabs];
       }
-      if (tab && icon) {
+      if (tab && icon && !tab.incognito) {
         const host = hostOfUrl(tab.url);
         if (host && faviconCache[host] !== icon) {
           faviconCache = { ...faviconCache, [host]: icon };
@@ -830,6 +831,7 @@
         siteCardOpen,
         addressEl,
         newTab,
+        newPrivateTab,
         closeTab,
         navigate,
         openSettings,
@@ -884,29 +886,40 @@
     };
   });
 
-  // Remember the tab set so the next launch can restore it.
+  // Remember the tab set so the next launch can restore it. Private tabs are
+  // never persisted — they must not survive a restart.
   $effect(() => {
-    const snapshot = tabs.map((tab) => ({
-      url: tab.url,
-      title: tab.title,
-      page: tab.page,
-      group: tab.groupId ?? '',
-      container: tab.containerId ?? '',
-    }));
+    const snapshot = tabs
+      .filter((tab) => !tab.incognito)
+      .map((tab) => ({
+        url: tab.url,
+        title: tab.title,
+        page: tab.page,
+        group: tab.groupId ?? '',
+        container: tab.containerId ?? '',
+      }));
     const savedGroups = groups.map((group) => ({
       id: group.id,
       name: group.name,
       color: group.color,
       collapsed: group.collapsed,
     }));
-    const selected = activeId;
+    // A private tab must not become the restored active tab; fall back to the
+    // first persistent tab (restore itself also guards against a stale id).
+    const activeTab = tabs.find((tab) => tab.id === activeId);
+    const firstPersistent = tabs.find((tab) => !tab.incognito);
+    const selected = activeTab?.incognito ? (firstPersistent?.id ?? 0) : activeId;
     const savedContainers = containers.map((container) => ({
       id: container.id,
       name: container.name,
       color: container.color,
     }));
     // Read split state here so changes to the layout alone also trigger a save.
-    const savedSplit = split ? { ...split, ratio: splitRatio } : null;
+    // A split that involves a private tab is not persisted.
+    const splitPrivate =
+      split &&
+      tabs.some((tab) => tab.incognito && (tab.id === split!.primary || tab.id === split!.secondary));
+    const savedSplit = split && !splitPrivate ? { ...split, ratio: splitRatio } : null;
     if (!sessionReady) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -937,19 +950,27 @@
   function newTab(
     url = 'liora://newtab',
     containerId: string | null = active?.containerId ?? null,
+    incognito = false,
   ): Tab {
     const tab: Tab = {
       id: tabSeq++,
-      title: t('tab.new'),
+      title: incognito ? t('tab.private') : t('tab.new'),
       url,
       page: 'newtab',
-      groupId: active?.groupId,
-      containerId: containerId ?? undefined,
+      // Private tabs stay out of groups and containers so they never mix with
+      // persistent browsing state.
+      groupId: incognito ? undefined : active?.groupId,
+      containerId: incognito ? undefined : containerId ?? undefined,
+      incognito: incognito || undefined,
     };
     tabs = [...tabs, tab];
     activeId = tab.id;
     if (url !== 'liora://newtab') navigate(url);
     return tab;
+  }
+
+  function newPrivateTab(): Tab {
+    return newTab('liora://newtab', null, true);
   }
 
   function closeTab(id: number): void {
@@ -1029,8 +1050,9 @@
       error: undefined,
       favicon: faviconCache[hostOfUrl(url)],
     });
-    const container = tabs.find((tab) => tab.id === activeId)?.containerId ?? '';
-    notify('ui.navigate', { url, tab: activeId, container });
+    const current = tabs.find((tab) => tab.id === activeId);
+    const container = current?.containerId ?? '';
+    notify('ui.navigate', { url, tab: activeId, container, incognito: current?.incognito === true });
     void applyStoredZoom(url, activeId);
   }
 
@@ -1158,6 +1180,8 @@
   }
 
   function rememberClosed(tab: Tab): void {
+    // Private tabs leave no trace, not even in the reopen stack.
+    if (tab.incognito) return;
     closedTabs = [
       ...closedTabs.slice(-19),
       { title: tab.title, url: tab.url, page: tab.page, groupId: tab.groupId },
@@ -1367,6 +1391,7 @@
       url: active.url,
       title: active.title || active.url,
       container: active.containerId ?? '',
+      incognito: active.incognito === true,
     });
     toast(t('mini.opened'));
   }
@@ -1624,6 +1649,11 @@
     if (key === 't' && event.shiftKey) {
       event.preventDefault();
       reopenClosedTab();
+      return;
+    }
+    if (key === 'n' && event.shiftKey) {
+      event.preventDefault();
+      newPrivateTab();
       return;
     }
     if (paletteOpen || watchDialogOpen || containerPickerOpen) return;
