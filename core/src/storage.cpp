@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS downloads(
 CREATE INDEX IF NOT EXISTS downloads_created ON downloads(created);
 )sql";
 
+// Added in schema version 3. Idempotent like the downloads block, so older
+// databases pick it up at startup without a manual migration.
+constexpr const char* kFaviconsSchema = R"sql(
+CREATE TABLE IF NOT EXISTS favicons(
+  host TEXT PRIMARY KEY,
+  data_url TEXT NOT NULL DEFAULT '',
+  updated INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS favicons_updated ON favicons(updated);
+)sql";
+
 const std::string kBookmarkCols =
     "SELECT id, IFNULL(parent, 0), folder, title, url, position, created, modified FROM bookmarks ";
 const std::string kHistoryCols =
@@ -195,7 +205,7 @@ bool Storage::open(std::string* error) {
     Stmt st(db_, "PRAGMA user_version");
     if (st.step()) version = st.i64(0);
   }
-  if (version > 2) {
+  if (version > 3) {
     if (error) *error = "database was created by a newer version of Liora";
     close();
     return false;
@@ -208,7 +218,11 @@ bool Storage::open(std::string* error) {
     close();
     return false;
   }
-  exec("PRAGMA user_version = 2");
+  if (!exec(kFaviconsSchema, error)) {
+    close();
+    return false;
+  }
+  exec("PRAGMA user_version = 3");
   return true;
 }
 
@@ -630,6 +644,47 @@ bool Storage::removeDownload(std::string_view id) {
   std::lock_guard lock(mutex_);
   if (!db_) return false;
   return Stmt(db_, "DELETE FROM downloads WHERE id = ?").bind(1, id).exec();
+}
+
+// ---- Favicons ----
+
+Json Favicon::toJson() const {
+  return {{"host", host}, {"dataUrl", dataUrl}, {"updated", updated}};
+}
+
+void Storage::setFavicon(std::string_view host, std::string_view dataUrl) {
+  std::lock_guard lock(mutex_);
+  if (!db_ || host.empty()) return;
+  if (dataUrl.empty()) {
+    Stmt(db_, "DELETE FROM favicons WHERE host = ?").bind(1, host).exec();
+    return;
+  }
+  Stmt st(db_,
+          "INSERT INTO favicons(host, data_url, updated) VALUES(?1, ?2, ?3) "
+          "ON CONFLICT(host) DO UPDATE SET data_url = excluded.data_url, updated = excluded.updated");
+  st.bind(1, host).bind(2, dataUrl).bind(3, nowMs()).exec();
+  // Keep the cache bounded: the least recently refreshed entries go first.
+  exec("DELETE FROM favicons WHERE host NOT IN "
+       "(SELECT host FROM favicons ORDER BY updated DESC LIMIT 512)");
+}
+
+std::optional<std::string> Storage::favicon(std::string_view host) const {
+  std::lock_guard lock(mutex_);
+  if (!db_) return std::nullopt;
+  Stmt st(db_, "SELECT data_url FROM favicons WHERE host = ?");
+  st.bind(1, host);
+  if (!st.step()) return std::nullopt;
+  return st.text(0);
+}
+
+std::vector<Favicon> Storage::favicons(int limit) const {
+  std::lock_guard lock(mutex_);
+  std::vector<Favicon> out;
+  if (!db_) return out;
+  Stmt st(db_, "SELECT host, data_url, updated FROM favicons ORDER BY updated DESC LIMIT ?");
+  st.bind(1, int64_t{limit > 0 ? limit : 512});
+  while (st.step()) out.push_back({st.text(0), st.text(1), st.i64(2)});
+  return out;
 }
 
 // ---- Backup ----

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '../EmptyState.svelte';
   import Icon from '../Icon.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Segmented from '../Segmented.svelte';
@@ -683,10 +684,7 @@
             {/each}
           </div>
         {:else if visible.length === 0}
-          <div class="empty-state empty-state--compact">
-            <span class="empty-state__icon"><Icon name="globe" size={18} /></span>
-            <div class="empty-state__title">{t('dns.providersEmpty')}</div>
-          </div>
+          <EmptyState icon="globe" title={t('dns.providersEmpty')} compact />
         {:else}
           <div class="providers">
             {#each visible as variant (variant.id)}
@@ -939,8 +937,8 @@
   }
 
   .status__eyebrow {
-    font-size: 10.5px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -948,14 +946,14 @@
 
   .status__title {
     margin-top: 2px;
-    font-size: 16px;
-    font-weight: 650;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.01em;
   }
 
   .status__detail {
     margin-top: 2px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -968,8 +966,8 @@
     height: 22px;
     padding: 0 8px;
     border-radius: var(--radius-pill);
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
     background: var(--bg-sunken);
     white-space: nowrap;
@@ -1006,14 +1004,14 @@
   }
 
   .metric__label {
-    font-size: 10px;
-    font-weight: 550;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
     color: var(--text-muted);
   }
 
   .metric__value {
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1024,7 +1022,7 @@
   }
 
   .metric__hint {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1033,7 +1031,7 @@
 
   .status__note {
     margin: 0 18px 12px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -1063,13 +1061,13 @@
   }
 
   .pending__title {
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
   }
 
   .pending__desc {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--text-secondary);
   }
@@ -1079,13 +1077,13 @@
     flex-wrap: wrap;
     gap: 5px;
     margin-top: 6px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-secondary);
   }
 
   .pending__delta code {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     padding: 1px 5px;
     border-radius: 4px;
     background: var(--bg-hover);
@@ -1142,7 +1140,7 @@
     height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     background: var(--bg-sunken);
   }
@@ -1168,12 +1166,12 @@
   }
 
   .mode__title {
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
   }
 
   .mode__desc {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -1202,15 +1200,6 @@
     background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
     background-size: 200% 100%;
     animation: shimmer 1.4s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
   }
 
   .provider {
@@ -1272,13 +1261,13 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .custom-row__address {
     margin-top: 1px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1304,8 +1293,8 @@
   }
 
   .form-panel__title {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
@@ -1327,8 +1316,8 @@
   }
 
   .field__label {
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-muted);
   }
 
@@ -1388,8 +1377,8 @@
   }
 
   .privacy__eyebrow {
-    font-size: 10.5px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -1397,14 +1386,14 @@
 
   .privacy__title {
     margin-top: 2px;
-    font-size: 16px;
-    font-weight: 650;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.01em;
   }
 
   .privacy__desc {
     margin-top: 2px;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -1454,7 +1443,7 @@
 
   .privacy__hint {
     flex: 1;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -1477,7 +1466,7 @@
   }
 
   .privacy__switch-label {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     white-space: nowrap;
   }

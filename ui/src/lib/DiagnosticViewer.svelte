@@ -1264,8 +1264,8 @@
   }
 
   .diag__empty-title {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
   }
 
   .recent {
@@ -1285,8 +1285,8 @@
   }
 
   .recent__title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
@@ -1311,19 +1311,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 
   .recent__meta {
     flex: none;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
   .diag__empty-text {
     margin: 0 0 8px;
     max-width: 46ch;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     line-height: 1.55;
     color: var(--text-muted);
   }
@@ -1336,14 +1336,14 @@
   }
 
   .diag__title {
-    font-size: 15px;
-    font-weight: 650;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.01em;
   }
 
   .diag__subtitle {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     word-break: break-all;
   }
@@ -1359,8 +1359,8 @@
   }
 
   .diag__label {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
@@ -1368,7 +1368,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .diag__key {
@@ -1418,13 +1418,13 @@
   }
 
   .flag__title {
-    font-size: 11.5px;
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     color: var(--text-secondary);
   }
 
   .flag__detail {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -1450,7 +1450,7 @@
   }
 
   .timeline__time {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     padding-top: 1px;
   }
@@ -1470,18 +1470,18 @@
   }
 
   .timeline__label {
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
   }
 
   .timeline__detail {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     word-break: break-all;
   }
 
   .diag__note {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -1491,7 +1491,7 @@
   }
 
   .diag__raw {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 
   .diag__raw summary {
@@ -1505,7 +1505,7 @@
     border-radius: var(--radius-sm);
     background: var(--bg-sunken);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-all;

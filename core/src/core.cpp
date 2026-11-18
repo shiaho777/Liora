@@ -79,6 +79,7 @@ Core::Core(Options options)
   registerDataMethods();
   registerComponentMethods();
   registerWatchMethods();
+  registerUserScriptMethods();
   registerBackupSections();
 }
 
@@ -90,6 +91,7 @@ std::optional<std::string> Core::start() {
   reloadRules();
   if (!storage_.open(&error)) return "database: " + error;
   loadWatches();
+  loadUserScripts();
 
   // Catalog signature enforcement. Priority: explicit option, environment,
   // then the public key embedded at build time. A developer can disable it for

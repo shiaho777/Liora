@@ -1,5 +1,6 @@
 #include "harness.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -698,4 +699,30 @@ LIORA_TEST(core_enforces_component_catalog_signatures) {
   CHECK(!reopened.start());
   CHECK(reopened.components().find("kernel-cef") == nullptr);
   reopened.stop();
+}
+
+// The settings panel renders whatever caps a kernel advertises. Advertising a
+// capability with no implementation behind it is the failure mode this project
+// explicitly forbids, so pin it down.
+LIORA_TEST(kernels_do_not_advertise_unimplemented_capabilities) {
+  KernelManager kernels;
+
+  const auto cef = kernels.find(KernelManager::kCef);
+  CHECK(cef.has_value());
+  // No extension runtime exists anywhere in the tree yet.
+  CHECK((cef->caps & kCapExtensions) == 0);
+
+  const auto system = kernels.find(KernelManager::kSystem);
+  CHECK(system.has_value());
+  // WebKit cannot inject HTTPS records, force QUIC or hide the SNI.
+  CHECK((system->caps & kCapHttpsRecords) == 0);
+  CHECK((system->caps & kCapEch) == 0);
+  CHECK((system->caps & kCapForceQuic) == 0);
+  CHECK((system->caps & kCapExtensions) == 0);
+  CHECK((system->caps & kCapProxy) != 0);
+
+  // The serialised names are what the interface actually reads.
+  const auto names = KernelManager::capNames(cef->caps);
+  CHECK(std::find(names.begin(), names.end(), "extensions") == names.end());
+  CHECK(std::find(names.begin(), names.end(), "ech") != names.end());
 }

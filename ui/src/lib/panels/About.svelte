@@ -139,10 +139,10 @@
     display: grid;
     place-items: center;
     border-radius: 14px;
-    background: linear-gradient(145deg, var(--accent), #7aa2ff);
+    background: linear-gradient(145deg, var(--accent), var(--accent-highlight));
     color: #fff;
-    font-size: 23px;
-    font-weight: 700;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
     letter-spacing: -0.02em;
     box-shadow: 0 10px 28px var(--accent-soft);
   }
@@ -156,14 +156,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 18px;
-    font-weight: 680;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
     letter-spacing: -0.02em;
   }
 
   .hero-card__tagline {
     margin-top: 2px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -186,7 +186,7 @@
     padding: 8px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg-sunken);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-secondary);
   }
 
@@ -198,7 +198,7 @@
     border: 1px solid var(--border);
     background: var(--surface);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     text-align: center;
     color: var(--text);
   }

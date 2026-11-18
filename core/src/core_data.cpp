@@ -148,6 +148,33 @@ void Core::registerDataMethods() {
     return Json{{"ok", true}};
   });
 
+  // ---- Favicons ----
+  // Cached locally so tabs and the start page show real icons without any
+  // third-party icon service. Only small inline images are accepted.
+
+  rpc_.add("favicon.set", [this](const Json& params) {
+    std::string host = params::string(params, "host");
+    std::string icon = params::optionalString(params, "icon").value_or("");
+    if (host.empty()) rpcFail(kRpcInvalidParams, "host is required");
+    if (icon.size() > 200000 || (!icon.empty() && icon.rfind("data:image/", 0) != 0)) {
+      rpcFail(kRpcInvalidParams, "icon must be a small data:image URL");
+    }
+    storage_.setFavicon(host, icon);
+    return Json{{"ok", true}};
+  });
+
+  rpc_.add("favicon.get", [this](const Json& params) {
+    auto icon = storage_.favicon(params::string(params, "host"));
+    return Json{{"icon", icon.value_or("")}};
+  });
+
+  rpc_.add("favicon.list", [this](const Json& params) {
+    int limit = static_cast<int>(params::optionalInteger(params, "limit").value_or(512));
+    Json out = Json::array();
+    for (const auto& f : storage_.favicons(limit)) out.push_back(f.toJson());
+    return out;
+  });
+
   rpc_.add("history.setTitle", [this](const Json& params) {
     storage_.setTitle(params::string(params, "url"), params::string(params, "title"));
     return Json{{"ok", true}};

@@ -19,6 +19,7 @@
 #include "liora/rules.hpp"
 #include "liora/settings.hpp"
 #include "liora/storage.hpp"
+#include "liora/userscripts.hpp"
 #include "liora/util.hpp"
 
 namespace liora {
@@ -90,6 +91,12 @@ class Core {
   std::optional<std::string> saveRules();
   void reloadRules();
 
+  // User scripts are Liora's own customization layer, stored separately from
+  // settings so large code bodies do not bloat the settings document.
+  UserScriptSet& userScripts() { return userScripts_; }
+  void loadUserScripts();
+  void saveUserScripts();
+
   const CorePaths& paths() const { return paths_; }
   static std::string appVersion();
 
@@ -98,6 +105,7 @@ class Core {
   void registerDataMethods();
   void registerComponentMethods();
   void registerWatchMethods();
+  void registerUserScriptMethods();
   void registerBackupSections();
   void loadWatches();
   void saveWatchesLocked();
@@ -130,6 +138,9 @@ class Core {
   // Page watches: URLs polled by the shell for content changes.
   Json watches_ = Json::array();
   mutable std::mutex watchesMutex_;
+  // User scripts injected into matching pages.
+  UserScriptSet userScripts_;
+  mutable std::mutex userScriptsMutex_;
 };
 
 }  // namespace liora

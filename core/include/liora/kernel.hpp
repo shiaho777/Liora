@@ -29,6 +29,7 @@ enum KernelCap : uint32_t {
   kCapExtensions = 1u << 5,  // Chrome extensions, including MV3
   kCapDevTools = 1u << 6,
   kCapIsolatedProfiles = 1u << 7,
+  kCapContentControls = 1u << 8,  // per-site JavaScript / images / autoplay
 };
 
 struct KernelInfo {
@@ -104,6 +105,22 @@ struct SecurityInfo {
   bool https = true;
 };
 
+// Per-site content policy, resolved from the layered settings before a load.
+struct ContentControls {
+  bool javascript = true;
+  bool images = true;
+  // "allow" | "block-audible" | "block"
+  std::string autoplay = "block-audible";
+};
+
+// A user script resolved for the page about to load. The shell injects these
+// alongside the content-policy scripts; runAt maps to the injection time.
+struct InjectedScript {
+  std::string code;
+  // "start" | "end" | "idle"
+  std::string runAt = "end";
+};
+
 struct ViewOptions {
   void* parent = nullptr;  // native parent window or view
   int64_t tab = 0;
@@ -125,6 +142,9 @@ struct ViewOptions {
 struct ViewEvents {
   std::function<void(const std::string& url)> onUrl;
   std::function<void(const std::string& title)> onTitle;
+  // The page's favicon as a data: URL. Empty clears it. Kernels without a
+  // favicon source simply never call this.
+  std::function<void(const std::string& dataUrl)> onFavicon;
   std::function<void(bool loading, double progress)> onLoading;
   std::function<void(bool canBack, bool canForward)> onHistory;
   // Returns true when the shell opened the window itself.
@@ -160,6 +180,16 @@ class IKernelView {
   virtual void setBounds(int x, int y, int width, int height) = 0;
   virtual void setVisible(bool visible) = 0;
   virtual void setZoom(double percent) = 0;
+  // Applies the per-site content policy before a load. Kernels without
+  // content controls ignore this; the UI checks kCapContentControls first.
+  virtual void setContentControls(const ContentControls& controls) {
+    (void)controls;
+  }
+  // Injects the user scripts that match the page about to load. Replaces any
+  // previously injected user scripts; content-policy scripts are preserved.
+  virtual void setUserScripts(const std::vector<InjectedScript>& scripts) {
+    (void)scripts;
+  }
   // Opens the kernel's developer tools when it has them. No-op otherwise.
   virtual void openDevTools() {}
   virtual void find(const std::string& text, bool forward, bool matchCase) {}

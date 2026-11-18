@@ -25,7 +25,7 @@ step "Interface"
 if [ ! -d ui/node_modules ]; then
   (cd ui && pnpm install --frozen-lockfile)
 fi
-(cd ui && pnpm check && pnpm test && pnpm build)
+(cd ui && pnpm check && pnpm test && pnpm audit:ui && pnpm build)
 
 step "Core and shell"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug

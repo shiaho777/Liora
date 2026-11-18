@@ -428,7 +428,7 @@
   .errorpage__icon {
     width: 56px;
     height: 56px;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     display: grid;
     place-items: center;
     color: var(--text-muted);
@@ -438,19 +438,19 @@
 
   .errorpage__title {
     margin: 0;
-    font-size: 17px;
-    font-weight: 650;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.01em;
   }
 
   .errorpage__host {
     color: var(--text-secondary);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
   }
 
   .errorpage__message {
     margin: 2px 0 4px;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     line-height: 1.55;
     max-width: 44ch;
@@ -466,7 +466,7 @@
 
   .errorpage__hint {
     margin: 4px 0 0;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     max-width: 46ch;
     line-height: 1.5;
@@ -477,12 +477,12 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 
   .errorpage__reason {
     margin: 2px 0 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--warning);
   }
 
@@ -501,7 +501,7 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 
   .diag__label {
@@ -528,7 +528,7 @@
 
   .report summary {
     cursor: pointer;
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -539,7 +539,7 @@
     background: var(--bg-sunken);
     color: var(--text-secondary);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.55;
     max-height: 180px;
     overflow: auto;
@@ -550,6 +550,6 @@
 
   .link {
     color: var(--accent);
-    font-size: 11.5px;
+    font-size: var(--text-xs);
   }
 </style>

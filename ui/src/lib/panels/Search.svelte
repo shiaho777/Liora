@@ -51,6 +51,44 @@
           />
         </div>
       </div>
+
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('search.homepage')}</div>
+          <div class="row__desc">{t('search.homepage.desc')}</div>
+        </div>
+        <div class="row__control">
+          <input
+            class="input input--mono home-input"
+            type="text"
+            value={String(value<string>('home.page') ?? 'liora://newtab')}
+            spellcheck="false"
+            aria-label={t('search.homepage')}
+            onchange={(event) => set('home.page', (event.target as HTMLInputElement).value.trim() || 'liora://newtab')}
+          />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('search.homeButton')}</div>
+          <div class="row__desc">{t('search.homeButton.desc')}</div>
+        </div>
+        <div class="row__control">
+          <Toggle
+            checked={value<boolean>('ui.showHomeButton') === true}
+            label={t('search.homeButton')}
+            onchange={(next) => set('ui.showHomeButton', next)}
+          />
+        </div>
+      </div>
     </div>
   </div>
 </div>
+
+<style>
+  .home-input {
+    width: 220px;
+    max-width: 100%;
+  }
+</style>

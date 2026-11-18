@@ -1,5 +1,7 @@
 <script lang="ts">
+  import EmptyState from './EmptyState.svelte';
   import Icon from './Icon.svelte';
+  import LoadingState from './LoadingState.svelte';
   import PageHeader from './PageHeader.svelte';
   import { call, notify, onNotification } from './bridge';
   import { toast } from './state.svelte';
@@ -139,17 +141,9 @@
     </div>
     <div class="card__body">
       {#if loading}
-        <div class="watch-loading" aria-busy="true">
-          {#each Array(3) as _, index (index)}
-            <span class="skeleton-row"></span>
-          {/each}
-        </div>
+        <LoadingState rows={3} />
       {:else if watches.length === 0}
-        <div class="empty-state">
-          <span class="empty-state__icon"><Icon name="eye" size={19} /></span>
-          <div class="empty-state__title">{t('watch.empty')}</div>
-          <p class="empty-state__body">{t('watch.emptyHint')}</p>
-        </div>
+        <EmptyState icon="eye" title={t('watch.empty')} body={t('watch.emptyHint')} />
       {:else}
         <div class="watch-list">
           {#each watches as watch (watch.id)}
@@ -289,8 +283,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
     color: var(--text);
     text-align: left;
   }
@@ -301,7 +295,7 @@
 
   .watch-row__url {
     margin-top: 1px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -314,7 +308,7 @@
     flex-wrap: wrap;
     gap: 5px;
     margin-top: 5px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
@@ -323,7 +317,7 @@
     padding: 7px 9px;
     border-radius: var(--radius-xs);
     background: var(--bg-sunken);
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.45;
     color: var(--text-secondary);
     overflow: hidden;
@@ -344,29 +338,6 @@
     align-items: center;
     gap: 3px;
     padding-top: 1px;
-  }
-
-  .watch-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .skeleton-row {
-    height: 62px;
-    border-radius: var(--radius-sm);
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
   }
 
   @media (max-width: 700px) {

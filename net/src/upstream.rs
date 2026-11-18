@@ -1,5 +1,5 @@
-//! Encrypted upstream transports: DNS over HTTPS and DNS over TLS.
-//! DoQ is reported as unsupported rather than silently falling back to TCP.
+//! Encrypted upstream transports: DNS over HTTPS, DNS over TLS and DNS over
+//! QUIC (RFC 9250).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,8 +13,6 @@ use crate::config::Endpoint;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("DNS over QUIC is not available in this build")]
-    DoqUnsupported,
     #[error("unsupported DNS protocol: {0}")]
     UnsupportedProtocol(String),
     #[error("network error: {0}")]
@@ -28,6 +26,7 @@ pub enum Error {
 pub struct Resolver {
     http: reqwest::Client,
     tls: TlsConnector,
+    quic: quinn::Endpoint,
 }
 
 impl Resolver {
@@ -43,9 +42,22 @@ impl Resolver {
             .user_agent(concat!("liora-net/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| Error::Network(error.to_string()))?;
+
+        let mut doq_tls = tls_config.clone();
+        doq_tls.alpn_protocols = vec![b"doq".to_vec()];
+        let quic_config = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(doq_tls)
+                .map_err(|error| Error::Network(error.to_string()))?,
+        ));
+        let mut quic = quinn::Endpoint::client("[::]:0".parse().unwrap())
+            .or_else(|_| quinn::Endpoint::client("0.0.0.0:0".parse().unwrap()))
+            .map_err(|error| Error::Network(error.to_string()))?;
+        quic.set_default_client_config(quic_config);
+
         Ok(Self {
             http,
             tls: TlsConnector::from(Arc::new(tls_config)),
+            quic,
         })
     }
 
@@ -54,7 +66,7 @@ impl Resolver {
         match endpoint.protocol.as_str() {
             "doh" => self.query_doh(endpoint, query).await,
             "dot" => self.query_dot(endpoint, query).await,
-            "doq" => Err(Error::DoqUnsupported),
+            "doq" => self.query_doq(endpoint, query).await,
             other => Err(Error::UnsupportedProtocol(other.to_string())),
         }
     }
@@ -125,6 +137,56 @@ impl Resolver {
             .await
             .map_err(|error| Error::Network(error.to_string()))?;
         Ok(response)
+    }
+
+    /// RFC 9250: one query per bidirectional stream, 2-byte length prefix,
+    /// and the client half-closes after sending so the server knows the
+    /// query is complete.
+    async fn query_doq(&self, endpoint: &Endpoint, query: &[u8]) -> Result<Vec<u8>, Error> {
+        let host = endpoint.host();
+        let port = endpoint_port(&endpoint.address, endpoint.port());
+        let address = self.connect_address(endpoint, &host, port).await?;
+
+        let work = async {
+            let connection = self
+                .quic
+                .connect(address, &host)
+                .map_err(|error| Error::Network(error.to_string()))?
+                .await
+                .map_err(|error| Error::Network(error.to_string()))?;
+            let (mut send, mut recv) = connection
+                .open_bi()
+                .await
+                .map_err(|error| Error::Network(error.to_string()))?;
+
+            let mut framed = Vec::with_capacity(query.len() + 2);
+            framed.extend_from_slice(&(query.len() as u16).to_be_bytes());
+            framed.extend_from_slice(query);
+            send.write_all(&framed)
+                .await
+                .map_err(|error| Error::Network(error.to_string()))?;
+            send.finish()
+                .map_err(|error| Error::Network(error.to_string()))?;
+
+            let mut len_bytes = [0u8; 2];
+            recv.read_exact(&mut len_bytes)
+                .await
+                .map_err(|error| Error::Network(error.to_string()))?;
+            let len = u16::from_be_bytes(len_bytes) as usize;
+            if !(12..=65535).contains(&len) {
+                return Err(Error::BadAnswer);
+            }
+            let mut response = vec![0u8; len];
+            recv.read_exact(&mut response)
+                .await
+                .map_err(|error| Error::Network(error.to_string()))?;
+            Ok(response)
+        };
+
+        match tokio::time::timeout(Duration::from_secs(8), work).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::Network("DoQ timed out".into())),
+        }
     }
 
     /// Uses the bootstrap address when one is configured, so resolving the

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import LoadingState from '../LoadingState.svelte';
   import Segmented from '../Segmented.svelte';
   import Toggle from '../Toggle.svelte';
   import { call } from '../bridge';
@@ -159,10 +160,7 @@
 
     <div class="card__body">
       {#if loading}
-        <div class="rules-loading" aria-busy="true">
-          <span class="skeleton skeleton--line"></span>
-          <span class="skeleton skeleton--line skeleton--short"></span>
-        </div>
+        <LoadingState />
       {:else if rules.length === 0}
         {#if !adding}
           <div class="empty-state rules-empty">
@@ -396,7 +394,7 @@
 
   .rules-empty__or {
     margin: 0 3px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -415,8 +413,8 @@
   }
 
   .rules__count {
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     letter-spacing: 0.02em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -452,12 +450,12 @@
   }
 
   .rule__name {
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .rule__domains {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
   }
 
   .rule__meta {
@@ -487,8 +485,8 @@
   }
 
   .editor__title {
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
   }
 
   .editor__grid {
@@ -505,8 +503,8 @@
   }
 
   .field__label {
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-muted);
   }
 
@@ -515,7 +513,7 @@
     align-items: center;
     gap: 8px;
     height: 32px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-secondary);
   }
 
@@ -528,7 +526,7 @@
 
   .editor__presets-label {
     margin-right: 2px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -577,39 +575,6 @@
 
   .test__result .callout {
     margin: 0;
-  }
-
-  .rules-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-    padding: 6px 0;
-  }
-
-  .skeleton {
-    display: block;
-    height: 12px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  .skeleton--line {
-    width: 100%;
-  }
-
-  .skeleton--short {
-    width: 58%;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
   }
 
   @media (max-width: 720px) {

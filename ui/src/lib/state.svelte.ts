@@ -1,3 +1,4 @@
+import { deriveAccent } from './accent';
 import { call, describeSettings, setSetting as rpcSetSetting, start } from './bridge';
 import { setLocale } from './i18n.svelte';
 import { settingsStore } from './settings-store.svelte';
@@ -38,6 +39,7 @@ export const app = $state({
   // ui.mode controls how much of the interface is visible.
   mode: 'simple' as 'simple' | 'standard' | 'advanced',
   theme: 'system' as 'system' | 'light' | 'dark',
+  accent: '#3b6cf6',
   density: 'comfortable' as 'compact' | 'comfortable',
   tabsPosition: 'strip' as 'strip' | 'vertical' | 'hidden',
   language: 'auto',
@@ -70,6 +72,31 @@ function applyAppearance(): void {
   else root.dataset.theme = app.theme;
   root.dataset.density = app.density;
   root.dataset.mode = app.mode;
+  applyAccent();
+}
+
+// One user colour drives accent, readable text, soft fills and the gradient
+// highlight. Re-derived whenever the theme flips so contrast stays correct.
+function applyAccent(): void {
+  const root = document.documentElement;
+  const dark =
+    app.theme === 'dark' ||
+    (app.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const palette = deriveAccent(app.accent, dark);
+  if (!palette) return;
+  root.style.setProperty('--accent', palette.accent);
+  root.style.setProperty('--accent-text', palette.accentText);
+  root.style.setProperty('--accent-soft', palette.accentSoft);
+  root.style.setProperty('--accent-highlight', palette.accentHighlight);
+}
+
+// Follow the OS theme while in "system" mode so the accent stays readable.
+if (typeof window !== 'undefined' && window.matchMedia) {
+  window
+    .matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', () => {
+      if (app.theme === 'system') applyAccent();
+    });
 }
 
 export function applyMode(mode: string): void {
@@ -100,6 +127,7 @@ export async function boot(): Promise<void> {
 
   applyMode(String(values.get('ui.mode') ?? 'simple'));
   app.theme = String(values.get('ui.theme') ?? 'system') as typeof app.theme;
+  app.accent = String(values.get('ui.accent') ?? '#3b6cf6');
   app.density = String(values.get('ui.density') ?? 'comfortable') as typeof app.density;
   // Hidden tabs are no longer offered; legacy profiles fall back to the strip.
   const tabs = String(values.get('ui.tabs') ?? 'strip');
@@ -122,6 +150,10 @@ export async function updateSetting(key: string, value: unknown): Promise<void> 
     case 'ui.theme':
       app.theme = String(value) as typeof app.theme;
       applyAppearance();
+      break;
+    case 'ui.accent':
+      app.accent = String(value);
+      applyAccent();
       break;
     case 'ui.density':
       app.density = String(value) as typeof app.density;

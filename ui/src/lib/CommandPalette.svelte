@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { t } from './i18n.svelte';
+  import { trapFocus } from './focus-trap';
 
   interface PaletteTab {
     id: number;
@@ -41,6 +42,12 @@
   let query = $state('');
   let selected = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
+  let paletteEl = $state<HTMLDivElement | null>(null);
+
+  $effect(() => {
+    if (!paletteEl) return;
+    return trapFocus(paletteEl);
+  });
 
   const matches = $derived.by(() => {
     const text = query.trim().toLowerCase();
@@ -126,6 +133,7 @@
 <div class="palette-backdrop" role="presentation" onclick={onclose}>
   <div
     class="palette"
+    bind:this={paletteEl}
     role="dialog"
     tabindex="-1"
     aria-modal="true"
@@ -249,7 +257,7 @@
     border: none;
     outline: none;
     background: transparent;
-    font-size: 15px;
+    font-size: var(--text-lg);
     color: var(--text);
   }
 
@@ -259,7 +267,7 @@
 
   kbd {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
     padding: 1px 5px;
     border-radius: 4px;
@@ -277,8 +285,8 @@
 
   .palette__section {
     padding: 9px 9px 4px;
-    font-size: 9.5px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -326,8 +334,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12.5px;
-    font-weight: 520;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
   }
 
   .palette__hint {
@@ -336,13 +344,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 
   .palette__hint--url {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: var(--text-2xs);
   }
 
   .palette__enter {
@@ -356,7 +364,7 @@
   .palette__empty {
     padding: 26px 12px;
     text-align: center;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
@@ -368,7 +376,7 @@
     padding: 8px 13px;
     border-top: 1px solid var(--border);
     background: var(--bg-sunken);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-muted);
   }
 

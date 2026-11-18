@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import LoadingState from '../LoadingState.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
@@ -147,11 +148,7 @@
       </div>
 
       {#if loading}
-        <div class="migration-loading" aria-busy="true">
-          {#each Array(3) as _, index (index)}
-            <span class="skeleton-row"></span>
-          {/each}
-        </div>
+        <LoadingState rows={3} />
       {:else if sources.length === 0}
         <div class="empty-state empty-state--compact">
           <span class="empty-state__icon"><Icon name="external" size={18} /></span>
@@ -253,8 +250,8 @@
 
   .migration-options__label {
     margin-right: 3px;
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     color: var(--text-muted);
   }
 
@@ -268,30 +265,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.5px;
-  }
-
-  .migration-loading {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .skeleton-row {
-    height: 54px;
-    border-radius: var(--radius-sm);
-    background: linear-gradient(90deg, var(--bg-sunken), var(--bg-hover), var(--bg-sunken));
-    background-size: 200% 100%;
-    animation: shimmer 1.4s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
+    font-size: var(--text-2xs);
   }
 
 </style>

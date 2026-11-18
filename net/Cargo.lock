@@ -612,6 +612,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "quinn",
  "rcgen",
  "reqwest",
  "rustls",

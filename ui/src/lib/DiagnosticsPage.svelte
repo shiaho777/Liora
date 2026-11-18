@@ -26,14 +26,14 @@
 
   .page__title {
     margin: 0;
-    font-size: 18px;
-    font-weight: 650;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
     letter-spacing: -0.015em;
   }
 
   .page__lede {
     margin: 4px 0 0;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     max-width: 62ch;
   }
