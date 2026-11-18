@@ -274,6 +274,22 @@ export function runTestScenario(name: string): boolean {
       }, 250);
       return true;
     }
+    case 'bgset': {
+      // Switch the start-page background through the same store path the
+      // appearance panel uses (a raw RPC would not refresh the reactive
+      // store), then record the computed background.
+      void import('./settings-store.svelte').then(async ({ set }) => {
+        await set('start.background', 'dusk');
+        setTimeout(() => {
+          const start = document.querySelector<HTMLElement>('.start');
+          (window as unknown as { __lioraBgDump?: string }).__lioraBgDump = JSON.stringify({
+            hasStart: Boolean(start),
+            background: start ? getComputedStyle(start).backgroundImage.slice(0, 60) : null,
+          });
+        }, 400);
+      });
+      return true;
+    }
     case 'barfolder': {
       // Seed a folder + bookmark on the bar through the real RPC, open the
       // folder menu, click the bookmark, and record the resulting navigation.
@@ -323,7 +339,8 @@ export function runTestScenario(name: string): boolean {
       return true;
     }
     case 'tilepin': {
-      // Enter edit mode on the start page and pin the first top site.
+      // Enter edit mode on the start page, pin the first tile, then leave
+      // edit mode: the pin badge only shows outside edit mode.
       const edit = [...document.querySelectorAll<HTMLButtonElement>('.block__actions .text-button')]
         .find((button) => button.textContent?.includes('编辑') || button.textContent?.includes('Edit'));
       edit?.click();
@@ -331,9 +348,14 @@ export function runTestScenario(name: string): boolean {
         const pin = document.querySelector<HTMLButtonElement>('.site__edit .icon-button');
         pin?.click();
         setTimeout(() => {
-          const pinnedMarks = document.querySelectorAll('.site__pin').length;
-          (window as unknown as { __lioraTileDump?: string }).__lioraTileDump =
-            `editBtn=${Boolean(edit)} pinBtn=${Boolean(pin)} pinned=${pinnedMarks}`;
+          const done = [...document.querySelectorAll<HTMLButtonElement>('.block__actions .text-button')]
+            .find((button) => button.textContent?.includes('完成') || button.textContent?.includes('Done'));
+          done?.click();
+          setTimeout(() => {
+            const pinnedMarks = document.querySelectorAll('.site__pin').length;
+            (window as unknown as { __lioraTileDump?: string }).__lioraTileDump =
+              `editBtn=${Boolean(edit)} pinBtn=${Boolean(pin)} pinned=${pinnedMarks}`;
+          }, 500);
         }, 700);
       }, 250);
       return true;

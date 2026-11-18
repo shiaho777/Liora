@@ -286,6 +286,8 @@ const DEFAULTS: Record<string, unknown> = {
   'search.suggest': true,
   'search.customEngines': [],
   'start.tiles': [],
+  'start.background': 'default',
+  'start.backgroundCustom': '#3b6cf6',
   'home.page': 'liora://newtab',
   'startup.restore': true,
   'kernel.default': 'system',

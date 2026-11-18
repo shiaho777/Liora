@@ -3,17 +3,19 @@
   import Icon from './Icon.svelte';
   import { call } from './bridge';
   import { t, i18n } from './i18n.svelte';
-  import { app, toast } from './state.svelte';
+  import { toast } from './state.svelte';
   import { loadSettings, settingsStore, value, set } from './settings-store.svelte';
   import {
     addTile,
+    gridTiles,
     isPinned,
-    mergeTiles,
     parseTiles,
     removeTile,
     renameTile,
     type Tile,
   } from './start-tiles';
+  import { backgroundStyle, DEFAULT_CUSTOM_COLOR } from './newtab-background';
+  import { dismissWith } from './dismiss';
 
   interface Props {
     /** Host → data: URL, cached locally by the shell. Never a third party. */
@@ -40,9 +42,26 @@
 
   // Pinned tiles are user-managed; top sites fill the remaining slots.
   const pinned = $derived(parseTiles(value<unknown>('start.tiles')));
-  const tiles = $derived(mergeTiles(pinned, sites, 8));
+  const tiles = $derived(gridTiles(pinned, sites, 8));
+  const pageBackground = $derived(
+    backgroundStyle(
+      String(value<string>('start.background') ?? 'default'),
+      String(value<string>('start.backgroundCustom') ?? DEFAULT_CUSTOM_COLOR),
+    ),
+  );
   let editingTiles = $state(false);
   let tileDialog = $state<{ mode: 'add' | 'edit'; url: string; title: string } | null>(null);
+  let tileBackdropEl = $state<HTMLDivElement | null>(null);
+  let tileClosing = $state(false);
+
+  function closeTileDialog(): void {
+    if (tileClosing) return;
+    tileClosing = true;
+    dismissWith(tileBackdropEl, 'overlay-out', () => {
+      tileDialog = null;
+      tileClosing = false;
+    });
+  }
 
   async function saveTiles(next: Tile[]): Promise<void> {
     await set('start.tiles', next);
@@ -181,7 +200,7 @@
   );
 </script>
 
-<div class="start">
+<div class="start" style:background={pageBackground}>
   <div class="start__shell">
     <header class="start__head">
       <div class="brand">
@@ -267,14 +286,9 @@
                     {letter(tile.title || host(tile.url))}
                   {/if}
                 </span>
-                <span class="site__text">
-                  <span class="site__title">{tile.title || host(tile.url)}</span>
-                  <span class="site__host">{host(tile.url)}</span>
-                </span>
-                {#if isPinned(pinned, tile.url)}
-                  <span class="site__pin" title={t('start.tiles.pinned')}><Icon name="star" size={11} /></span>
-                {:else}
-                  <span class="site__arrow"><Icon name="chevron" size={12} /></span>
+                <span class="site__title">{tile.title || host(tile.url)}</span>
+                {#if isPinned(pinned, tile.url) && !editingTiles}
+                  <span class="site__pin" title={t('start.tiles.pinned')}><Icon name="star" size={10} /></span>
                 {/if}
               </button>
               {#if editingTiles}
@@ -315,65 +329,28 @@
               class="site site--add"
               onclick={() => (tileDialog = { mode: 'add', url: '', title: '' })}
             >
-              <span class="site__mark site__mark--add"><Icon name="plus" size={15} /></span>
-              <span class="site__text">
-                <span class="site__title">{t('start.tiles.add')}</span>
-                <span class="site__host">{t('start.tiles.addHint')}</span>
-              </span>
+              <span class="site__mark site__mark--add"><Icon name="plus" size={17} /></span>
+              <span class="site__title">{t('start.tiles.add')}</span>
             </button>
           {/if}
         </div>
       </section>
-    {:else if !query.trim()}
+    {/if}
+
+    {#if !query.trim() && pinned.length === 0 && sites.length === 0}
+      <!-- First run only: a compact import strip below the grid, not a
+           wizard that owns the page. Disappears once tiles or history exist. -->
       <section class="welcome">
-        <span class="welcome__glow" aria-hidden="true"></span>
         <span class="welcome__mark">L</span>
         <div class="welcome__main">
-          <div class="welcome__eyebrow">{t('start.welcome.eyebrow')}</div>
           <h2 class="welcome__title">{t('start.welcome.title')}</h2>
           <p class="welcome__body">{t('start.welcome.body')}</p>
-          <div class="welcome__actions">
-            <button class="button button--primary" onclick={() => onpanel?.('migration')}>
-              <Icon name="external" size={14} />
-              {t('start.welcome.import')}
-            </button>
-            <button class="button button--ghost" onclick={focusSearch}>
-              {t('start.welcome.start')}
-            </button>
-          </div>
-          <div class="welcome__privacy">
-            <Icon name="shield" size={12} />
-            {t('start.welcome.privacy')}
-          </div>
         </div>
-      </section>
-
-      <section class="block block--starter">
-        <div class="block__head">
-          <h2 class="block__title">{t('start.next')}</h2>
-          <span class="block__hint">{t('start.nextHint')}</span>
-        </div>
-        <div class="starters">
-          <button class="starter" onclick={() => onpanel?.('dns')}>
-            <span class="starter__icon"><Icon name="shield" size={17} /></span>
-            <span class="starter__title">{t('start.starter.dns')}</span>
-            <span class="starter__desc">{t('start.starter.dnsDesc')}</span>
-            <span class="starter__go"><Icon name="chevron" size={12} /></span>
+        <div class="welcome__actions">
+          <button class="button button--primary button--sm" onclick={() => onpanel?.('migration')}>
+            <Icon name="external" size={13} />
+            {t('start.welcome.import')}
           </button>
-          <button class="starter" onclick={() => onopen?.('bookmarks')}>
-            <span class="starter__icon"><Icon name="star" size={17} /></span>
-            <span class="starter__title">{t('start.starter.library')}</span>
-            <span class="starter__desc">{t('start.starter.libraryDesc')}</span>
-            <span class="starter__go"><Icon name="chevron" size={12} /></span>
-          </button>
-          {#if app.mode === 'advanced'}
-            <button class="starter" onclick={() => onpanel?.('kernels')}>
-              <span class="starter__icon"><Icon name="puzzle" size={17} /></span>
-              <span class="starter__title">{t('start.starter.kernel')}</span>
-              <span class="starter__desc">{t('start.starter.kernelDesc')}</span>
-              <span class="starter__go"><Icon name="chevron" size={12} /></span>
-            </button>
-          {/if}
         </div>
       </section>
     {/if}
@@ -400,13 +377,12 @@
           <Icon name="sliders" size={12} />
           {t('nav.settings')}
         </button>
-        <span class="version">v{app.version}</span>
       </div>
     </footer>
   </div>
 
   {#if tileDialog}
-    <div class="tile-backdrop" role="presentation" onclick={() => (tileDialog = null)}>
+    <div class="tile-backdrop" bind:this={tileBackdropEl} role="presentation" onclick={closeTileDialog}>
       <div
         class="tile-dialog"
         role="dialog"
@@ -415,7 +391,7 @@
         aria-label={tileDialog.mode === 'add' ? t('start.tiles.add') : t('start.tiles.rename')}
         onclick={(event) => event.stopPropagation()}
         onkeydown={(event) => {
-          if (event.key === 'Escape') tileDialog = null;
+          if (event.key === 'Escape') closeTileDialog();
           if (event.key === 'Enter') void saveTileDialog();
         }}
       >
@@ -437,7 +413,7 @@
           <input class="input" bind:value={tileDialog.title} placeholder={t('start.tiles.namePlaceholder')} />
         </label>
         <div class="tile-dialog__actions">
-          <button class="button button--ghost button--sm" onclick={() => (tileDialog = null)}>
+          <button class="button button--ghost button--sm" onclick={closeTileDialog}>
             {t('kernels.cancel')}
           </button>
           <button class="button button--primary button--sm" onclick={() => void saveTileDialog()}>
@@ -521,13 +497,13 @@
   }
 
   .hero {
-    padding-top: 24px;
+    padding-top: 40px;
   }
 
   .hero__greeting {
     margin: 0;
-    font-size: var(--text-3xl);
-    line-height: 1.12;
+    font-size: var(--text-display);
+    line-height: 1.1;
     font-weight: var(--weight-bold);
     letter-spacing: -0.03em;
   }
@@ -548,9 +524,7 @@
     border-radius: var(--radius-lg);
     background: var(--surface);
     border: 1px solid var(--border);
-    box-shadow:
-      0 1px 2px rgba(16, 24, 40, 0.04),
-      0 8px 24px rgba(16, 24, 40, 0.05);
+    box-shadow: var(--shadow-md);
     transition:
       border-color var(--normal) var(--ease),
       box-shadow var(--normal) var(--ease);
@@ -560,7 +534,7 @@
     border-color: var(--accent);
     box-shadow:
       0 0 0 4px var(--accent-soft),
-      0 10px 28px rgba(16, 24, 40, 0.08);
+      var(--shadow-md);
   }
 
   .search__icon {
@@ -610,10 +584,6 @@
     gap: 11px;
   }
 
-  .block--starter {
-    gap: 12px;
-  }
-
   .block__head {
     display: flex;
     align-items: center;
@@ -627,11 +597,6 @@
     font-weight: var(--weight-semibold);
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    color: var(--text-muted);
-  }
-
-  .block__hint {
-    font-size: var(--text-xs);
     color: var(--text-muted);
   }
 
@@ -655,98 +620,78 @@
     background: var(--bg-hover);
   }
 
+  /* Speed-dial tiles: icon above a single label, like a finished browser's
+     start page — not a settings-style list of rows. */
   .sites {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 6px;
   }
 
   .site {
     position: relative;
     min-width: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 10px 11px;
+    gap: 8px;
+    padding: 14px 6px 11px;
     border-radius: var(--radius-md);
     border: 1px solid transparent;
-    background: var(--surface);
-    text-align: left;
-    box-shadow: var(--shadow-sm);
+    background: transparent;
     transition:
-      transform var(--fast) var(--ease),
-      border-color var(--fast) var(--ease),
-      box-shadow var(--fast) var(--ease);
-  }
-
-  .site:hover {
-    transform: translateY(-1px);
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-md);
-  }
-
-  .site__mark {
-    width: 32px;
-    height: 32px;
-    flex: none;
-    display: grid;
-    place-items: center;
-    border-radius: 9px;
-    font-size: var(--text-md);
-    font-weight: var(--weight-bold);
-    color: hsl(var(--site-hue) 52% 34%);
-    background: hsl(var(--site-hue) 62% 92%);
-    overflow: hidden;
-  }
-
-  .site__mark--icon {
-    background: var(--bg-sunken);
-  }
-
-  .site__mark img {
-    width: 20px;
-    height: 20px;
-    object-fit: contain;
-  }
-
-  .site__text {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .site__title {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .site__host {
-    font-size: var(--text-2xs);
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .site__arrow {
-    flex: none;
-    margin-left: auto;
-    color: var(--text-muted);
-    opacity: 0;
-    transform: translateX(-2px);
-    transition:
-      opacity var(--fast) var(--ease),
+      background var(--fast) var(--ease),
       transform var(--fast) var(--ease);
   }
 
-  .site:hover .site__arrow {
-    opacity: 1;
-    transform: none;
+  .site:hover {
+    background: var(--bg-hover);
+    transform: translateY(-1px);
+  }
+
+  .site__mark {
+    width: 46px;
+    height: 46px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    color: hsl(var(--site-hue) 52% 34%);
+    background: hsl(var(--site-hue) 62% 92%);
+    box-shadow: var(--shadow-xs);
+    overflow: hidden;
+    transition: box-shadow var(--fast) var(--ease);
+  }
+
+  .site:hover .site__mark {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .site__mark--icon {
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .site__mark img {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+  }
+
+  .site__title {
+    max-width: 100%;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .site:hover .site__title {
+    color: var(--text);
   }
 
   .block__actions {
@@ -769,8 +714,9 @@
   }
 
   .site__pin {
-    flex: none;
-    margin-left: auto;
+    position: absolute;
+    top: 6px;
+    right: 6px;
     color: var(--accent);
     display: grid;
     place-items: center;
@@ -816,7 +762,7 @@
     z-index: 80;
     display: grid;
     place-items: center;
-    background: rgba(8, 10, 14, 0.46);
+    background: var(--scrim);
     backdrop-filter: blur(5px);
     animation: tile-fade var(--fast) var(--ease-out);
   }
@@ -832,6 +778,14 @@
     flex-direction: column;
     gap: 12px;
     animation: tile-in var(--normal) var(--ease-out);
+  }
+
+  .tile-backdrop:global(.overlay-out) {
+    animation: overlay-out var(--fast) var(--ease) forwards;
+  }
+
+  .tile-backdrop:global(.overlay-out) .tile-dialog {
+    animation: dialog-out var(--fast) var(--ease) forwards;
   }
 
   @keyframes tile-fade {
@@ -864,72 +818,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-  }
-
-  .starters {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 10px;
-  }
-
-  .starter {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    padding: 14px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
-    text-align: left;
-    transition:
-      transform var(--fast) var(--ease),
-      border-color var(--fast) var(--ease),
-      box-shadow var(--fast) var(--ease);
-  }
-
-  .starter:hover {
-    transform: translateY(-1px);
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-md);
-  }
-
-  .starter__icon {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    margin-bottom: 4px;
-    border-radius: 10px;
-    color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .starter__title {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    color: var(--text);
-  }
-
-  .starter__desc {
-    font-size: var(--text-xs);
-    line-height: 1.45;
-    color: var(--text-muted);
-  }
-
-  .starter__go {
-    position: absolute;
-    top: 13px;
-    right: 12px;
-    color: var(--text-muted);
-    opacity: 0;
-    transition: opacity var(--fast) var(--ease);
-  }
-
-  .starter:hover .starter__go {
-    opacity: 1;
   }
 
   .start__foot {
@@ -975,14 +863,6 @@
     background: var(--bg-hover);
   }
 
-  .version {
-    margin-left: 6px;
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    color: var(--text-muted);
-    opacity: 0.75;
-  }
-
   @media (max-width: 760px) {
     .start__shell {
       padding: 24px 20px 18px;
@@ -990,11 +870,11 @@
     }
 
     .sites {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
-    .starters {
-      grid-template-columns: 1fr;
+    .welcome {
+      flex-wrap: wrap;
     }
 
     .start__foot {
@@ -1011,13 +891,7 @@
     }
 
     :global(:root:not([data-theme='light'])) .site__mark--icon {
-      background: var(--bg-sunken);
-    }
-
-    .search {
-      box-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.3),
-        0 10px 30px rgba(0, 0, 0, 0.24);
+      background: var(--surface);
     }
   }
 
@@ -1027,7 +901,7 @@
   }
 
   :global(:root[data-theme='dark']) .site__mark--icon {
-    background: var(--bg-sunken);
+    background: var(--surface);
   }
 
   .suggestions {
@@ -1114,90 +988,52 @@
 
 
   .welcome {
-    position: relative;
     display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 22px;
-    border-radius: var(--radius-lg);
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background:
-      linear-gradient(135deg, var(--accent-soft), transparent 46%),
+      linear-gradient(135deg, var(--accent-soft), transparent 55%),
       var(--surface);
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-  }
-
-  .welcome__glow {
-    position: absolute;
-    width: 260px;
-    height: 260px;
-    right: -90px;
-    top: -130px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    filter: blur(10px);
-    pointer-events: none;
   }
 
   .welcome__mark {
-    position: relative;
-    width: 42px;
-    height: 42px;
+    width: 34px;
+    height: 34px;
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 13px;
+    border-radius: var(--radius-sm);
     background: linear-gradient(145deg, var(--accent), var(--accent-highlight));
     color: #fff;
-    font-size: var(--text-xl);
+    font-size: var(--text-lg);
     font-weight: var(--weight-bold);
-    box-shadow: 0 8px 22px var(--accent-soft);
   }
 
   .welcome__main {
-    position: relative;
     flex: 1;
     min-width: 0;
   }
 
-  .welcome__eyebrow {
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--accent-text);
-  }
-
   .welcome__title {
-    margin: 3px 0 0;
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
-    letter-spacing: -0.02em;
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
   }
 
   .welcome__body {
-    margin: 5px 0 0;
-    max-width: 58ch;
+    margin: 2px 0 0;
     font-size: var(--text-sm);
-    line-height: 1.55;
-    color: var(--text-secondary);
+    line-height: 1.5;
+    color: var(--text-muted);
   }
 
   .welcome__actions {
+    flex: none;
     display: flex;
-    flex-wrap: wrap;
     gap: 7px;
-    margin-top: 14px;
-  }
-
-  .welcome__privacy {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    margin-top: 12px;
-    font-size: var(--text-2xs);
-    color: var(--text-muted);
   }
 
 

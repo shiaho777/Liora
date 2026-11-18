@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   addTile,
+  DEFAULT_TILES,
+  gridTiles,
   isPinned,
   mergeTiles,
   parseTiles,
@@ -100,5 +102,35 @@ describe('addTile / removeTile / renameTile / isPinned', () => {
     const pinned: Tile[] = [{ url: 'https://x.example', title: 'X' }];
     expect(isPinned(pinned, 'https://x.example')).toBe(true);
     expect(isPinned(pinned, 'https://y.example')).toBe(false);
+  });
+});
+
+describe('gridTiles (first-run defaults)', () => {
+  it('fills an empty profile with the default shortcuts', () => {
+    const grid = gridTiles([], []);
+    expect(grid).toHaveLength(8);
+    expect(grid.slice(0, DEFAULT_TILES.length)).toEqual(DEFAULT_TILES);
+  });
+
+  it('keeps pinned tiles first and deduplicates defaults', () => {
+    const pinned: Tile[] = [{ url: DEFAULT_TILES[0].url, title: 'Mine' }];
+    const grid = gridTiles(pinned, []);
+    expect(grid[0]).toEqual({ url: DEFAULT_TILES[0].url, title: 'Mine' });
+    expect(grid.filter((tile) => tile.url === DEFAULT_TILES[0].url)).toHaveLength(1);
+  });
+
+  it('lets real history win over defaults', () => {
+    const grid = gridTiles([], top);
+    expect(grid.slice(0, 3).map((tile) => tile.url)).toEqual(top.map((site) => site.url));
+    expect(grid).toHaveLength(8);
+  });
+
+  it('returns only real tiles when they fill the limit', () => {
+    const many: TopSite[] = Array.from({ length: 8 }, (_, index) => ({
+      url: `https://s${index}.example`,
+      title: `S${index}`,
+    }));
+    const grid = gridTiles([], many);
+    expect(grid.map((tile) => tile.url)).toEqual(many.map((site) => site.url));
   });
 });

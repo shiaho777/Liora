@@ -1945,7 +1945,7 @@
             runFind(true, true);
           }}
         >
-          Aa
+          <Icon name="case" size={15} />
         </button>
         <button class="icon-button" title={t('find.previous')} aria-label={t('find.previous')} onclick={() => runFind(false)}>
           <Icon name="chevron-up" size={14} />

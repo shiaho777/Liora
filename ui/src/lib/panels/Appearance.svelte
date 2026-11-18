@@ -6,6 +6,7 @@
   import { set, value } from '../settings-store.svelte';
   import { t } from '../i18n.svelte';
   import { accentPresets } from '../palette';
+  import { BACKGROUND_PRESETS, backgroundStyle, DEFAULT_CUSTOM_COLOR } from '../newtab-background';
 
   const themes = $derived([
     { value: 'system', label: t('appearance.theme.system') },
@@ -156,6 +157,71 @@
   <div class="card">
     <div class="card__header">
       <div>
+        <div class="card__title">{t('appearance.background')}</div>
+        <div class="card__subtitle">{t('appearance.backgroundDesc')}</div>
+      </div>
+    </div>
+    <div class="card__body">
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('appearance.backgroundStyle')}</div>
+        </div>
+        <div class="row__control">
+          <div class="bgs" role="radiogroup" aria-label={t('appearance.backgroundStyle')}>
+            {#each BACKGROUND_PRESETS as preset (preset.id)}
+              <button
+                class="bg-swatch"
+                class:bg-swatch--active={value<string>('start.background') === preset.id}
+                style:background={backgroundStyle(preset.id, '')}
+                role="radio"
+                aria-checked={value<string>('start.background') === preset.id}
+                aria-label={t(`appearance.bg.${preset.name}`)}
+                title={t(`appearance.bg.${preset.name}`)}
+                onclick={() => set('start.background', preset.id)}
+              ></button>
+            {/each}
+            <button
+              class="bg-swatch bg-swatch--custom"
+              class:bg-swatch--active={value<string>('start.background') === 'custom'}
+              style:background={backgroundStyle('custom', String(value<string>('start.backgroundCustom') ?? DEFAULT_CUSTOM_COLOR))}
+              role="radio"
+              aria-checked={value<string>('start.background') === 'custom'}
+              aria-label={t('appearance.bg.custom')}
+              title={t('appearance.bg.custom')}
+              onclick={() => set('start.background', 'custom')}
+            ></button>
+          </div>
+        </div>
+      </div>
+
+      {#if value<string>('start.background') === 'custom'}
+        <div class="row">
+          <div class="row__main">
+            <div class="row__title">{t('appearance.bg.customColor')}</div>
+            <div class="row__desc">{t('appearance.bg.customColorDesc')}</div>
+          </div>
+          <div class="row__control">
+            <label class="accent-custom" title={t('appearance.bg.customColor')}>
+              <input
+                type="color"
+                value={String(value<string>('start.backgroundCustom') ?? DEFAULT_CUSTOM_COLOR)}
+                aria-label={t('appearance.bg.customColor')}
+                onchange={(event) => set('start.backgroundCustom', (event.target as HTMLInputElement).value)}
+              />
+              <span
+                class="accent-custom__ring"
+                style:background={String(value<string>('start.backgroundCustom') ?? DEFAULT_CUSTOM_COLOR)}
+              ></span>
+            </label>
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <div>
         <div class="card__title">{t('appearance.preview')}</div>
         <div class="card__subtitle">{t('appearance.previewDesc')}</div>
       </div>
@@ -261,6 +327,34 @@
     background: conic-gradient(#e64980, #e8590c, #2f9e44, #0f9d8f, #3b6cf6, #7c5cf0, #e64980);
     box-shadow: inset 0 0 0 2px var(--bg);
     pointer-events: none;
+  }
+
+  .bgs {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .bg-swatch {
+    width: 40px;
+    height: 26px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  .bg-swatch:hover {
+    transform: scale(1.06);
+  }
+
+  .bg-swatch--active {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--accent);
   }
 
   .preview {

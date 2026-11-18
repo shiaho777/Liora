@@ -5,6 +5,7 @@
   import { toast } from './state.svelte';
   import { t } from './i18n.svelte';
   import { trapFocus } from './focus-trap';
+  import { dismissWith } from './dismiss';
 
   interface Props {
     url: string;
@@ -21,6 +22,14 @@
   let error = $state('');
   let keywordEl = $state<HTMLInputElement | null>(null);
   let dialogEl = $state<HTMLDivElement | null>(null);
+  let backdropEl = $state<HTMLDivElement | null>(null);
+  let closing = $state(false);
+
+  function close(): void {
+    if (closing) return;
+    closing = true;
+    dismissWith(backdropEl, 'overlay-out', onclose);
+  }
 
   $effect(() => {
     if (!dialogEl) return;
@@ -37,7 +46,7 @@
   onMount(() => keywordEl?.focus());
 
   function onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') onclose();
+    if (event.key === 'Escape') close();
   }
 
   async function create(): Promise<void> {
@@ -66,7 +75,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="watch-backdrop" role="presentation" onclick={onclose}>
+<div class="watch-backdrop" bind:this={backdropEl} role="presentation" onclick={close}>
   <div
     class="watch-dialog"
     bind:this={dialogEl}
@@ -82,7 +91,7 @@
         <div class="watch-dialog__title">{t('watch.dialogTitle')}</div>
         <div class="watch-dialog__url">{url}</div>
       </div>
-      <button class="icon-button" title={t('palette.close')} aria-label={t('palette.close')} onclick={onclose}>
+      <button class="icon-button" title={t('palette.close')} aria-label={t('palette.close')} onclick={close}>
         <Icon name="close" size={13} />
       </button>
     </header>
@@ -123,7 +132,7 @@
     </div>
 
     <footer class="watch-dialog__foot">
-      <button class="button button--ghost button--sm" onclick={onclose}>{t('rules.cancel')}</button>
+      <button class="button button--ghost button--sm" onclick={close}>{t('rules.cancel')}</button>
       <button class="button button--primary button--sm" disabled={busy} onclick={create}>
         <Icon name="eye" size={13} />
         {busy ? t('watch.creating') : t('watch.create')}
@@ -141,9 +150,17 @@
     justify-content: center;
     align-items: flex-start;
     padding: 16vh 20px 20px;
-    background: rgba(8, 10, 14, 0.46);
+    background: var(--scrim);
     backdrop-filter: blur(5px);
     animation: watch-fade 120ms var(--ease);
+  }
+
+  .watch-backdrop:global(.overlay-out) {
+    animation: overlay-out var(--fast) var(--ease) forwards;
+  }
+
+  .watch-backdrop:global(.overlay-out) .watch-dialog {
+    animation: dialog-out var(--fast) var(--ease) forwards;
   }
 
   .watch-dialog {
