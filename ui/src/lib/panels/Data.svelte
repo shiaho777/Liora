@@ -5,6 +5,7 @@
   import Toggle from '../Toggle.svelte';
   import { call, notify, onNotification } from '../bridge';
   import { app, toast } from '../state.svelte';
+  import { value, set } from '../settings-store.svelte';
   import { t } from '../i18n.svelte';
 
   interface BackupFile {
@@ -126,14 +127,75 @@
 
   onNotification((message) => {
     if (message.method === 'ui.filePicked' && message.params) {
-      const params = message.params as { path?: string };
-      if (params.path) void inspect(params.path);
+      const params = message.params as { path?: string; purpose?: string };
+      if (!params.path) return;
+      if (params.purpose === 'downloadsDir') {
+        void set('downloads.dir', params.path);
+        toast(t('settings.changed'));
+        return;
+      }
+      void inspect(params.path);
     }
   });
+
+  function pickDownloadsDir(): void {
+    if (app.transport === 'mock') {
+      toast(t('downloads.dir'));
+      return;
+    }
+    notify('ui.pickDirectory', { purpose: 'downloadsDir' });
+  }
+
+  async function clearDownloadsDir(): Promise<void> {
+    await set('downloads.dir', '');
+    toast(t('settings.changed'));
+  }
+
+  const downloadsDir = $derived(String(value<string>('downloads.dir') ?? ''));
+  const downloadsAsk = $derived(value<boolean>('downloads.ask') === true);
 </script>
 
 <div class="section">
   <PageHeader icon="folder" title={t('data.title')} subtitle={t('data.lede')} />
+
+  <div class="card">
+    <div class="card__header">
+      <div class="row__main">
+        <div class="card__title">{t('downloads.settings')}</div>
+        <div class="card__subtitle">{t('downloads.settingsDesc')}</div>
+      </div>
+    </div>
+    <div class="card__body">
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('downloads.dir')}</div>
+          <div class="row__desc mono">{downloadsDir || t('downloads.dirDefault')}</div>
+        </div>
+        <div class="row__control">
+          {#if downloadsDir}
+            <button class="button button--sm" onclick={clearDownloadsDir}>{t('downloads.dirReset')}</button>
+          {/if}
+          <button class="button button--sm" onclick={pickDownloadsDir}>
+            <Icon name="folder" size={13} />
+            {t('downloads.dirPick')}
+          </button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="row__main">
+          <div class="row__title">{t('downloads.ask')}</div>
+          <div class="row__desc">{t('downloads.askDesc')}</div>
+        </div>
+        <div class="row__control">
+          <Toggle
+            checked={downloadsAsk}
+            label={t('downloads.ask')}
+            onchange={(next) => set('downloads.ask', next)}
+          />
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="card__header">

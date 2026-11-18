@@ -195,7 +195,11 @@ class IKernelView {
   }
   // Opens the kernel's developer tools when it has them. No-op otherwise.
   virtual void openDevTools() {}
-  virtual void find(const std::string& text, bool forward, bool matchCase) {}
+  // newQuery is true when the text or options changed (recount matches),
+  // false when stepping to the next/previous match of the same query.
+  virtual void find(const std::string& text, bool forward, bool matchCase, bool newQuery = true) {
+    (void)newQuery;
+  }
   virtual void stopFinding(bool clearSelection) {}
   // Extracts a reader-mode JSON document from the current page. The callback
   // runs on the platform's UI thread and receives an empty string on failure.

@@ -5,6 +5,8 @@
 // copy changes — which is exactly why they live here, registered only when
 // the shell is in test mode, instead of inside the production command path.
 
+import { call } from './bridge';
+
 function clickButtonByText(text: string, exact = false): void {
   const button = [...document.querySelectorAll('button')].find((item) =>
     exact ? item.textContent?.trim() === text : item.textContent?.includes(text),
@@ -146,6 +148,67 @@ export function runTestScenario(name: string): boolean {
       input.value = 'https://www.iana.org';
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      return true;
+    }
+    case 'findtest': {
+      // Open find via the real shortcut path, type a query, record the count.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true }));
+      setTimeout(() => {
+        const input = document.querySelector<HTMLInputElement>('.findbar__input');
+        if (!input) return;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(input, 'domain');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        setTimeout(() => {
+          const count = document.querySelector('.findbar__count')?.textContent?.trim();
+          (window as unknown as { __lioraFindDump?: string }).__lioraFindDump = String(count);
+        }, 900);
+      }, 200);
+      return true;
+    }
+    case 'findnextbtn': {
+      // Find bar icon buttons: [match-case, previous, next, close].
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>('.findbar .icon-button')];
+      const next = buttons[buttons.length - 2];
+      next?.click();
+      setTimeout(() => {
+        const count = document.querySelector('.findbar__count')?.textContent?.trim();
+        (window as unknown as { __lioraFindDump?: string }).__lioraFindDump =
+          `clicked=${Boolean(next)} count=${count}`;
+      }, 700);
+      return true;
+    }
+    case 'bookmarkseed': {
+      // Add a real bookmark through the RPC so the tree renders, then the
+      // folder scenario can run against a populated library.
+      void call('bookmarks.add', { title: 'Example', url: 'https://example.com', parent: 1 });
+      return true;
+    }
+    case 'bookmarkfolder': {
+      // Create a folder through the real dialog, then record the tree state.
+      const newFolder = [...document.querySelectorAll<HTMLButtonElement>('.library__actions .button')]
+        .find((button) => button.textContent?.includes('新建文件夹') || button.textContent?.includes('New folder'));
+      newFolder?.click();
+      setTimeout(() => {
+        const input = document.querySelector<HTMLInputElement>('.dialog input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        if (input) {
+          setter?.call(input, 'Test Folder');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const create = [...document.querySelectorAll<HTMLButtonElement>('.dialog .button--primary')]
+          .find((button) => button.textContent?.includes('创建') || button.textContent?.includes('Create'));
+        create?.click();
+        setTimeout(() => {
+          const folders = [...document.querySelectorAll('.folder__title')].map((node) => node.textContent?.trim());
+          (window as unknown as { __lioraBookmarkDump?: string }).__lioraBookmarkDump = JSON.stringify({
+            newFolderBtn: Boolean(newFolder),
+            dialogInput: Boolean(input),
+            createBtn: Boolean(create),
+            folders,
+          });
+        }, 700);
+      }, 250);
       return true;
     }
     case 'railsearch': {

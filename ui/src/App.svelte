@@ -343,6 +343,10 @@
     }
   }
 
+  onNotification((message) => {
+    if (message.method === 'bookmarks.changed') void loadBookmarks();
+  });
+
   async function loadBookmarks(): Promise<void> {    try {
       const tree = await call<Record<string, { children?: Array<{ id: number; type: string; title: string; url?: string }> }>>(
         'bookmarks.tree',
@@ -557,13 +561,7 @@
       if (Number(params.tab) === activeId && findOpen) {
         findMatches = Math.max(0, Number(params.matches ?? 0));
         findActive = Math.max(0, Number(params.active ?? 0));
-        if (Number(params.active ?? 0) > 0) {
-          findAutoAdvanced = true;
-        } else if (findMatches > 0 && !findAutoAdvanced) {
-          // Chromium reports the match count before selecting the first one.
-          findAutoAdvanced = true;
-          notify('ui.find', { tab: activeId, text: findText, forward: true, matchCase: false });
-        }
+        if (findActive > 0) findAutoAdvanced = true;
       }
       return;
     }
@@ -856,7 +854,7 @@
           findTabId = activeId;
           findAutoAdvanced = false;
           findText = text;
-          setTimeout(() => runFind(true), 50);
+          setTimeout(() => runFind(true, true), 50);
         },
         goBack,
         goForward,
@@ -1058,7 +1056,7 @@
     setTimeout(() => findInputEl?.focus(), 0);
   }
 
-  function runFind(forward: boolean): void {
+  function runFind(forward: boolean, newQuery = false): void {
     if (!findOpen) return;
     const text = findText.trim();
     if (!text) {
@@ -1067,7 +1065,7 @@
       notify('ui.stopFind', { tab: activeId });
       return;
     }
-    notify('ui.find', { tab: activeId, text, forward, matchCase: findMatchCase });
+    notify('ui.find', { tab: activeId, text, forward, matchCase: findMatchCase, newQuery });
   }
 
   function closeFind(): void {
@@ -1081,13 +1079,15 @@
 
   function findLabel(): string {
     if (!findText.trim()) return '';
-    return findMatches > 0 ? `${findActive}/${findMatches}` : t('find.none');
+    if (findMatches <= 0) return t('find.none');
+    if (findActive <= 0) return t('find.total', { count: findMatches });
+    return `${findActive}/${findMatches}`;
   }
 
   function onFindKey(event: KeyboardEvent): void {
     if (event.key === 'Enter') {
       event.preventDefault();
-      runFind(!event.shiftKey);
+      runFind(!event.shiftKey, true);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       closeFind();
@@ -1889,7 +1889,7 @@
           bind:value={findText}
           oninput={() => {
             findAutoAdvanced = false;
-            runFind(true);
+            runFind(true, true);
           }}
           onkeydown={onFindKey}
           placeholder={t('find.placeholder')}
@@ -1907,7 +1907,7 @@
           onclick={() => {
             findMatchCase = !findMatchCase;
             findAutoAdvanced = false;
-            runFind(true);
+            runFind(true, true);
           }}
         >
           Aa
